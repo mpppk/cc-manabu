@@ -128,7 +128,7 @@ const Diff = ({ before, after }: { before: string; after: string }) => (
   </Pre>
 );
 
-const InputView = ({
+export const InputView = ({
   toolName,
   input,
 }: {

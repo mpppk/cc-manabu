@@ -4,7 +4,9 @@ import { type KeyboardEvent, useMemo, useState } from "react";
 import type { ChatUIMessage } from "../../chat/chat-service.ts";
 import type { ChatDto } from "../../router.ts";
 import { OrpcChatTransport } from "../lib/chat-transport.ts";
+import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { ApprovalCard } from "./approval-card.tsx";
 import { Markdown } from "./markdown.tsx";
 import { Reasoning } from "./reasoning.tsx";
 import { ToolCard } from "./tool-card.tsx";
@@ -13,9 +15,15 @@ import { Button } from "./ui/button.tsx";
 const MessageView = ({
   message,
   streaming,
+  onRespond,
 }: {
   message: ChatUIMessage;
   streaming: boolean;
+  onRespond: (
+    approvalId: string,
+    behavior: "allow" | "deny",
+    reason: string | undefined,
+  ) => Promise<void>;
 }) => {
   if (message.role === "user") {
     return (
@@ -49,8 +57,17 @@ const MessageView = ({
             );
           case "dynamic-tool":
             return <ToolCard key={part.toolCallId} part={part} />;
+          case "data-approval":
+            return (
+              <ApprovalCard
+                key={part.data.approvalId}
+                approval={part.data}
+                onRespond={(behavior, reason) =>
+                  onRespond(part.data.approvalId, behavior, reason)
+                }
+              />
+            );
           default:
-            // 承認は #39 で描画する
             return null;
         }
       })}
@@ -89,6 +106,7 @@ export const ChatView = ({
     const text = input.trim();
     if (text === "" || busy) return;
     setInput("");
+    requestNotificationPermission();
     void sendMessage({ text }).then(() => onActivity?.());
     // タイトルと状態（生成中）をすぐ一覧に反映する
     setTimeout(() => onActivity?.(), 300);
@@ -120,6 +138,15 @@ export const ChatView = ({
               key={message.id}
               message={message}
               streaming={busy && index === messages.length - 1}
+              onRespond={async (approvalId, behavior, reason) => {
+                await api.approvals.respond({
+                  chatId: chat.id,
+                  approvalId,
+                  behavior,
+                  ...(reason === undefined ? {} : { message: reason }),
+                });
+                onActivity?.();
+              }}
             />
           ))}
           {error !== undefined && (
