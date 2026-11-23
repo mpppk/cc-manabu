@@ -312,3 +312,26 @@ describe("approvals", () => {
     expect(chunks.some((c) => c.type === "text-delta")).toBe(true);
   });
 });
+
+describe("タイトル", () => {
+  test("最初の発話でタイトルが付き、名前を変えたあとは上書きしない", async () => {
+    const { client, chat } = await setup("text-partial");
+    await collect(
+      await client.chat.send({
+        chatId: chat.id,
+        message: userMessage("Rust の所有権を説明して"),
+      }),
+    );
+    expect((await client.chats.get({ id: chat.id })).chat.title).toBe(
+      "Rust の所有権を説明して",
+    );
+    await client.chats.rename({ id: chat.id, title: "所有権" });
+    await collect(
+      await client.chat.send({
+        chatId: chat.id,
+        message: userMessage("続けて"),
+      }),
+    );
+    expect((await client.chats.get({ id: chat.id })).chat.title).toBe("所有権");
+  });
+});

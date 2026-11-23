@@ -27,6 +27,7 @@ import {
   type RunnerRegistry,
   type TooManyRunnersError,
 } from "./runner-registry.ts";
+import { makeTitle } from "./title.ts";
 
 export class MessageNotFoundError extends ErrorFactory({
   name: "MessageNotFoundError",
@@ -224,6 +225,10 @@ export const createChatService = (deps: {
         chats.updateChat(chat.id, {
           ...(input.model === undefined ? {} : { model: input.model }),
           ...(input.effort === undefined ? {} : { effort: input.effort }),
+          // 最初の発話でタイトルを付ける（名前を変えていればそのまま）
+          ...(chat.title === ""
+            ? { title: makeTitle(textOf(input.message.parts)) }
+            : {}),
         }),
       ),
       Result.andThen((chat) =>
