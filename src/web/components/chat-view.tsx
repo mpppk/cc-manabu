@@ -6,6 +6,7 @@ import type { ChatDto } from "../../router.ts";
 import { OrpcChatTransport } from "../lib/chat-transport.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { Markdown } from "./markdown.tsx";
+import { Reasoning } from "./reasoning.tsx";
 import { Button } from "./ui/button.tsx";
 
 const MessageView = ({
@@ -36,8 +37,17 @@ const MessageView = ({
               // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
               <Markdown key={i} text={part.text} streaming={streaming} />
             );
+          case "reasoning":
+            return (
+              <Reasoning
+                // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
+                key={i}
+                text={part.text}
+                streaming={streaming && part.state === "streaming"}
+              />
+            );
           default:
-            // ツール・reasoning・承認は #37〜#39 で描画する
+            // ツール・承認は #38・#39 で描画する
             return null;
         }
       })}
