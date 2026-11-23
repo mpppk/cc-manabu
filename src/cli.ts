@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
 import { CliExit } from "./errors/index.ts";
+import { type UpdateError, type UpdateOutcome, update } from "./update.ts";
 import { name, version } from "./version.ts";
 
 export class UnknownCommandError extends ErrorFactory({
@@ -15,12 +16,6 @@ export class InvalidArgumentsError extends ErrorFactory({
   name: "InvalidArgumentsError",
   message: (fields) => fields.detail,
   fields: ErrorFactory.fields<{ detail: string }>(),
-}) {}
-
-export class NotImplementedError extends ErrorFactory({
-  name: "NotImplementedError",
-  message: (fields) => `${fields.feature} is not implemented yet`,
-  fields: ErrorFactory.fields<{ feature: string }>(),
 }) {}
 
 export const helpText = (commandName: string): string =>
@@ -41,19 +36,35 @@ Claude Code のログインを使って、ブラウザから Claude と会話す
 
 type CliIo = {
   print: (message: string) => void;
+  /** update コマンドの本体（テストで差し替える）。 */
+  update: (
+    log: (message: string) => void,
+  ) => Result.ResultAsync<UpdateOutcome, UpdateError>;
 };
 
-const defaultIo: CliIo = { print: (message) => console.log(message) };
+const defaultIo: CliIo = {
+  print: (message) => console.log(message),
+  update: (log) =>
+    update({
+      currentVersion: version,
+      execPath: process.execPath,
+      platform: process.platform,
+      arch: process.arch,
+      fetch: (url) => fetch(url),
+      log,
+    }),
+};
 
 /** CLI のコマンドを実行する。失敗は Result で返す。 */
 export const runCli = async (
   argv: readonly string[],
   commandName: string,
-  io: CliIo = defaultIo,
+  overrides: Partial<CliIo> = {},
 ): Result.ResultAsync<
   void,
-  UnknownCommandError | InvalidArgumentsError | NotImplementedError
+  UnknownCommandError | InvalidArgumentsError | UpdateError
 > => {
+  const io: CliIo = { ...defaultIo, ...overrides };
   const [command, ...rest] = argv;
 
   switch (command) {
@@ -85,8 +96,16 @@ export const runCli = async (
       if (Result.isFailure(parsed)) {
         return parsed;
       }
-      // 自己アップデートは #45 で実装する。
-      return Result.fail(new NotImplementedError({ feature: "update" }));
+      const outcome = await io.update(io.print);
+      if (Result.isFailure(outcome)) {
+        return outcome;
+      }
+      io.print(
+        outcome.value.kind === "updated"
+          ? `v${outcome.value.to} に更新しました。`
+          : `最新版（v${outcome.value.version}）です。`,
+      );
+      return Result.succeed();
     }
     default:
       return Result.fail(new UnknownCommandError({ command, commandName }));
