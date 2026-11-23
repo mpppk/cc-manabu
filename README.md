@@ -1,47 +1,102 @@
 # cc-manabu
 
-Claude Code のログイン（Claude のサブスクリプション）を使って、ブラウザから Claude と会話するためのローカルチャットアプリです。
+インストール済みの [Claude Code](https://code.claude.com/docs/en/overview)（`claude` コマンド）を使って、ブラウザから Claude と会話するためのローカルチャットアプリです。
 Bun 製の単一バイナリとして動き、起動するとローカルに Web UI を立ち上げます。
 
-> **開発中です。** まだ動作するバージョンはありません。設計と進め方は [開発計画](docs/development-plan.md) を参照してください。
+> **開発中です。** 最初のリリースはまだありません。設計と進め方は [開発計画](docs/development-plan.md) を参照してください。
 
-## 特徴（予定）
+## 特徴
 
 - 起動したディレクトリで Claude Code と同じツール（Read / Edit / Bash / WebSearch など）が使えます。副作用のあるツールは Web UI で承認してから実行します
 - 会話の一覧・再開・削除、生成の停止・再生成・発言の編集ができます
-- Markdown、コード、数式、Mermaid を表示できます
+- Markdown、コード、数式（KaTeX）、Mermaid を表示できます
 - モデルと effort を切り替えられ、トークン数とコストを表示します
-- ブラウザを閉じても生成は続き、開き直すと途中から表示されます
-- `~/.claude` の設定（CLAUDE.md、settings.json、MCP、skills）をそのまま使います
+- ブラウザを閉じても生成は続き、開き直すと途中から表示されます。承認待ちはタブのタイトルと通知で知らせます
+- `~/.claude` とプロジェクトの設定（CLAUDE.md、settings.json、MCP、skills）をそのまま使います
 
 ## 前提条件
 
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) がインストールされていて、`claude` コマンドでログイン済みであること
+- [Claude Code](https://code.claude.com/docs/en/setup) がインストールされていて、`claude` コマンドが動くこと
+- `claude` の認証が済んでいること（下の「認証と利用規約」を参照）
 
-cc-manabu は自分では認証情報を持ちません。インストール済みの `claude` を [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) 経由で起動し、そのログインを使います。
-利用にあたっては Anthropic の利用規約に従ってください。
+cc-manabu は自分では認証情報を扱いません。PATH 上の `claude`（または `CC_MANABU_CLAUDE_PATH` で指定したもの）を [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) 経由で起動し、その認証で Claude を呼び出します。
 
-## 使い方（予定）
+## 認証と利用規約
+
+**利用前に必ず確認してください。** Anthropic のドキュメントでは、次のように定められています（2026 年 11 月時点）。
+
+- [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview): 事前の承認がない限り、サードパーティの開発者が claude.ai のログインやレート制限を自分の製品（Agent SDK で作ったエージェントを含む）で提供することは認められておらず、API キーによる認証を使うよう案内されています
+- [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance): OAuth 認証（Free / Pro / Max などのサブスクリプション）は Claude Code と Anthropic 純正アプリでの通常の利用のためのものです。Agent SDK を使う製品の開発者は API キー認証を使うべきとされています
+
+規約は変わることがあります。上のページと [Usage Policy](https://www.anthropic.com/legal/aup)、[Consumer Terms](https://www.anthropic.com/legal/consumer-terms)、[Commercial Terms](https://www.anthropic.com/legal/commercial-terms) の最新版を確認し、自分の使い方が規約に沿っているかを判断してください。
+
+API キーで使う場合は、[Claude Console](https://platform.claude.com/) で発行したキーを環境変数に設定してから起動します。cc-manabu は環境変数をそのまま `claude` に渡します。
+
+```sh
+export ANTHROPIC_API_KEY=sk-ant-...
+cc-manabu
+```
+
+ヘッダには `claude` が報告するアカウントの種類（例: Claude API）が表示されるので、どの認証で動いているかを確認できます。
+
+## インストール
+
+[GitHub Releases](https://github.com/mpppk/cc-manabu/releases) から、使っている OS 向けのアーカイブ（linux-x64 / linux-arm64 / darwin-arm64 / windows-x64）をダウンロードして展開し、PATH の通ったディレクトリに置きます。
+
+```sh
+# 例: Linux (x64)
+curl -LO https://github.com/mpppk/cc-manabu/releases/latest/download/cc-manabu-linux-x64.tar.gz
+tar xzf cc-manabu-linux-x64.tar.gz
+install cc-manabu ~/.local/bin/
+```
+
+`checksums.txt` に各アーカイブの SHA-256 があります。macOS で「開発元を確認できない」と表示される場合は `xattr -d com.apple.quarantine cc-manabu` で隔離属性を外してください。
+
+## 使い方
 
 ```sh
 cd your-project
 cc-manabu            # ローカルサーバを起動してブラウザを開く
-cc-manabu update     # 最新版に更新する
+cc-manabu update     # GitHub Releases の最新版に更新する（SHA-256 を検証してから置き換える）
+cc-manabu --help
 ```
 
-Web UI は `127.0.0.1` でのみ待ち受け、起動ごとに発行されるトークンがないと API を呼べません。
+| 環境変数 | 説明 |
+| --- | --- |
+| `CC_MANABU_PORT` | 待ち受けるポート（既定: 空いているポート） |
+| `CC_MANABU_NO_OPEN=1` | 起動時にブラウザを開かない |
+| `CC_MANABU_CLAUDE_PATH` | 使う `claude` のパス（既定: PATH から探す） |
+| `CC_MANABU_DB` | 会話を保存する SQLite のパス（既定: `$XDG_DATA_HOME/cc-manabu/db.sqlite`、未設定なら `~/.local/share/cc-manabu/db.sqlite`） |
+
+## セキュリティ
+
+- **ツールはローカルで実行されます。** Claude は起動したディレクトリで、ファイルの編集やコマンドの実行ができます。信頼できるディレクトリで起動してください
+- 読み取り系のツール（Read / Glob / Grep / WebSearch / TodoWrite）は自動で許可し、それ以外は Web UI で都度承認します。`settings.json` の `deny` や `settings.local.json` の `allow` も効きます
+- Web UI は `127.0.0.1` でのみ待ち受けます。API は起動ごとに発行されるトークンがないと呼べず、Host / Origin ヘッダも検証します
+- トークンは起動時に表示される URL のフラグメント（`#token=...`）で渡されます。この URL を共有しないでください
+- 会話の内容は上記の SQLite ファイルにローカル保存されます。Claude Code 側のセッションの記録は `~/.claude` に残ります
+
+## 開発
+
+```sh
+bun install
+bun run dev          # 開発サーバ（HMR）
+bun run check        # Biome
+bun run typecheck
+bun test             # 単体テスト
+bun run test:e2e     # Playwright の E2E（モックの Claude）
+bun run build:binary # 単一バイナリをビルド
+```
+
+テストの種類と実機での確認手順は [docs/testing.md](docs/testing.md) を参照してください。作業は GitHub Issue に分け、PR ベースで進めています。
 
 ## 技術スタック
 
 - ランタイム / パッケージマネージャ: [Bun](https://bun.sh)
-- LLM: [Vercel AI SDK](https://ai-sdk.dev) と、自前実装の Claude Agent SDK provider
+- LLM: [Vercel AI SDK](https://ai-sdk.dev) と、自前実装の Claude Agent SDK provider（`src/provider/`）
 - API: [oRPC](https://orpc.unnoq.com)
 - DB: SQLite（`bun:sqlite`）と Drizzle ORM
-- フロントエンド: React、Tailwind CSS v4、shadcn/ui
-
-## 開発
-
-[開発計画](docs/development-plan.md) をもとに作業を GitHub Issue に分け、PR ベースで進めています。
+- フロントエンド: React、Tailwind CSS v4、shadcn/ui、Streamdown
 
 ## ライセンス
 
