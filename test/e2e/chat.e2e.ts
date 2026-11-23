@@ -776,3 +776,106 @@ test("プロジェクトの進捗を記録し、一覧で状態ごとに確認�
   await status.selectOption({ label: "進行中" });
   await expect(projectSelect.locator("option:checked")).toHaveText("進捗A");
 });
+
+test("応答から分岐し、同じ会話の中で分岐を切り替えて続けられる", async ({
+  page,
+}) => {
+  await open(page);
+  const list = page.getByRole("navigation", { name: "会話一覧" });
+  const main = page.getByRole("main");
+  const branchSelect = page.getByRole("combobox", { name: "分岐" });
+  const branchButtons = main.getByRole("button", { name: "ここから分岐" });
+
+  await newChat(page);
+  await send(page, "分岐の設計案は？");
+  await idle(page);
+  await send(page, "同期で進めて");
+  await idle(page);
+
+  // 取り消すと元の表示に戻り、分岐は作られない
+  await branchButtons.first().click();
+  await expect(
+    main.getByText("この応答の続きとして分岐を作ります"),
+  ).toBeVisible();
+  await expect(main.getByText("了解: 同期で進めて")).toHaveCount(0);
+  await main.getByRole("button", { name: "取り消す" }).click();
+  await expect(main.getByText("了解: 同期で進めて")).toBeVisible();
+  await expect(branchSelect).toHaveCount(0);
+
+  // 最初の応答から分岐する
+  const rootUrl = page.url();
+  await branchButtons.first().click();
+  await send(page, "非同期だと？");
+  await expect(main.getByText("了解: 非同期だと？")).toBeVisible();
+  await idle(page);
+  expect(page.url()).not.toBe(rootUrl);
+  await expect(main.getByText("了解: 分岐の設計案は？")).toBeVisible();
+  await expect(main.getByText("了解: 同期で進めて")).toHaveCount(0);
+  await expect(main.getByText(/から引き継いだ履歴/)).toBeVisible();
+  await expect(branchSelect.locator("option")).toHaveText([
+    "元の会話",
+    "非同期だと？（元の会話 から分岐）",
+  ]);
+  await expect(
+    main.getByText("ファイルへの変更はすべての分岐で共有"),
+  ).toBeVisible();
+  // サイドバーの会話は 1 つのまま
+  await expect(
+    list.locator("li").filter({ hasText: "分岐の設計案は？" }),
+  ).toHaveCount(1);
+
+  // 元の会話に切り替えて続ける
+  await branchSelect.selectOption({ label: "元の会話" });
+  await expect(main.getByText("了解: 同期で進めて")).toBeVisible();
+  await send(page, "元の続き");
+  await expect(main.getByText("了解: 元の続き")).toBeVisible();
+  await idle(page);
+
+  // 分岐に戻って続ける
+  await branchSelect.selectOption({
+    label: "非同期だと？（元の会話 から分岐）",
+  });
+  await expect(main.getByText("了解: 非同期だと？")).toBeVisible();
+  await send(page, "分岐の続き");
+  await expect(main.getByText("了解: 分岐の続き")).toBeVisible();
+  await idle(page);
+  await expect(main.getByText("了解: 元の続き")).toHaveCount(0);
+
+  // 分岐からさらに分岐する
+  await branchButtons.nth(1).click();
+  await send(page, "さらに分岐");
+  await expect(main.getByText("了解: さらに分岐")).toBeVisible();
+  await idle(page);
+  await expect(branchSelect.locator("option")).toHaveCount(3);
+  await expect(
+    list.locator("li").filter({ hasText: "分岐の設計案は？" }),
+  ).toHaveCount(1);
+
+  // 元の会話を編集しても、分岐の履歴は残る
+  await branchSelect.selectOption({ label: "元の会話" });
+  await main.getByText("分岐の設計案は？").first().hover();
+  await main.getByRole("button", { name: "この発話を編集" }).first().click();
+  await page
+    .getByRole("textbox", { name: "発話を編集" })
+    .fill("書き直した質問");
+  await page.getByRole("button", { name: "送信", exact: true }).first().click();
+  await expect(main.getByText("了解: 書き直した質問")).toBeVisible();
+  await idle(page);
+  await branchSelect.selectOption({
+    label: "非同期だと？（元の会話 から分岐）",
+  });
+  await expect(main.getByText("了解: 分岐の設計案は？")).toBeVisible();
+  await expect(main.getByText("了解: 分岐の続き")).toBeVisible();
+
+  // リロードしても、最後に選んだ分岐が開く。サイドバーから開いても同じ
+  await page.reload();
+  await expect(branchSelect).toHaveValue(/.+/);
+  await expect(branchSelect.locator("option:checked")).toHaveText(
+    "非同期だと？（元の会話 から分岐）",
+  );
+  await newChat(page);
+  await list.locator("li").filter({ hasText: "分岐の設計案は？" }).click();
+  await expect(branchSelect.locator("option:checked")).toHaveText(
+    "非同期だと？（元の会話 から分岐）",
+  );
+});

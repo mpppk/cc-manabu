@@ -9,6 +9,7 @@ import projectLinks from "./migrations/0004_project_links.sql" with {
 import projectProgress from "./migrations/0005_project_progress.sql" with {
   type: "text",
 };
+import branches from "./migrations/0006_branches.sql" with { type: "text" };
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -21,6 +22,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0003_auto_terms", sql: autoTerms },
   { name: "0004_project_links", sql: projectLinks },
   { name: "0005_project_progress", sql: projectProgress },
+  { name: "0006_branches", sql: branches },
 ];
 
 /** 未適用のマイグレーションを順に適用する。 */

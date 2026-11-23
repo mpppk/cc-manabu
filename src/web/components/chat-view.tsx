@@ -1,7 +1,14 @@
 import { useChat } from "@ai-sdk/react";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
-import { Pencil, RotateCcw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GitBranch, Pencil, RotateCcw, X } from "lucide-react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
 import type { ChatDto } from "../../router.ts";
 import { citedPageIds, linkWikiCitations } from "../../wiki/citations.ts";
@@ -11,6 +18,7 @@ import {
   type TermMatch,
 } from "../../wiki/term-matcher.ts";
 import { OrpcChatTransport } from "../lib/chat-transport.ts";
+import { branchLabel } from "../lib/groups.ts";
 import type { ImageAttachment } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
@@ -118,6 +126,7 @@ const MessageView = ({
   onRegenerate,
   onOpenWikiPage,
   termMatcher,
+  onBranch,
 }: {
   message: ChatUIMessage;
   streaming: boolean;
@@ -134,6 +143,8 @@ const MessageView = ({
   onOpenWikiPage?: (projectId: string, pageId: string) => void;
   /** 本文の用語を Wiki の用語ページに結び付ける（プロジェクトの会話だけ）。 */
   termMatcher?: (text: string) => TermMatch[];
+  /** この応答から分岐する（完了した応答だけ）。 */
+  onBranch?: () => void;
 }) => {
   if (message.role === "user") {
     return (
@@ -242,6 +253,17 @@ const MessageView = ({
             再生成
           </Button>
         )}
+        {canAct && onBranch !== undefined && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-muted-foreground text-xs"
+            onClick={onBranch}
+          >
+            <GitBranch className="size-3.5" />
+            ここから分岐
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -261,6 +283,68 @@ const UsageTotal = ({ messages }: { messages: ChatUIMessage[] }) => {
     </span>
   );
 };
+
+/** 同じ会話の分岐を切り替えるメニュー（#76）。 */
+const BranchSwitcher = ({
+  current,
+  branches,
+  disabled,
+  onSelect,
+}: {
+  current: ChatDto;
+  branches: ChatDto[];
+  disabled: boolean;
+  onSelect: (chatId: string) => void;
+}) => {
+  const labelOf = (chat: ChatDto) => {
+    const parent = branches.find((b) => b.id === chat.parentId);
+    return parent === undefined
+      ? branchLabel(chat)
+      : `${branchLabel(chat)}（${branchLabel(parent)} から分岐）`;
+  };
+  return (
+    <div className="flex flex-col gap-1 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+      <label className="flex items-center gap-2">
+        <GitBranch className="size-4 shrink-0 text-muted-foreground" />
+        <span className="shrink-0 text-muted-foreground">分岐</span>
+        <select
+          className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1"
+          aria-label="分岐"
+          value={current.id}
+          disabled={disabled}
+          onChange={(event) => onSelect(event.target.value)}
+        >
+          {[...branches]
+            .sort(
+              (a, b) =>
+                new Date(a.createdAt).getTime() -
+                new Date(b.createdAt).getTime(),
+            )
+            .map((branch) => (
+              <option key={branch.id} value={branch.id}>
+                {labelOf(branch)}
+              </option>
+            ))}
+        </select>
+      </label>
+      <span className="text-muted-foreground text-xs">
+        会話の履歴は分岐ごとに分かれますが、ファイルへの変更はすべての分岐で共有されます。
+      </span>
+    </div>
+  );
+};
+
+/** 分岐元から引き継いだ履歴と、分岐で書いた履歴の境目。 */
+const InheritedDivider = ({ parent }: { parent: ChatDto | undefined }) => (
+  <div className="flex items-center gap-2 text-muted-foreground text-xs">
+    <span className="h-px flex-1 bg-border" />
+    <GitBranch className="size-3.5" />
+    {parent === undefined
+      ? "ここから分岐"
+      : `ここまで「${branchLabel(parent)}」から引き継いだ履歴`}
+    <span className="h-px flex-1 bg-border" />
+  </div>
+);
 
 /** 用語の照合を取り直す間隔（自動作成・編集されたページを反映する）。 */
 const TERMS_REFRESH_MS = 10_000;
@@ -307,9 +391,15 @@ export const ChatView = ({
   models,
   onActivity,
   onOpenWikiPage,
+  branches = [],
+  onSelectBranch,
 }: {
   api: ApiClient;
   chat: ChatDto;
+  /** 同じ会話の分岐（#76）。2 つ以上あれば切り替えメニューを出す。 */
+  branches?: ChatDto[];
+  /** 分岐を開く（作った分岐を開くのにも使う）。 */
+  onSelectBranch?: (chatId: string) => void;
   initialMessages: ChatUIMessage[];
   /** 選べるモデル（system.status から）。 */
   models: ModelInfo[];
@@ -357,6 +447,41 @@ export const ChatView = ({
     });
   const busy = status === "submitted" || status === "streaming";
 
+  /** 「ここから分岐」で選んだ応答。送信すると分岐を作る。取り消すと元に戻る。 */
+  const [branchFrom, setBranchFrom] = useState<string>();
+  const [branchError, setBranchError] = useState<string>();
+  const branchIndex =
+    branchFrom === undefined
+      ? -1
+      : messages.findIndex((message) => message.id === branchFrom);
+  const shown = branchIndex < 0 ? messages : messages.slice(0, branchIndex + 1);
+
+  const createBranch = async (
+    parentMessageId: string,
+    parts: ChatUIMessage["parts"],
+  ) => {
+    setBranchError(undefined);
+    const branchId = crypto.randomUUID();
+    try {
+      const { model, effort } = settingsRef.current;
+      await api.chat.branch({
+        parentId: chat.id,
+        messageId: parentMessageId,
+        branchId,
+        message: { id: crypto.randomUUID(), role: "user", parts },
+        model,
+        ...(effort === undefined ? {} : { effort }),
+      });
+      setBranchFrom(undefined);
+      onActivity?.();
+      onSelectBranch?.(branchId);
+    } catch (error) {
+      setBranchError(
+        error instanceof Error ? error.message : "分岐を作れませんでした。",
+      );
+    }
+  };
+
   const submit = (text: string, images: ImageAttachment[]) => {
     if (busy) return;
     requestNotificationPermission();
@@ -366,6 +491,13 @@ export const ChatView = ({
       filename,
       url,
     }));
+    if (branchFrom !== undefined) {
+      void createBranch(branchFrom, [
+        ...files,
+        ...(text === "" ? [] : [{ type: "text" as const, text }]),
+      ]);
+      return;
+    }
     void sendMessage(text === "" ? { files } : { text, files }).then(() =>
       onActivity?.(),
     );
@@ -384,36 +516,86 @@ export const ChatView = ({
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
-            {messages.map((message, index) => (
-              <MessageView
-                key={message.id}
-                message={message}
-                streaming={busy && index === messages.length - 1}
-                canAct={!busy}
-                isLast={index === messages.length - 1}
-                onEdit={(messageId, text) => {
-                  // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
-                  const files = imagePartsOf(message);
-                  void sendMessage({ text, files, messageId }).then(() =>
-                    onActivity?.(),
-                  );
-                }}
-                onRegenerate={() => {
-                  void regenerate().then(() => onActivity?.());
-                }}
-                {...(onOpenWikiPage === undefined ? {} : { onOpenWikiPage })}
-                {...(termMatcher === undefined ? {} : { termMatcher })}
-                onRespond={async (approvalId, behavior, reason) => {
-                  await api.approvals.respond({
-                    chatId: chat.id,
-                    approvalId,
-                    behavior,
-                    ...(reason === undefined ? {} : { message: reason }),
-                  });
-                  onActivity?.();
-                }}
+            {branches.length > 1 && (
+              <BranchSwitcher
+                current={chat}
+                branches={branches}
+                disabled={branchFrom !== undefined}
+                onSelect={(id) => onSelectBranch?.(id)}
               />
+            )}
+            {shown.map((message, index) => (
+              <Fragment key={message.id}>
+                {chat.inheritedCount > 0 && index === chat.inheritedCount && (
+                  <InheritedDivider
+                    parent={branches.find((b) => b.id === chat.parentId)}
+                  />
+                )}
+                <MessageView
+                  message={message}
+                  streaming={busy && index === messages.length - 1}
+                  canAct={!busy && branchFrom === undefined}
+                  isLast={index === messages.length - 1}
+                  {...(message.role === "assistant" &&
+                  message.metadata?.claudeCode?.lastAssistantUuid !== undefined
+                    ? {
+                        onBranch: () => {
+                          setBranchError(undefined);
+                          setBranchFrom(message.id);
+                        },
+                      }
+                    : {})}
+                  onEdit={(messageId, text) => {
+                    // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
+                    const files = imagePartsOf(message);
+                    void sendMessage({ text, files, messageId }).then(() =>
+                      onActivity?.(),
+                    );
+                  }}
+                  onRegenerate={() => {
+                    void regenerate().then(() => onActivity?.());
+                  }}
+                  {...(onOpenWikiPage === undefined ? {} : { onOpenWikiPage })}
+                  {...(termMatcher === undefined ? {} : { termMatcher })}
+                  onRespond={async (approvalId, behavior, reason) => {
+                    await api.approvals.respond({
+                      chatId: chat.id,
+                      approvalId,
+                      behavior,
+                      ...(reason === undefined ? {} : { message: reason }),
+                    });
+                    onActivity?.();
+                  }}
+                />
+              </Fragment>
             ))}
+            {branchFrom !== undefined && (
+              <div
+                role="status"
+                className="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2 text-sm"
+              >
+                <span className="flex items-center gap-2">
+                  <GitBranch className="size-4 text-muted-foreground" />
+                  この応答の続きとして分岐を作ります。最初のメッセージを送ると分岐ができます（元の会話はそのまま残ります）。
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setBranchFrom(undefined);
+                    setBranchError(undefined);
+                  }}
+                >
+                  <X className="size-3.5" />
+                  取り消す
+                </Button>
+              </div>
+            )}
+            {branchError !== undefined && (
+              <p className="text-destructive text-sm" role="alert">
+                {branchError}
+              </p>
+            )}
             {error !== undefined && (
               <p className="text-destructive text-sm" role="alert">
                 {error.message}

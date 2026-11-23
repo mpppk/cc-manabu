@@ -47,6 +47,7 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   ApprovalNotFoundError: "NOT_FOUND",
   MessageNotFoundError: "NOT_FOUND",
   NothingToRegenerateError: "BAD_REQUEST",
+  NotBranchableError: "BAD_REQUEST",
 };
 
 /** クライアントに流すチャンク（承認要求の data パーツを含む）。 */
@@ -64,6 +65,12 @@ const subscribe = (
 export type ChatDto = Pick<
   ChatRow,
   | "id"
+  | "groupId"
+  | "parentId"
+  | "forkMessageId"
+  | "inheritedCount"
+  | "branchTitle"
+  | "lastSelectedAt"
   | "projectId"
   | "title"
   | "model"
@@ -84,6 +91,12 @@ export type MessageDto = {
 
 const toChatDto = (row: ChatRow): ChatDto => ({
   id: row.id,
+  groupId: row.groupId,
+  parentId: row.parentId,
+  forkMessageId: row.forkMessageId,
+  inheritedCount: row.inheritedCount,
+  branchTitle: row.branchTitle,
+  lastSelectedAt: row.lastSelectedAt,
   projectId: row.projectId,
   title: row.title,
   model: row.model,
@@ -492,28 +505,58 @@ export const router = {
           await unwrapForOrpc(
             Result.pipe(
               requireProject(context, input.projectId),
-              Result.andThen(() =>
-                context.chats.setProject(input.id, input.projectId),
+              Result.andThen(() => context.chats.getChat(input.id)),
+              // 分岐元と分岐先は同じプロジェクトに属する（会話ごと移す）
+              Result.andThen(({ chat }) =>
+                Result.pipe(
+                  context.chats.setGroupProject(chat.groupId, input.projectId),
+                  Result.andThen(() => context.chats.getChat(input.id)),
+                ),
               ),
+              Result.map(({ chat }) => chat),
             ),
             ERROR_CODES,
           ),
         ),
       ),
+    /** 会話の名前を変える（すべての分岐で共有する）。 */
     rename: base
       .input(chatId.extend({ title: z.string().trim().min(1).max(200) }))
       .handler(async ({ context, input }) =>
         toChatDto(
           await unwrapForOrpc(
-            context.chats.updateChat(input.id, { title: input.title }),
+            Result.pipe(
+              context.chats.getChat(input.id),
+              Result.andThen(({ chat }) =>
+                context.chats.setGroupTitle(chat.groupId, input.title),
+              ),
+              Result.andThen(() => context.chats.getChat(input.id)),
+              Result.map(({ chat }) => chat),
+            ),
             ERROR_CODES,
           ),
         ),
       ),
+    /** 会話をすべての分岐ごと消す。生成中の分岐は止めてから消す。 */
     delete: base.input(chatId).handler(async ({ context, input }) => {
-      // 生成中なら止めてから消す
-      context.chatService.stop(input.id);
-      await unwrapForOrpc(context.chats.deleteChat(input.id), ERROR_CODES);
+      const { chat } = await unwrapForOrpc(
+        context.chats.getChat(input.id),
+        ERROR_CODES,
+      );
+      const branches = await unwrapForOrpc(
+        context.chats.listGroup(chat.groupId),
+        ERROR_CODES,
+      );
+      for (const branch of branches) {
+        context.chatService.stop(branch.id);
+      }
+      await unwrapForOrpc(context.chats.deleteGroup(chat.groupId), ERROR_CODES);
+      return { id: input.id };
+    }),
+    /** この分岐を開いたことを記録する（会話を開き直したときにこの分岐を表示する）。 */
+    select: base.input(chatId).handler(async ({ context, input }) => {
+      await unwrapForOrpc(context.chats.getChat(input.id), ERROR_CODES);
+      await unwrapForOrpc(context.chats.markSelected(input.id), ERROR_CODES);
       return { id: input.id };
     }),
   },
@@ -549,6 +592,40 @@ export const router = {
           ERROR_CODES,
         );
         return subscribe(runner, signal);
+      }),
+    /**
+     * 完了した応答から分岐を作り、最初の発話の生成を始める（#76）。
+     * 生成の続きは、新しい分岐の id で chat.reconnect から受け取る。
+     */
+    branch: base
+      .input(
+        z.object({
+          parentId: z.string().min(1),
+          messageId: z.string().min(1),
+          branchId: z.string().uuid(),
+          message: userMessage,
+          model: z.string().min(1).optional(),
+          effort: z
+            .enum(["low", "medium", "high", "xhigh", "max"])
+            .nullable()
+            .optional(),
+        }),
+      )
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(
+          context.chatService.branch({
+            parentId: input.parentId,
+            messageId: input.messageId,
+            branchId: input.branchId,
+            message: input.message as Parameters<
+              ChatService["send"]
+            >[0]["message"],
+            model: input.model,
+            effort: input.effort,
+          }),
+          ERROR_CODES,
+        );
+        return { chatId: input.branchId };
       }),
     /** 最後の応答を作り直す（直前のターンから fork する）。 */
     regenerate: base

@@ -63,6 +63,27 @@ export const chats = sqliteTable(
     effort: text("effort"),
     cwd: text("cwd").notNull(),
     status: text("status", { enum: CHAT_STATUSES }).notNull().default("idle"),
+    /**
+     * 会話（分岐のまとまり）の ID（#76）。最初の分岐（元の会話）では自分の id。
+     * サイドバーには会話ごとに 1 行を出し、タイトル・プロジェクト・作業ディレクトリは会話で共有する。
+     */
+    groupId: text("group_id").notNull().default(""),
+    /** 分岐元の分岐。元の会話では null。 */
+    parentId: text("parent_id"),
+    /** 分岐元で分岐点にした assistant メッセージの id。 */
+    forkMessageId: text("fork_message_id"),
+    /** 分岐元から引き継いだメッセージの数（これより後ろが分岐で書いたメッセージ）。 */
+    inheritedCount: integer("inherited_count").notNull().default(0),
+    /** 分岐の名前（最初の発言から作る）。元の会話では空。 */
+    branchTitle: text("branch_title").notNull().default(""),
+    /**
+     * 分岐の最初の送信で resume する分岐元のセッションと、巻き戻す地点（assistant uuid）。
+     * 送信して自分のセッション（sessionId）ができるまで使う。
+     */
+    forkSessionId: text("fork_session_id"),
+    forkFromUuid: text("fork_from_uuid"),
+    /** 最後にこの分岐を開いた日時（会話を開き直したときに表示する分岐）。 */
+    lastSelectedAt: integer("last_selected_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(unixepoch('subsec') * 1000)`),
@@ -73,6 +94,7 @@ export const chats = sqliteTable(
   (table) => [
     index("chats_updated_at_idx").on(table.updatedAt),
     index("chats_project_id_idx").on(table.projectId),
+    index("chats_group_id_idx").on(table.groupId),
   ],
 );
 
