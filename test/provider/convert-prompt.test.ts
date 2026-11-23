@@ -173,6 +173,32 @@ describe("toQueryPrompt", () => {
   });
 });
 
+describe("buildQueryOptions（軽い呼び出し）", () => {
+  test("systemPrompt・tools・persistSession・maxTurns を渡せる", () => {
+    const options = buildQueryOptions({
+      modelId: "haiku",
+      settings: {
+        cwd: "/work",
+        systemPrompt: "用語を抽出する",
+        appendSystemPrompt: "使われない",
+        tools: [],
+        persistSession: false,
+        maxTurns: 1,
+      },
+      callOptions: {
+        prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      },
+      abortController: new AbortController(),
+    });
+    expect(options).toMatchObject({
+      systemPrompt: "用語を抽出する",
+      tools: [],
+      persistSession: false,
+      maxTurns: 1,
+    });
+  });
+});
+
 describe("buildQueryOptions", () => {
   const callOptions: LanguageModelV4CallOptions = {
     prompt: [{ role: "user", content: [{ type: "text", text: "hi" }] }],

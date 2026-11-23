@@ -12,6 +12,7 @@ import {
   type QueryFunction,
 } from "../../src/provider/index.ts";
 import type { RouterContext } from "../../src/router.ts";
+import { createTermPageWriter } from "../../src/wiki/auto-terms.ts";
 import { createWikiContextBuilder } from "../../src/wiki/context.ts";
 
 /**
@@ -19,7 +20,12 @@ import { createWikiContextBuilder } from "../../src/wiki/context.ts";
  * query を省略すると、呼ばれたら例外にする。
  */
 export const createTestContext = (
-  options: { query?: QueryFunction; maxConcurrent?: number } = {},
+  options: {
+    query?: QueryFunction;
+    maxConcurrent?: number;
+    /** 用語抽出のモデル呼び出し。指定すると回答後に用語ページを作る（#80）。 */
+    extract?: (prompt: string) => Promise<string>;
+  } = {},
 ) => {
   const opened = openDatabase(":memory:");
   if (Result.isFailure(opened)) {
@@ -40,6 +46,12 @@ export const createTestContext = (
     (() => {
       throw new Error("query is not configured in this test");
     });
+  /** 回答後に走った用語ページ作成（テストで完了を待つ）。 */
+  const termJobs: Promise<unknown>[] = [];
+  const writeTermPages =
+    options.extract === undefined
+      ? undefined
+      : createTermPageWriter({ projects, wiki, extract: options.extract });
   const chatService = createChatService({
     chats,
     registry,
@@ -47,6 +59,13 @@ export const createTestContext = (
     languageModel: (modelId, { canUseTool }) =>
       createClaudeCode({ cwd: "/work", query, canUseTool })(modelId),
     wikiContext: createWikiContextBuilder(wiki),
+    ...(writeTermPages === undefined
+      ? {}
+      : {
+          onAnswerComplete: (event) => {
+            termJobs.push(writeTermPages(event));
+          },
+        }),
   });
   const claude = createClaudeStatus(
     { found: true, path: "/usr/local/bin/claude" },
@@ -81,6 +100,7 @@ export const createTestContext = (
     chats,
     projects,
     wiki,
+    termJobs,
     registry,
     chatService,
     approvals,

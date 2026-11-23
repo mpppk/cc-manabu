@@ -5,6 +5,7 @@
  *   bun test/e2e/server.ts   （playwright.config.ts の webServer から起動される）
  */
 import { Result } from "@praha/byethrow";
+import { generateText } from "ai";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
@@ -17,7 +18,12 @@ import { createClaudeCode } from "../../src/provider/index.ts";
 import { router } from "../../src/router.ts";
 import { startServer } from "../../src/server/server.ts";
 import index from "../../src/web/index.html";
+import { createTermPageWriter } from "../../src/wiki/auto-terms.ts";
 import { createWikiContextBuilder } from "../../src/wiki/context.ts";
+import {
+  TERM_EXTRACTION_MODEL,
+  TERM_EXTRACTION_SETTINGS,
+} from "../../src/wiki/terms.ts";
 import { createScriptedQuery } from "./scripted-query.ts";
 
 export const E2E_PORT = Number(process.env.E2E_PORT ?? 45200);
@@ -33,6 +39,17 @@ const approvals = createApprovalBroker({
     chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
 });
 const query = createScriptedQuery();
+const termModel = createClaudeCode({
+  cwd: "/e2e",
+  query,
+  ...TERM_EXTRACTION_SETTINGS,
+})(TERM_EXTRACTION_MODEL);
+const writeTermPages = createTermPageWriter({
+  projects,
+  wiki,
+  extract: async (prompt) =>
+    (await generateText({ model: termModel, prompt })).text,
+});
 const chatService = createChatService({
   chats,
   registry: new RunnerRegistry(),
@@ -40,6 +57,7 @@ const chatService = createChatService({
   languageModel: (modelId, { canUseTool }) =>
     createClaudeCode({ cwd: "/e2e", query, canUseTool })(modelId),
   wikiContext: createWikiContextBuilder(wiki),
+  onAnswerComplete: (event) => void writeTermPages(event),
 });
 const claude = createClaudeStatus(
   { found: true, path: "/usr/local/bin/claude" },

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { Result } from "@praha/byethrow";
+import { generateText } from "ai";
 import { createApprovalBroker } from "./chat/approval-broker.ts";
 import { createChatService } from "./chat/chat-service.ts";
 import { RunnerRegistry } from "./chat/runner-registry.ts";
@@ -17,7 +18,12 @@ import type { RuntimeConfig } from "./runtime-config.ts";
 import { generateToken } from "./server/access-control.ts";
 import { openBrowser, startServer } from "./server/server.ts";
 import index from "./web/index.html";
+import { createTermPageWriter } from "./wiki/auto-terms.ts";
 import { createWikiContextBuilder } from "./wiki/context.ts";
+import {
+  TERM_EXTRACTION_MODEL,
+  TERM_EXTRACTION_SETTINGS,
+} from "./wiki/terms.ts";
 
 /** 引数なしで起動したときの処理: DB を開き、サーバを立ち上げてブラウザを開く。 */
 export const serve = async (config: RuntimeConfig): Promise<void> => {
@@ -52,6 +58,18 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         onPendingChange: (chatId, count) =>
           chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
       });
+      // 用語抽出は Claude Code の機能を使わない軽い呼び出し（docs/spikes/term-extraction.md）
+      const termModel = createClaudeCode({
+        ...providerSettings,
+        ...TERM_EXTRACTION_SETTINGS,
+      })(TERM_EXTRACTION_MODEL);
+      const writeTermPages = createTermPageWriter({
+        projects,
+        wiki,
+        extract: async (prompt) =>
+          (await generateText({ model: termModel, prompt, reasoning: "none" }))
+            .text,
+      });
       const chatService = createChatService({
         chats,
         registry: new RunnerRegistry(),
@@ -59,6 +77,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         languageModel: (modelId, { canUseTool }) =>
           createClaudeCode({ ...providerSettings, canUseTool })(modelId),
         wikiContext: createWikiContextBuilder(wiki),
+        onAnswerComplete: (event) => void writeTermPages(event),
       });
       return startServer({
         port: config.port,

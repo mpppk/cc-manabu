@@ -178,6 +178,7 @@ export const Sidebar = ({
   onSetProject,
   view,
   onOpenWiki,
+  onSetAutoTerms,
 }: {
   /** すべての会話（表示は選択中のプロジェクトで絞る）。 */
   chats: ChatDto[];
@@ -198,6 +199,7 @@ export const Sidebar = ({
   /** メイン画面に出しているもの（プロジェクト選択時のタブの状態）。 */
   view: "threads" | "wiki";
   onOpenWiki: () => void;
+  onSetAutoTerms: (projectId: string, enabled: boolean) => Promise<void>;
 }) => {
   const [deleting, setDeleting] = useState<ChatDto>();
   const [adding, setAdding] = useState(false);
@@ -229,6 +231,7 @@ export const Sidebar = ({
         onCreate={onCreateProject}
         onRename={onRenameProject}
         onDelete={onDeleteProject}
+        onSetAutoTerms={onSetAutoTerms}
       />
       {project !== undefined && (
         <nav className="flex gap-1 px-3 pb-2" aria-label="プロジェクトの表示">

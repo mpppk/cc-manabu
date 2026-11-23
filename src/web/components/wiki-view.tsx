@@ -21,6 +21,12 @@ const parseAliases = (value: string): string[] =>
     .map((alias) => alias.trim())
     .filter((alias) => alias !== "");
 
+const AutoBadge = () => (
+  <span className="rounded bg-sky-500/15 px-1.5 py-0.5 font-normal text-[10px] text-sky-700 dark:text-sky-400">
+    自動作成
+  </span>
+);
+
 /** ページの作成・編集フォーム。 */
 const PageEditor = ({
   initial,
@@ -87,12 +93,18 @@ export const WikiView = ({
   api,
   projectId,
   projectName,
+  autoTerms,
   pageId,
   onNavigate,
+  onOpenChat,
 }: {
   api: ApiClient;
   projectId: string;
   projectName: string;
+  /** 回答からの用語ページの自動作成が有効か。 */
+  autoTerms: boolean;
+  /** 自動作成の元になった会話を開く。 */
+  onOpenChat: (chatId: string) => void;
   /** 開いているページ。undefined なら一覧。 */
   pageId: string | undefined;
   onNavigate: (pageId: string | undefined) => void;
@@ -126,7 +138,15 @@ export const WikiView = ({
 
   const header = (
     <div className="flex items-center justify-between gap-2">
-      <h1 className="truncate font-semibold text-lg">{projectName} の Wiki</h1>
+      <div className="flex min-w-0 flex-col">
+        <h1 className="truncate font-semibold text-lg">
+          {projectName} の Wiki
+        </h1>
+        <span className="text-muted-foreground text-xs">
+          回答からの用語ページの自動作成: {autoTerms ? "オン" : "オフ"}
+          （プロジェクトの設定で変更できます）
+        </span>
+      </div>
       {mode === "view" && (
         <Button size="sm" onClick={() => setMode("new")}>
           <FilePlus className="size-4" />
@@ -195,7 +215,10 @@ export const WikiView = ({
                     className="flex w-full flex-col items-start rounded-md px-3 py-2 text-left hover:bg-accent"
                     onClick={() => onNavigate(p.id)}
                   >
-                    <span className="font-medium">{p.title}</span>
+                    <span className="flex items-center gap-2 font-medium">
+                      {p.title}
+                      {p.origin === "auto" && <AutoBadge />}
+                    </span>
                     {p.aliases.length > 0 && (
                       <span className="text-muted-foreground text-xs">
                         別名: {p.aliases.join("、")}
@@ -270,6 +293,23 @@ export const WikiView = ({
           </Button>
         </div>
         <h2 className="font-bold text-2xl">{page.title}</h2>
+        {page.origin === "auto" && (
+          <p className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+            <AutoBadge />
+            回答から自動で作成したページです（編集しても自動で上書きされることはありません）。
+            {page.sourceChatId !== null && (
+              <button
+                type="button"
+                className="text-primary underline"
+                onClick={() => {
+                  if (page.sourceChatId !== null) onOpenChat(page.sourceChatId);
+                }}
+              >
+                元の回答を開く
+              </button>
+            )}
+          </p>
+        )}
         {page.aliases.length > 0 && (
           <p className="text-muted-foreground text-sm">
             別名: {page.aliases.join("、")}

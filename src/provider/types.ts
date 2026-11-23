@@ -24,6 +24,17 @@ export type ClaudeCodeProviderSettings = {
   settingSources?: SettingSource[];
   /** `claude_code` preset のシステムプロンプトに追記する文字列。 */
   appendSystemPrompt?: string;
+  /**
+   * preset の代わりに使うシステムプロンプト。指定すると appendSystemPrompt は使わない。
+   * 用語抽出など、Claude Code の機能が要らない軽い呼び出しに使う。
+   */
+  systemPrompt?: string;
+  /** 使える組み込みツール。`[]` ですべて無効にする（既定は Claude Code のすべて）。 */
+  tools?: string[];
+  /** false ならセッションを ~/.claude に保存しない（resume できない）。 */
+  persistSession?: boolean;
+  /** 1 回の呼び出しで回すターン数の上限。 */
+  maxTurns?: number;
   /** ツール実行の承認。承認フロー（#29）から渡す。 */
   canUseTool?: CanUseTool;
   /** 既定の permission mode。 */

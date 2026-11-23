@@ -19,6 +19,8 @@ export type ChatStatus = (typeof CHAT_STATUSES)[number];
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  /** 回答から用語ページを自動で作るか（回答ごとに Claude を追加で呼び出す）。 */
+  autoTerms: integer("auto_terms", { mode: "boolean" }).notNull().default(true),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`),
@@ -99,6 +101,15 @@ export const wikiPages = sqliteTable(
       .default(sql`'[]'`),
     /** Markdown の本文。 */
     body: text("body").notNull().default(""),
+    /** 作られ方。auto は回答からの自動作成（#80）。 */
+    origin: text("origin", { enum: ["manual", "auto"] })
+      .notNull()
+      .default("manual"),
+    /** 自動作成の元になった会話と回答。会話を消すと null になる。 */
+    sourceChatId: text("source_chat_id").references(() => chats.id, {
+      onDelete: "set null",
+    }),
+    sourceMessageId: text("source_message_id"),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(unixepoch('subsec') * 1000)`),

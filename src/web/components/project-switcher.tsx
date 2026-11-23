@@ -1,4 +1,4 @@
-import { FolderPlus, Pencil, Trash2 } from "lucide-react";
+import { FolderPlus, Pencil, Settings, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import type { ProjectDto } from "../../router.ts";
 import { Button } from "./ui/button.tsx";
@@ -76,6 +76,7 @@ export const ProjectSwitcher = ({
   onCreate,
   onRename,
   onDelete,
+  onSetAutoTerms,
 }: {
   projects: ProjectDto[];
   /** 選択中のプロジェクト。null は未所属の会話。 */
@@ -84,9 +85,14 @@ export const ProjectSwitcher = ({
   onCreate: (name: string) => Promise<void>;
   onRename: (projectId: string, name: string) => Promise<void>;
   onDelete: (projectId: string) => Promise<void>;
+  onSetAutoTerms: (projectId: string, enabled: boolean) => Promise<void>;
 }) => {
-  const [dialog, setDialog] = useState<"create" | "rename" | "delete">();
+  const [dialog, setDialog] = useState<
+    "create" | "rename" | "delete" | "settings"
+  >();
   const current = projects.find((p) => p.id === projectId);
+  /** 保存中の自動作成の設定（保存が終わるまで表示に使う）。 */
+  const [autoTerms, setAutoTerms] = useState<boolean>();
 
   return (
     <div className="flex items-center gap-1 px-3 pb-2">
@@ -119,6 +125,16 @@ export const ProjectSwitcher = ({
       </Button>
       {current !== undefined && (
         <>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8"
+            aria-label="プロジェクトの設定"
+            title="プロジェクトの設定"
+            onClick={() => setDialog("settings")}
+          >
+            <Settings className="size-3.5" />
+          </Button>
           <Button
             variant="ghost"
             size="icon"
@@ -159,6 +175,47 @@ export const ProjectSwitcher = ({
           if (current !== undefined) await onRename(current.id, name);
         }}
       />
+      <Dialog
+        open={dialog === "settings"}
+        onOpenChange={(open) => {
+          if (!open) setDialog(undefined);
+        }}
+        title="プロジェクトの設定"
+        description={current?.name}
+      >
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            className="mt-1 size-4"
+            checked={autoTerms ?? current?.autoTerms ?? false}
+            onChange={(event) => {
+              if (current === undefined) return;
+              const enabled = event.target.checked;
+              // 保存を待たずに表示を変え、失敗したら戻す
+              setAutoTerms(enabled);
+              onSetAutoTerms(current.id, enabled)
+                .catch(() => {})
+                .finally(() => setAutoTerms(undefined));
+            }}
+          />
+          <span className="flex flex-col gap-1">
+            <span className="font-medium text-sm">
+              回答から用語ページを自動で作る
+            </span>
+            <span className="text-muted-foreground text-xs">
+              このプロジェクトのスレッドで回答が終わるたびに、Claude（haiku）を追加で
+              1 回呼び出して重要な用語を取り出し、Wiki
+              に用語ページを作ります。その分、サブスクリプションの利用枠（API
+              キーの場合は料金）を少し消費します。既存のページは書き換えません。
+            </span>
+          </span>
+        </label>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setDialog(undefined)}>
+            閉じる
+          </Button>
+        </DialogFooter>
+      </Dialog>
       <Dialog
         open={dialog === "delete"}
         onOpenChange={(open) => {

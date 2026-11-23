@@ -420,3 +420,78 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
     page.getByText("このページは削除されたか、存在しません。"),
   ).toBeVisible();
 });
+
+test("回答から用語ページが自動で作られ、編集を保ち、設定で止められる", async ({
+  page,
+}) => {
+  await open(page);
+  await createProject(page, "用語の検証");
+  const wikiPages = page.getByRole("list", { name: "Wiki のページ" });
+  const openWiki = async () => {
+    await page.getByRole("button", { name: "Wiki", exact: true }).click();
+    await expect(page).toHaveURL(/\/wiki$/);
+  };
+  /** 用語ページは回答のあとに作られるので、出てくるまで開き直す。 */
+  const expectPage = async (title: string) =>
+    expect(async () => {
+      await page.reload();
+      await expect(wikiPages.getByText(title)).toBeVisible({ timeout: 1000 });
+    }).toPass();
+
+  await newChat(page);
+  await send(page, "「認可モデル」について");
+  await idle(page);
+  await openWiki();
+  await expectPage("認可モデル");
+  await expect(wikiPages.getByText("自動作成")).toBeVisible();
+
+  // 自動作成のページから、元の回答を開ける
+  await wikiPages.getByText("認可モデル").click();
+  await expect(page.getByText("認可モデル の説明。")).toBeVisible();
+  await page.getByRole("button", { name: "元の回答を開く" }).click();
+  await expect(page).toHaveURL(/\/c\/.+/);
+  await expect(page.getByText("了解: 「認可モデル」について")).toBeVisible();
+
+  // 本文を編集してから同じ用語が出てきても、編集内容は保たれ、ページは増えない
+  await openWiki();
+  await wikiPages.getByText("認可モデル").click();
+  await page.getByRole("button", { name: "編集" }).click();
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("利用者が書いた説明");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("利用者が書いた説明")).toBeVisible();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "会話一覧" })
+    .getByText("「認可モデル」について")
+    .click();
+  await send(page, "「認可モデル」と「関係タプル」の違い");
+  await idle(page);
+  await openWiki();
+  await expectPage("関係タプル");
+  await expect(wikiPages.getByText("認可モデル")).toHaveCount(1);
+  await wikiPages.getByText("認可モデル").click();
+  await expect(page.getByText("利用者が書いた説明")).toBeVisible();
+
+  // 設定で止めると、新しい用語のページは作られない
+  await page.getByRole("button", { name: "プロジェクトの設定" }).click();
+  const toggle = page.getByRole("checkbox", {
+    name: /回答から用語ページを自動で作る/,
+  });
+  await expect(toggle).toBeChecked();
+  await expect(page.getByRole("dialog")).toContainText("利用枠");
+  await toggle.uncheck();
+  await expect(toggle).not.toBeChecked();
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await newChat(page);
+  await send(page, "「止めたあとの語」について");
+  await idle(page);
+  await openWiki();
+  await expect(page.getByText("自動作成: オフ")).toBeVisible();
+  await page.waitForTimeout(500);
+  await page.reload();
+  await expect(wikiPages.getByText("関係タプル")).toBeVisible();
+  await expect(wikiPages.getByText("止めたあとの語")).toHaveCount(0);
+});

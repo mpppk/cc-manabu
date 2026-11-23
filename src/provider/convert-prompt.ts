@@ -167,13 +167,20 @@ export const buildQueryOptions = (params: {
     ...(modelId === "default" ? {} : { model: modelId }),
     cwd: settings.cwd ?? process.cwd(),
     settingSources: [...(settings.settingSources ?? DEFAULT_SETTING_SOURCES)],
-    systemPrompt: {
-      type: "preset",
-      preset: "claude_code",
-      ...(settings.appendSystemPrompt === undefined
-        ? {}
-        : { append: settings.appendSystemPrompt }),
-    },
+    systemPrompt:
+      settings.systemPrompt ??
+      ({
+        type: "preset",
+        preset: "claude_code",
+        ...(settings.appendSystemPrompt === undefined
+          ? {}
+          : { append: settings.appendSystemPrompt }),
+      } as const),
+    ...(settings.tools === undefined ? {} : { tools: settings.tools }),
+    ...(settings.persistSession === undefined
+      ? {}
+      : { persistSession: settings.persistSession }),
+    ...(settings.maxTurns === undefined ? {} : { maxTurns: settings.maxTurns }),
     // 本文付きの thinking を受け取る（docs/spikes/models-and-auth.md）
     thinking: thinkingDisabled
       ? { type: "disabled" }
