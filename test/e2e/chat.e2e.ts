@@ -879,3 +879,92 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
     "非同期だと？（元の会話 から分岐）",
   );
 });
+
+/** 最後の回答の最初の段落を選択する（マウス・タッチ・キーボードでの選択の代わり）。 */
+const selectLastAnswerParagraph = (page: Page) =>
+  page.evaluate(() => {
+    const answers = document.querySelectorAll("[data-assistant-message]");
+    const paragraph = answers[answers.length - 1]?.querySelector("p");
+    if (paragraph === null || paragraph === undefined)
+      throw new Error("no answer");
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+
+test("回答の選択範囲を引用して質問すると、引用付きの分岐ができる", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("main");
+  const ask = main.getByRole("button", { name: "選択範囲について質問" });
+
+  // 用語ページのあるプロジェクトで、用語の説明と選択による質問を使い分ける
+  await createProject(page, "引用の検証");
+  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page.getByRole("textbox", { name: "ページのタイトル" }).fill("方式B");
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("非同期で処理する方式。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await newChat(page);
+  await send(page, "方式A と 方式B の比較");
+  await idle(page);
+  await expect(ask).toHaveCount(0);
+
+  // 用語はクリックで説明が開く（選択しても説明は開かない）
+  const term = main.locator("button[data-wiki-term]").last();
+  await term.click();
+  await expect(page.getByRole("dialog", { name: "用語の説明" })).toContainText(
+    "非同期で処理する方式。",
+  );
+  await page.keyboard.press("Escape");
+
+  // 選択して「選択範囲について質問」、取り消すと分岐はできない
+  await selectLastAnswerParagraph(page);
+  await expect(ask).toBeVisible();
+  await ask.click();
+  const draft = main
+    .getByRole("status")
+    .filter({ hasText: "選んだ部分について質問" });
+  await expect(draft.locator("blockquote")).toContainText(
+    "方式A と 方式B の比較",
+  );
+  await main.getByRole("button", { name: "取り消す" }).click();
+  await expect(page.getByRole("combobox", { name: "分岐" })).toHaveCount(0);
+
+  // 送ると、引用付きの分岐ができ、モデルには引用と質問が区別して届く
+  await selectLastAnswerParagraph(page);
+  await ask.click();
+  await send(page, "失敗時はどう復旧する？");
+  await expect(
+    main.getByText(/了解: 以下は、直前までの回答から利用者が選んだ引用です/),
+  ).toBeVisible();
+  await idle(page);
+  // モックは受け取ったテキストをそのまま返す。引用のあとに質問が届いている
+  await expect(
+    main.getByText(
+      /利用者が選んだ引用です[\s\S]*方式A と 方式B の比較[\s\S]*失敗時はどう復旧する？/,
+    ),
+  ).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "分岐" })).toBeVisible();
+  const quote = main.locator("blockquote").first();
+  await expect(quote).toContainText("方式A と 方式B の比較");
+
+  // リロードしても引用と質問が残り、元の会話もそのまま
+  await page.reload();
+  await expect(main.locator("blockquote").first()).toContainText(
+    "方式A と 方式B の比較",
+  );
+  await expect(
+    main.getByText("失敗時はどう復旧する？", { exact: true }).first(),
+  ).toBeVisible();
+  await page
+    .getByRole("combobox", { name: "分岐" })
+    .selectOption({ label: "元の会話" });
+  await expect(main.locator("blockquote")).toHaveCount(0);
+});

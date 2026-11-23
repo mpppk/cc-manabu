@@ -25,6 +25,7 @@ import type { WikiContext, WikiContextBuilder } from "../wiki/context.ts";
 import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
 import { toUserErrorMessage } from "./error-messages.ts";
+import { type QuoteData, quotesOf, quoteText } from "./quote.ts";
 import {
   ChatAlreadyRunningError,
   type RunnerRegistry,
@@ -82,6 +83,8 @@ export type ChatMessageMetadata = {
 export type ChatDataParts = {
   /** ツール実行の承認要求（id は approvalId。状態が変わると同じ id で上書きする）。 */
   approval: ApprovalData;
+  /** 質問の対象として選んだ回答の一部（ユーザー発話に付ける）。 */
+  quote: QuoteData;
 };
 
 export type ChatUIMessage = UIMessage<ChatMessageMetadata, ChatDataParts>;
@@ -142,6 +145,10 @@ const titleOf = (parts: ChatUIMessage["parts"]): string => {
 export const toUserContent = (parts: ChatUIMessage["parts"]): UserContent => {
   const text = textOf(parts);
   return [
+    ...quotesOf(parts).map((quote) => ({
+      type: "text" as const,
+      text: quoteText(quote),
+    })),
     ...filesOf(parts).map((part) => ({
       type: "file" as const,
       mediaType: part.mediaType,
@@ -554,7 +561,11 @@ export const createChatService = (deps: {
         const original = messages[index]?.parts as ChatUIMessage["parts"];
         return restartFrom(chat, messages, index, {
           id: input.messageId,
-          parts: [...filesOf(original), ...input.parts],
+          // 書き換えるのは本文だけ。画像と引用はそのまま
+          parts: [
+            ...original.filter((part) => part.type !== "text"),
+            ...input.parts,
+          ],
         });
       }),
     );

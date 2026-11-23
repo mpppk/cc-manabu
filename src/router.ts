@@ -237,6 +237,23 @@ const userMessage = z.object({
           part.text.trim() !== "",
       );
       const files = parts.filter((part) => part.type === "file");
+      for (const quote of parts.filter((part) => part.type === "data-quote")) {
+        const data = quote.data as {
+          text?: unknown;
+          sourceMessageId?: unknown;
+        };
+        if (
+          typeof data?.text !== "string" ||
+          data.text.trim() === "" ||
+          data.text.length > 20_000 ||
+          typeof data.sourceMessageId !== "string"
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            message: "引用の形式が正しくありません。",
+          });
+        }
+      }
       if (!hasText && files.length === 0) {
         ctx.addIssue({
           code: "custom",

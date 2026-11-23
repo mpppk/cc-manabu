@@ -1,6 +1,6 @@
 import { useChat } from "@ai-sdk/react";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
-import { GitBranch, Pencil, RotateCcw, X } from "lucide-react";
+import { GitBranch, Pencil, RotateCcw, TextQuote, X } from "lucide-react";
 import {
   Fragment,
   useCallback,
@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
+import { type QuoteData, quotesOf } from "../../chat/quote.ts";
 import type { ChatDto } from "../../router.ts";
 import { citedPageIds, linkWikiCitations } from "../../wiki/citations.ts";
 import {
@@ -105,6 +106,13 @@ const UserMessage = ({
         </Button>
       )}
       <div className="flex max-w-[80%] flex-col items-end gap-2">
+        {quotesOf(message.parts).map((quote, i) => (
+          <QuoteBlock
+            // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
+            key={i}
+            text={quote.text}
+          />
+        ))}
         <MessageImages images={images} />
         {text !== "" && (
           <div className="whitespace-pre-wrap rounded-2xl bg-secondary px-4 py-2">
@@ -127,6 +135,7 @@ const MessageView = ({
   onOpenWikiPage,
   termMatcher,
   onBranch,
+  onAskSelection,
 }: {
   message: ChatUIMessage;
   streaming: boolean;
@@ -145,6 +154,8 @@ const MessageView = ({
   termMatcher?: (text: string) => TermMatch[];
   /** この応答から分岐する（完了した応答だけ）。 */
   onBranch?: () => void;
+  /** この応答の中を選択しているとき、選択範囲を引用して質問する（#91）。 */
+  onAskSelection?: () => void;
 }) => {
   if (message.role === "user") {
     return (
@@ -173,7 +184,7 @@ const MessageView = ({
     wikiIds,
   ).flatMap((id) => wiki?.pages.filter((page) => page.id === id) ?? []);
   return (
-    <div className="flex flex-col gap-2">
+    <div className="flex flex-col gap-2" data-assistant-message={message.id}>
       {message.parts.map((part, i) => {
         switch (part.type) {
           case "text":
@@ -264,6 +275,20 @@ const MessageView = ({
             ここから分岐
           </Button>
         )}
+        {canAct && onAskSelection !== undefined && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            // 押したときに選択が外れないようにする
+            onMouseDown={(event) => event.preventDefault()}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={onAskSelection}
+          >
+            <TextQuote className="size-3.5" />
+            選択範囲について質問
+          </Button>
+        )}
       </div>
     </div>
   );
@@ -282,6 +307,57 @@ const UsageTotal = ({ messages }: { messages: ChatUIMessage[] }) => {
       合計 {formatUsage(total)}
     </span>
   );
+};
+
+/** 質問の対象として引用した回答の一部。 */
+const QuoteBlock = ({ text }: { text: string }) => (
+  <blockquote className="max-h-40 w-full overflow-y-auto whitespace-pre-wrap border-l-4 border-sky-500/60 bg-muted/50 px-3 py-2 text-left text-muted-foreground text-sm">
+    {text}
+  </blockquote>
+);
+
+/**
+ * 回答の中の選択範囲。1 つの完了した回答の中だけを対象にする（#91）。
+ * 選択が無い・複数の回答にまたがるときは undefined。
+ */
+const useAnswerSelection = (enabled: boolean) => {
+  const [selection, setSelection] = useState<{
+    messageId: string;
+    text: string;
+  }>();
+  useEffect(() => {
+    if (!enabled) {
+      setSelection(undefined);
+      return;
+    }
+    const update = () => {
+      const current = window.getSelection();
+      const text = current?.toString() ?? "";
+      if (current === null || current.isCollapsed || text.trim() === "") {
+        setSelection(undefined);
+        return;
+      }
+      const answerOf = (node: Node | null) =>
+        (node instanceof Element ? node : node?.parentElement)?.closest(
+          "[data-assistant-message]",
+        );
+      const anchor = answerOf(current.anchorNode);
+      const focus = answerOf(current.focusNode);
+      const messageId = anchor?.getAttribute("data-assistant-message");
+      setSelection(
+        anchor !== undefined &&
+          anchor !== null &&
+          anchor === focus &&
+          messageId !== null &&
+          messageId !== undefined
+          ? { messageId, text: text.replace(/\n{3,}/g, "\n\n").trim() }
+          : undefined,
+      );
+    };
+    document.addEventListener("selectionchange", update);
+    return () => document.removeEventListener("selectionchange", update);
+  }, [enabled]);
+  return selection;
 };
 
 /** 同じ会話の分岐を切り替えるメニュー（#76）。 */
@@ -449,7 +525,15 @@ export const ChatView = ({
 
   /** 「ここから分岐」で選んだ応答。送信すると分岐を作る。取り消すと元に戻る。 */
   const [branchFrom, setBranchFrom] = useState<string>();
+  /** 選択範囲について質問するときの引用（#91）。 */
+  const [quote, setQuote] = useState<QuoteData>();
   const [branchError, setBranchError] = useState<string>();
+  const selection = useAnswerSelection(!busy && branchFrom === undefined);
+  const cancelBranch = () => {
+    setBranchFrom(undefined);
+    setQuote(undefined);
+    setBranchError(undefined);
+  };
   const branchIndex =
     branchFrom === undefined
       ? -1
@@ -472,7 +556,7 @@ export const ChatView = ({
         model,
         ...(effort === undefined ? {} : { effort }),
       });
-      setBranchFrom(undefined);
+      cancelBranch();
       onActivity?.();
       onSelectBranch?.(branchId);
     } catch (error) {
@@ -493,6 +577,9 @@ export const ChatView = ({
     }));
     if (branchFrom !== undefined) {
       void createBranch(branchFrom, [
+        ...(quote === undefined
+          ? []
+          : [{ type: "data-quote" as const, data: quote }]),
         ...files,
         ...(text === "" ? [] : [{ type: "text" as const, text }]),
       ]);
@@ -541,8 +628,22 @@ export const ChatView = ({
                     ? {
                         onBranch: () => {
                           setBranchError(undefined);
+                          setQuote(undefined);
                           setBranchFrom(message.id);
                         },
+                        ...(selection?.messageId === message.id
+                          ? {
+                              onAskSelection: () => {
+                                setBranchError(undefined);
+                                setQuote({
+                                  text: selection.text,
+                                  sourceMessageId: message.id,
+                                });
+                                setBranchFrom(message.id);
+                                window.getSelection()?.removeAllRanges();
+                              },
+                            }
+                          : {}),
                       }
                     : {})}
                   onEdit={(messageId, text) => {
@@ -574,18 +675,16 @@ export const ChatView = ({
                 role="status"
                 className="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2 text-sm"
               >
-                <span className="flex items-center gap-2">
-                  <GitBranch className="size-4 text-muted-foreground" />
-                  この応答の続きとして分岐を作ります。最初のメッセージを送ると分岐ができます（元の会話はそのまま残ります）。
+                <span className="flex flex-1 flex-col gap-2">
+                  <span className="flex items-center gap-2">
+                    <GitBranch className="size-4 shrink-0 text-muted-foreground" />
+                    {quote === undefined
+                      ? "この応答の続きとして分岐を作ります。最初のメッセージを送ると分岐ができます（元の会話はそのまま残ります）。"
+                      : "選んだ部分について質問します。送ると、この応答の続きとして分岐ができます（元の会話はそのまま残ります）。"}
+                  </span>
+                  {quote !== undefined && <QuoteBlock text={quote.text} />}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setBranchFrom(undefined);
-                    setBranchError(undefined);
-                  }}
-                >
+                <Button variant="ghost" size="sm" onClick={cancelBranch}>
                   <X className="size-3.5" />
                   取り消す
                 </Button>
