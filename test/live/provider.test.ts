@@ -156,6 +156,27 @@ describe.skipIf(!LIVE)("live: Claude Code provider", () => {
     TIMEOUT,
   );
   test(
+    "最後のリクエストのキャッシュ（開始時刻と書き込みの TTL）を観測できる（#103）",
+    async () => {
+      const before = Date.now();
+      const turn = await generateText({
+        model: model(),
+        prompt: "「OK」とだけ返してください。",
+      });
+      const cache = metadataOf(turn.providerMetadata)?.promptCache;
+      expect(cache).toBeDefined();
+      expect(cache?.requestStartedAt).toBeGreaterThanOrEqual(before);
+      expect(cache?.requestStartedAt).toBeLessThanOrEqual(Date.now());
+      // サブスクリプションでは 1 時間の TTL で書き込む（docs/spikes/prompt-cache.md）
+      expect(
+        (cache?.cacheReadTokens ?? 0) +
+          (cache?.cacheWrite5mTokens ?? 0) +
+          (cache?.cacheWrite1hTokens ?? 0),
+      ).toBeGreaterThan(0);
+    },
+    TIMEOUT,
+  );
+  test(
     "画像を読み取り、resume 後も前の画像を覚えている",
     async () => {
       const image = await Bun.file(

@@ -30,6 +30,7 @@ import { Composer } from "./composer.tsx";
 import { Markdown, type WikiLinks } from "./markdown.tsx";
 import { imagePartsOf, MessageImages } from "./message-images.tsx";
 import { ModelPicker } from "./model-picker.tsx";
+import { PromptCacheTimer } from "./prompt-cache-timer.tsx";
 import { QueuePanel, type QueueState } from "./queue-panel.tsx";
 import { Reasoning } from "./reasoning.tsx";
 import { ToolCard } from "./tool-card.tsx";
@@ -858,7 +859,14 @@ export const ChatView = ({
               disabled={busy}
               onChange={setSettings}
             />
-            <UsageTotal messages={messages} />
+            <span className="flex min-w-0 items-center gap-3">
+              <PromptCacheTimer
+                messages={messages}
+                model={settings.model}
+                busy={busy}
+              />
+              <UsageTotal messages={messages} />
+            </span>
           </div>
           <Composer
             busy={busy}
