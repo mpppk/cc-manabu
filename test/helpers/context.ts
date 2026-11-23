@@ -1,11 +1,16 @@
 import { Result } from "@praha/byethrow";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
+import {
+  createQueueDispatcher,
+  type QueueDispatcher,
+} from "../../src/chat/queue-dispatcher.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createProjectRepository } from "../../src/db/project-repository.ts";
+import { createQueueRepository } from "../../src/db/queue-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import {
   createClaudeCode,
@@ -34,6 +39,8 @@ export const createTestContext = (
   const chats = createChatRepository(opened.value.db);
   const projects = createProjectRepository(opened.value.db);
   const wiki = createWikiRepository(opened.value.db);
+  const queue = createQueueRepository(opened.value.db);
+  let queueDispatcher: QueueDispatcher | undefined;
   const registry = new RunnerRegistry({
     maxConcurrent: options.maxConcurrent,
   });
@@ -59,6 +66,8 @@ export const createTestContext = (
     languageModel: (modelId, { canUseTool }) =>
       createClaudeCode({ cwd: "/work", query, canUseTool })(modelId),
     wikiContext: createWikiContextBuilder(wiki),
+    onRunnerFinish: (chatId, outcome) =>
+      queueDispatcher?.onRunnerFinish(chatId, outcome),
     ...(writeTermPages === undefined
       ? {}
       : {
@@ -67,6 +76,7 @@ export const createTestContext = (
           },
         }),
   });
+  queueDispatcher = createQueueDispatcher({ queue, registry, chatService });
   const claude = createClaudeStatus(
     { found: true, path: "/usr/local/bin/claude" },
     {
@@ -90,6 +100,8 @@ export const createTestContext = (
     chats,
     projects,
     wiki,
+    queue,
+    queueDispatcher,
     chatService,
     approvals,
     claude,
@@ -100,6 +112,7 @@ export const createTestContext = (
     chats,
     projects,
     wiki,
+    queue,
     termJobs,
     registry,
     chatService,

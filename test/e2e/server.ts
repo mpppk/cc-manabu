@@ -8,11 +8,16 @@ import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
+import {
+  createQueueDispatcher,
+  type QueueDispatcher,
+} from "../../src/chat/queue-dispatcher.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createProjectRepository } from "../../src/db/project-repository.ts";
+import { createQueueRepository } from "../../src/db/queue-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import { createClaudeCode } from "../../src/provider/index.ts";
 import { router } from "../../src/router.ts";
@@ -34,6 +39,8 @@ if (Result.isFailure(opened)) throw opened.error;
 const chats = createChatRepository(opened.value.db);
 const projects = createProjectRepository(opened.value.db);
 const wiki = createWikiRepository(opened.value.db);
+const queue = createQueueRepository(opened.value.db);
+let queueDispatcher: QueueDispatcher | undefined;
 const approvals = createApprovalBroker({
   onPendingChange: (chatId, count) =>
     chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
@@ -50,15 +57,19 @@ const writeTermPages = createTermPageWriter({
   extract: async (prompt) =>
     (await generateText({ model: termModel, prompt })).text,
 });
+const registry = new RunnerRegistry();
 const chatService = createChatService({
   chats,
-  registry: new RunnerRegistry(),
+  registry,
   approvals,
   languageModel: (modelId, { canUseTool }) =>
     createClaudeCode({ cwd: "/e2e", query, canUseTool })(modelId),
   wikiContext: createWikiContextBuilder(wiki),
+  onRunnerFinish: (chatId, outcome) =>
+    queueDispatcher?.onRunnerFinish(chatId, outcome),
   onAnswerComplete: (event) => void writeTermPages(event),
 });
+queueDispatcher = createQueueDispatcher({ queue, registry, chatService });
 const claude = createClaudeStatus(
   { found: true, path: "/usr/local/bin/claude" },
   {
@@ -89,6 +100,8 @@ const started = startServer({
     chats,
     projects,
     wiki,
+    queue,
+    queueDispatcher,
     chatService,
     approvals,
     claude,

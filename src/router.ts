@@ -5,12 +5,14 @@ import * as z from "zod";
 import type { ApprovalBroker } from "./chat/approval-broker.ts";
 import { checkImagePart, MAX_IMAGES_PER_MESSAGE } from "./chat/attachments.ts";
 import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
+import type { QueueDispatcher } from "./chat/queue-dispatcher.ts";
 import type { ClaudeStatusHolder } from "./claude/status.ts";
 import type { ChatRepository, DatabaseError } from "./db/chat-repository.ts";
 import type {
   ProjectNotFoundError,
   ProjectRepository,
 } from "./db/project-repository.ts";
+import type { QueueRepository } from "./db/queue-repository.ts";
 import {
   type ChatRow,
   type MessageRow,
@@ -27,6 +29,8 @@ import { version } from "./version.ts";
 export type RouterContext = {
   chats: ChatRepository;
   projects: ProjectRepository;
+  queue: QueueRepository;
+  queueDispatcher: QueueDispatcher;
   wiki: WikiRepository;
   chatService: ChatService;
   approvals: ApprovalBroker;
@@ -41,6 +45,7 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   ChatNotFoundError: "NOT_FOUND",
   ProjectNotFoundError: "NOT_FOUND",
   ProjectLinkNotFoundError: "NOT_FOUND",
+  QueuedMessageNotFoundError: "NOT_FOUND",
   WikiPageNotFoundError: "NOT_FOUND",
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
@@ -576,6 +581,103 @@ export const router = {
       await unwrapForOrpc(context.chats.markSelected(input.id), ERROR_CODES);
       return { id: input.id };
     }),
+  },
+  queue: {
+    /** 分岐の予約（送る順）と、送信を止めているか。 */
+    list: base
+      .input(z.object({ chatId: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        const { chat } = await unwrapForOrpc(
+          context.chats.getChat(input.chatId),
+          ERROR_CODES,
+        );
+        const items = await unwrapForOrpc(
+          context.queue.list(input.chatId),
+          ERROR_CODES,
+        );
+        const paused = await unwrapForOrpc(
+          context.queue.isPaused(input.chatId),
+          ERROR_CODES,
+        );
+        return {
+          paused,
+          /** サーバで生成中か（予約が送られて始まった生成を画面に映すため）。 */
+          active:
+            chat.status === "running" || chat.status === "awaiting_approval",
+          items: items.map((item) => ({
+            id: item.id,
+            parts: item.parts,
+            status: item.status,
+          })),
+        };
+      }),
+    /**
+     * 生成中の分岐にメッセージを予約する。今の回答が終わってから、予約した順に送る。
+     * 生成中でなければすぐ送る（一時停止中なら再開を待つ）。
+     */
+    add: base
+      .input(z.object({ chatId: z.string().min(1), message: userMessage }))
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(context.chats.getChat(input.chatId), ERROR_CODES);
+        const item = await unwrapForOrpc(
+          context.queue.add({
+            id: input.message.id,
+            chatId: input.chatId,
+            parts: input.message.parts,
+          }),
+          ERROR_CODES,
+        );
+        context.queueDispatcher.dispatch(input.chatId);
+        return { id: item.id };
+      }),
+    /** 送る前の予約の本文を書き換える（画像や引用はそのまま）。 */
+    update: base
+      .input(
+        z.object({ id: z.string().min(1), text: z.string().trim().min(1) }),
+      )
+      .handler(async ({ context, input }) => {
+        const item = await unwrapForOrpc(
+          context.queue.get(input.id),
+          ERROR_CODES,
+        );
+        const parts = [
+          ...(item.parts as { type: string }[]).filter(
+            (part) => part.type !== "text",
+          ),
+          { type: "text", text: input.text },
+        ];
+        await unwrapForOrpc(
+          context.queue.updateParts(input.id, parts),
+          ERROR_CODES,
+        );
+        return { id: input.id };
+      }),
+    /** 予約を取り消す。 */
+    remove: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(context.queue.remove(input.id), ERROR_CODES);
+        return { id: input.id };
+      }),
+    /** 保留（送信済みか分からない）の予約を、送信待ちに戻す。 */
+    release: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(context.queue.get(input.id), ERROR_CODES);
+        await unwrapForOrpc(
+          context.queue.setStatus(input.id, "pending"),
+          ERROR_CODES,
+        );
+        return { id: input.id };
+      }),
+    /** 一時停止を解いて、残りの予約を送り始める。 */
+    resume: base
+      .input(z.object({ chatId: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(context.chats.getChat(input.chatId), ERROR_CODES);
+        context.queueDispatcher.resume(input.chatId);
+        return { chatId: input.chatId };
+      }),
   },
   chat: {
     /**

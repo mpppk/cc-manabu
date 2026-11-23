@@ -30,6 +30,7 @@ import { Composer } from "./composer.tsx";
 import { Markdown, type WikiLinks } from "./markdown.tsx";
 import { imagePartsOf, MessageImages } from "./message-images.tsx";
 import { ModelPicker } from "./model-picker.tsx";
+import { QueuePanel, type QueueState } from "./queue-panel.tsx";
 import { Reasoning } from "./reasoning.tsx";
 import { ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
@@ -459,6 +460,55 @@ const useProjectTerms = (api: ApiClient, projectId: string | null) => {
   return { termMatcher, refreshTerms };
 };
 
+/** 予約（#102）を取り直す間隔。 */
+const QUEUE_POLL_MS = 1000;
+
+/**
+ * 分岐の予約（#102）。予約はサーバが送るので、送られたら（予約が消えた・サーバで生成中になった）
+ * onServerSend で画面に映す。
+ */
+const useQueue = (
+  api: ApiClient,
+  chatId: string,
+  busy: boolean,
+  onServerSend: () => void,
+) => {
+  const [state, setState] = useState<QueueState>();
+  const known = useRef(new Set<string>());
+  const missed = useRef(false);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const onServerSendRef = useRef(onServerSend);
+  onServerSendRef.current = onServerSend;
+
+  const refresh = useCallback(async () => {
+    const next = await api.queue.list({ chatId }).catch(() => undefined);
+    if (next === undefined) return;
+    const ids = new Set(next.items.map((item) => item.id));
+    if ([...known.current].some((id) => !ids.has(id))) missed.current = true;
+    known.current = ids;
+    setState((current) =>
+      JSON.stringify(current) === JSON.stringify(next) ? current : next,
+    );
+    if (!busyRef.current && (missed.current || next.active)) {
+      missed.current = false;
+      onServerSendRef.current();
+    }
+  }, [api, chatId]);
+
+  useEffect(() => {
+    void refresh();
+    const timer = setInterval(() => void refresh(), QUEUE_POLL_MS);
+    return () => clearInterval(timer);
+  }, [refresh]);
+
+  /** 利用者が取り消した予約は、送られたものとして扱わない。 */
+  const forget = (id: string) => {
+    known.current.delete(id);
+  };
+  return { state, refresh, forget };
+};
+
 /** 1 つの会話の画面。useChat に oRPC の ChatTransport を渡す。 */
 export const ChatView = ({
   api,
@@ -508,20 +558,62 @@ export const ChatView = ({
     () => new OrpcChatTransport(api, () => settingsRef.current),
     [api],
   );
-  const { messages, sendMessage, regenerate, status, stop, error } =
-    useChat<ChatUIMessage>({
-      id: chat.id,
-      messages: initialMessages,
-      transport,
-      // リロード時に生成中なら、途中から表示する
-      resume: true,
-      onFinish: () => {
-        onActivity?.();
-        // 回答のあとに用語ページが自動で作られるので、少し待ってから取り直す
-        setTimeout(refreshTerms, 3000);
-      },
-    });
+  const {
+    messages,
+    sendMessage,
+    regenerate,
+    status,
+    stop,
+    error,
+    setMessages,
+    resumeStream,
+  } = useChat<ChatUIMessage>({
+    id: chat.id,
+    messages: initialMessages,
+    transport,
+    // リロード時に生成中なら、途中から表示する
+    resume: true,
+    onFinish: () => {
+      onActivity?.();
+      // 予約があれば、サーバが次を送る
+      setTimeout(() => void queue.refresh(), 200);
+      // 回答のあとに用語ページが自動で作られるので、少し待ってから取り直す
+      setTimeout(refreshTerms, 3000);
+    },
+  });
   const busy = status === "submitted" || status === "streaming";
+
+  /** サーバが予約を送ったら、保存された会話を読み直して生成の続きを受け取る。 */
+  const syncing = useRef(false);
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const syncFromServer = async () => {
+    if (syncing.current) return;
+    syncing.current = true;
+    try {
+      const latest = await api.chats.get({ id: chat.id });
+      if (busyRef.current) return;
+      setMessages(latest.messages as ChatUIMessage[]);
+      onActivity?.();
+      if (
+        latest.chat.status === "running" ||
+        latest.chat.status === "awaiting_approval"
+      ) {
+        await resumeStream();
+      }
+    } catch {
+      // 次の取り直しで追いつく
+    } finally {
+      syncing.current = false;
+    }
+  };
+  const queue = useQueue(api, chat.id, busy, () => void syncFromServer());
+  const queueState = queue.state;
+  const queueing =
+    busy ||
+    (queueState !== undefined &&
+      !queueState.paused &&
+      queueState.items.some((item) => item.status !== "held"));
 
   /** 「ここから分岐」で選んだ応答。送信すると分岐を作る。取り消すと元に戻る。 */
   const [branchFrom, setBranchFrom] = useState<string>();
@@ -566,15 +658,45 @@ export const ChatView = ({
     }
   };
 
-  const submit = (text: string, images: ImageAttachment[]) => {
-    if (busy) return;
-    requestNotificationPermission();
-    const files = images.map(({ mediaType, filename, url }) => ({
+  const filePartsOf = (images: ImageAttachment[]) =>
+    images.map(({ mediaType, filename, url }) => ({
       type: "file" as const,
       mediaType,
       filename,
       url,
     }));
+
+  const [queueError, setQueueError] = useState<string>();
+  const queueAction = async (action: () => Promise<unknown>) => {
+    setQueueError(undefined);
+    try {
+      await action();
+    } catch (error) {
+      setQueueError(
+        error instanceof Error ? error.message : "予約を変更できませんでした。",
+      );
+    }
+    await queue.refresh();
+  };
+
+  const enqueue = (text: string, images: ImageAttachment[]) => {
+    requestNotificationPermission();
+    const parts = [
+      ...filePartsOf(images),
+      ...(text === "" ? [] : [{ type: "text" as const, text }]),
+    ];
+    void queueAction(() =>
+      api.queue.add({
+        chatId: chat.id,
+        message: { id: crypto.randomUUID(), role: "user", parts },
+      }),
+    );
+  };
+
+  const submit = (text: string, images: ImageAttachment[]) => {
+    if (busy) return;
+    requestNotificationPermission();
+    const files = filePartsOf(images);
     if (branchFrom !== undefined) {
       void createBranch(branchFrom, [
         ...(quote === undefined
@@ -596,6 +718,7 @@ export const ChatView = ({
     // サーバ側の生成を止めてから、購読を切る
     await api.chat.stop({ chatId: chat.id });
     await stop();
+    await queue.refresh();
   };
 
   return (
@@ -703,6 +826,30 @@ export const ChatView = ({
           </div>
         </div>
         <div className="border-t p-4">
+          {queueState !== undefined && (
+            <QueuePanel
+              state={queueState}
+              onUpdate={(id, text) =>
+                queueAction(() => api.queue.update({ id, text }))
+              }
+              onRemove={(id) => {
+                queue.forget(id);
+                return queueAction(() => api.queue.remove({ id }));
+              }}
+              onRelease={(id) => queueAction(() => api.queue.release({ id }))}
+              onResume={() =>
+                queueAction(() => api.queue.resume({ chatId: chat.id }))
+              }
+            />
+          )}
+          {queueError !== undefined && (
+            <p
+              className="mx-auto mb-2 max-w-3xl text-destructive text-sm"
+              role="alert"
+            >
+              {queueError}
+            </p>
+          )}
           <div className="mx-auto mb-2 flex max-w-3xl items-center justify-between gap-2">
             <ModelPicker
               models={models}
@@ -713,7 +860,13 @@ export const ChatView = ({
             />
             <UsageTotal messages={messages} />
           </div>
-          <Composer busy={busy} onSubmit={submit} onStop={onStop} />
+          <Composer
+            busy={busy}
+            queueing={queueing && branchFrom === undefined}
+            onSubmit={submit}
+            onQueue={enqueue}
+            onStop={onStop}
+          />
         </div>
       </div>
     </WikiTermsContext.Provider>

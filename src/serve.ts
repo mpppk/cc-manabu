@@ -3,6 +3,10 @@ import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
 import { createApprovalBroker } from "./chat/approval-broker.ts";
 import { createChatService } from "./chat/chat-service.ts";
+import {
+  createQueueDispatcher,
+  type QueueDispatcher,
+} from "./chat/queue-dispatcher.ts";
 import { RunnerRegistry } from "./chat/runner-registry.ts";
 import { resolveClaudePath } from "./claude/detect.ts";
 import { createClaudeStatus } from "./claude/status.ts";
@@ -10,6 +14,7 @@ import { createChatRepository } from "./db/chat-repository.ts";
 import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
 import { createProjectRepository } from "./db/project-repository.ts";
+import { createQueueRepository } from "./db/queue-repository.ts";
 import { createWikiRepository } from "./db/wiki-repository.ts";
 import { CliExit } from "./errors/index.ts";
 import { createClaudeCode } from "./provider/index.ts";
@@ -33,6 +38,9 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       const chats = createChatRepository(db);
       const projects = createProjectRepository(db);
       const wiki = createWikiRepository(db);
+      const queue = createQueueRepository(db);
+      // 前回の終了時に送信中だった予約を復元する（#102）
+      queue.recover();
       const claudePath = resolveClaudePath({
         env: process.env,
         which: (command) => Bun.which(command),
@@ -70,14 +78,23 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           (await generateText({ model: termModel, prompt, reasoning: "none" }))
             .text,
       });
+      const registry = new RunnerRegistry();
+      let queueDispatcher: QueueDispatcher | undefined;
       const chatService = createChatService({
         chats,
-        registry: new RunnerRegistry(),
+        registry,
         approvals,
         languageModel: (modelId, { canUseTool }) =>
           createClaudeCode({ ...providerSettings, canUseTool })(modelId),
         wikiContext: createWikiContextBuilder(wiki),
         onAnswerComplete: (event) => void writeTermPages(event),
+        onRunnerFinish: (chatId, outcome) =>
+          queueDispatcher?.onRunnerFinish(chatId, outcome),
+      });
+      queueDispatcher = createQueueDispatcher({
+        queue,
+        registry,
+        chatService,
       });
       return startServer({
         port: config.port,
@@ -89,6 +106,8 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           chats,
           projects,
           wiki,
+          queue,
+          queueDispatcher,
           chatService,
           approvals,
           claude,

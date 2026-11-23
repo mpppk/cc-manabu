@@ -26,10 +26,10 @@ import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
 import { toUserErrorMessage } from "./error-messages.ts";
 import { type QuoteData, quotesOf, quoteText } from "./quote.ts";
-import {
+import type {
   ChatAlreadyRunningError,
-  type RunnerRegistry,
-  type TooManyRunnersError,
+  RunnerRegistry,
+  TooManyRunnersError,
 } from "./runner-registry.ts";
 import { makeTitle } from "./title.ts";
 
@@ -188,6 +188,11 @@ export const createChatService = (deps: {
    * 用語ページの自動作成（#80）に使う。回答の保存のあとに呼び、結果は待たない。
    */
   onAnswerComplete?: (event: AnswerCompleted) => void;
+  /** 分岐の生成が終わったとき（予約したメッセージの送信に使う。#102）。 */
+  onRunnerFinish?: (
+    chatId: string,
+    outcome: "success" | "aborted" | "error",
+  ) => void;
 }) => {
   const { chats, registry, approvals } = deps;
 
@@ -344,7 +349,8 @@ export const createChatService = (deps: {
   const send = (input: SendInput): Result.Result<ChatRunner, SendError> => {
     let titled = false;
     return Result.pipe(
-      chats.getChat(input.chatId),
+      registry.canStart(input.chatId),
+      Result.andThen(() => chats.getChat(input.chatId)),
       Result.andThen(({ chat }) => {
         titled = chat.title === "";
         return chats.updateChat(chat.id, {
@@ -404,7 +410,8 @@ export const createChatService = (deps: {
     SendError | MessageNotFoundError | NotBranchableError
   > =>
     Result.pipe(
-      chats.getChat(input.parentId),
+      registry.canStart(input.branchId),
+      Result.andThen(() => chats.getChat(input.parentId)),
       Result.andThen(({ chat, messages }) => {
         const fork = messages.find(
           (m) => m.id === input.messageId && m.role === "assistant",
@@ -461,10 +468,8 @@ export const createChatService = (deps: {
   /** 生成中なら何もしない（メッセージを消す前に確かめる）。 */
   const ensureIdle = (
     chatId: string,
-  ): Result.Result<void, ChatAlreadyRunningError> =>
-    registry.get(chatId) === undefined
-      ? Result.succeed()
-      : Result.fail(new ChatAlreadyRunningError({ chatId }));
+  ): Result.Result<void, ChatAlreadyRunningError | TooManyRunnersError> =>
+    registry.canStart(chatId);
 
   /**
    * messages[index]（ユーザー発話）以降を消して、その発話から生成し直す。
@@ -573,10 +578,17 @@ export const createChatService = (deps: {
   const trackStatus = (runner: ChatRunner) => {
     chats.setStatus(runner.chatId, "running");
     runner.onFinish(() => {
-      const failed = runner
-        .snapshot()
-        .some((chunk: UIMessageChunk) => chunk.type === "error");
+      const chunks = runner.snapshot();
+      const failed = chunks.some(
+        (chunk: UIMessageChunk) => chunk.type === "error",
+      );
+      const aborted = chunks.some(
+        (chunk: UIMessageChunk) => chunk.type === "abort",
+      );
       chats.setStatus(runner.chatId, failed ? "error" : "idle");
+      const outcome = failed ? "error" : aborted ? "aborted" : "success";
+      // Runner の後始末が終わってから次の予約を送れるよう、少し遅らせる
+      setTimeout(() => deps.onRunnerFinish?.(runner.chatId, outcome), 0);
     });
   };
 
