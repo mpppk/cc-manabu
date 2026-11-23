@@ -9,6 +9,7 @@ Claude Code のログイン（サブスクリプション）を使うローカ�
 - `bun run check`: Biome（lint＋format チェック）。`bun run format` で整形
 - `bun run typecheck`: `tsc --noEmit`
 - `bun test`: 単体テスト
+- `bun run test:e2e`: Playwright の E2E テスト（モックの Claude で Web UI を動かす。初回は `bunx playwright install chromium`）
 - `bun run test:live`: 実機の `claude` を使う結合テスト（CI では実行しない。詳細は [docs/testing.md](docs/testing.md)）
 - `bun run record:fixtures`: Provider のテスト用 fixture を実機で記録し直す
 
