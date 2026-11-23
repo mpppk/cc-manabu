@@ -52,7 +52,7 @@ const setup = async () => {
   };
   const messages = async () =>
     (await client.chats.get({ id: chat.id })).messages.map((m) => [
-      m.id.startsWith("u") ? m.id : "assistant",
+      m.role === "user" ? m.id : "assistant",
       m.parts.find((p) => (p as { type: string }).type === "text"),
     ]);
   return {
