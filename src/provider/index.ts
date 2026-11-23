@@ -2,6 +2,16 @@ import { ClaudeCodeLanguageModel } from "./claude-code-language-model.ts";
 import type { ClaudeCodeModelId, ClaudeCodeProviderSettings } from "./types.ts";
 
 export { ClaudeCodeLanguageModel } from "./claude-code-language-model.ts";
+export {
+  ClaudeCodeApiError,
+  type ClaudeCodeError,
+  ClaudeCodeExecutionError,
+  ClaudeCodeNotFoundError,
+  ClaudeCodeProcessError,
+  isAuthenticationError,
+  isRetryableError,
+} from "./errors.ts";
+export type { ClaudeCodeProviderMetadata } from "./map-stream.ts";
 export type {
   ClaudeCodeCallOptions,
   ClaudeCodeModelId,
