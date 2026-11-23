@@ -188,3 +188,32 @@ describe("ChatRunner のバッファ", () => {
     ] as UIMessageChunk[]);
   });
 });
+
+describe("終了時の後始末", () => {
+  test("購読が終わった時点で、レジストリから外れている", async () => {
+    const registry = new RunnerRegistry();
+    const source = controllableSource();
+    const started = registry.start("c1", source.start);
+    if (Result.isFailure(started)) throw started.error;
+    const reading = collect(started.value.subscribe());
+    source.close();
+    await reading;
+    // done を待たずに、すぐ次の生成を始められる
+    expect(registry.get("c1")).toBeUndefined();
+    expect(
+      Result.isSuccess(registry.start("c1", controllableSource().start)),
+    ).toBe(true);
+  });
+
+  test("終わったあとに登録した onFinish はすぐ呼ばれる", async () => {
+    const source = controllableSource();
+    const runner = new ChatRunner("c1", source.start);
+    source.close();
+    await runner.done;
+    let called = false;
+    runner.onFinish(() => {
+      called = true;
+    });
+    expect(called).toBe(true);
+  });
+});

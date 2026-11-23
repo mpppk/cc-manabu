@@ -352,7 +352,7 @@ export const createChatService = (deps: {
 
   const trackStatus = (runner: ChatRunner) => {
     chats.setStatus(runner.chatId, "running");
-    runner.done.then(() => {
+    runner.onFinish(() => {
       const failed = runner
         .snapshot()
         .some((chunk: UIMessageChunk) => chunk.type === "error");

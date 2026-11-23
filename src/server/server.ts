@@ -21,8 +21,10 @@ export type StartServerOptions = {
   token: string;
   router: Router;
   context: RouterContext;
-  /** SPA（#34 で React に置き換える）。 */
-  index?: Response | (() => Response);
+  /** SPA（src/web/index.html）。省略時は仮の HTML（テスト用）。 */
+  index?: Bun.HTMLBundle;
+  /** 開発時は HMR を有効にする。 */
+  development?: boolean;
 };
 
 export type RunningServer = {
@@ -53,6 +55,11 @@ export const startServer = (
           port: options.port,
           // SSE / イベントストリームを切らない
           idleTimeout: 0,
+          // development: false を明示すると、Bun は使用中のポートでもエラーにせず別のポートで起動してしまう。
+          // 有効にするときだけ渡す。
+          ...(options.development === true
+            ? { development: { hmr: true } }
+            : {}),
           routes: {
             "/orpc/*": async (request) => {
               const access = checkApiRequest(request, {
@@ -70,10 +77,7 @@ export const startServer = (
                 ? response
                 : new Response("Not found", { status: 404 });
             },
-            "/*": () => {
-              const index = options.index ?? placeholderIndex;
-              return typeof index === "function" ? index() : index.clone();
-            },
+            "/*": options.index ?? placeholderIndex,
           },
         }),
       catch: (error) =>
@@ -81,6 +85,14 @@ export const startServer = (
         (error as { code?: string }).code === "EADDRINUSE"
           ? new PortInUseError({ port: options.port, cause: error })
           : new ServerStartError({ cause: error }),
+    }),
+    Result.andThen((server) => {
+      // 念のため、指定したポートで起動できたかを確かめる
+      if (options.port !== 0 && server.port !== options.port) {
+        server.stop(true);
+        return Result.fail(new PortInUseError({ port: options.port }));
+      }
+      return Result.succeed(server);
     }),
     Result.map((server) => {
       actualPort = server.port ?? options.port;
