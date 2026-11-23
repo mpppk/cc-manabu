@@ -1,14 +1,14 @@
-import {
-  type LanguageModelV4,
-  type LanguageModelV4CallOptions,
-  type LanguageModelV4GenerateResult,
-  type LanguageModelV4StreamPart,
-  type LanguageModelV4StreamResult,
-  UnsupportedFunctionalityError,
+import type {
+  LanguageModelV4,
+  LanguageModelV4CallOptions,
+  LanguageModelV4GenerateResult,
+  LanguageModelV4StreamPart,
+  LanguageModelV4StreamResult,
 } from "@ai-sdk/provider";
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { collectWarnings } from "./call-options.ts";
+import { collectStream } from "./collect-stream.ts";
 import { buildQueryOptions, extractLatestUserText } from "./convert-prompt.ts";
 import { classifyThrownError } from "./errors.ts";
 import { StreamMapper } from "./map-stream.ts";
@@ -42,11 +42,24 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
     this.query = settings.query ?? sdkQuery;
   }
 
+  /** doStream の結果をまとめて返す。途中でエラーが起きたら例外にする（AI SDK との境界）。 */
   async doGenerate(
-    _options: LanguageModelV4CallOptions,
+    options: LanguageModelV4CallOptions,
   ): Promise<LanguageModelV4GenerateResult> {
-    // #22 で doStream を集約して実装する。
-    throw new UnsupportedFunctionalityError({ functionality: "doGenerate" });
+    const { stream, request } = await this.doStream(options);
+    const collected = await collectStream(stream);
+    if (collected.hasError) {
+      throw collected.error;
+    }
+    return {
+      content: collected.content,
+      finishReason: collected.finishReason,
+      usage: collected.usage,
+      providerMetadata: collected.providerMetadata,
+      request,
+      response: collected.response,
+      warnings: collected.warnings,
+    };
   }
 
   async doStream(
