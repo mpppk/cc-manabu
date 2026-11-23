@@ -24,6 +24,8 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
   ApprovalNotFoundError: "NOT_FOUND",
+  MessageNotFoundError: "NOT_FOUND",
+  NothingToRegenerateError: "BAD_REQUEST",
 };
 
 /** クライアントに流すチャンク（承認要求の data パーツを含む）。 */
@@ -179,6 +181,38 @@ export const router = {
             >[0]["message"],
             model: input.model,
             effort: input.effort,
+          }),
+          ERROR_CODES,
+        );
+        return subscribe(runner, signal);
+      }),
+    /** 最後の応答を作り直す（直前のターンから fork する）。 */
+    regenerate: base
+      .input(z.object({ chatId: z.string().min(1) }))
+      .output(chunkIterator)
+      .handler(async ({ context, input, signal }) => {
+        const runner = await unwrapForOrpc(
+          context.chatService.regenerate(input.chatId),
+          ERROR_CODES,
+        );
+        return subscribe(runner, signal);
+      }),
+    /** ユーザー発話を書き換えて、そこから生成し直す。以降のメッセージは消える。 */
+    edit: base
+      .input(
+        z.object({
+          chatId: z.string().min(1),
+          messageId: z.string().min(1),
+          text: z.string().trim().min(1),
+        }),
+      )
+      .output(chunkIterator)
+      .handler(async ({ context, input, signal }) => {
+        const runner = await unwrapForOrpc(
+          context.chatService.edit({
+            chatId: input.chatId,
+            messageId: input.messageId,
+            parts: [{ type: "text", text: input.text }],
           }),
           ERROR_CODES,
         );
