@@ -9,7 +9,11 @@ import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { collectWarnings } from "./call-options.ts";
 import { collectStream } from "./collect-stream.ts";
-import { buildQueryOptions, extractLatestUserText } from "./convert-prompt.ts";
+import {
+  buildQueryOptions,
+  extractLatestUserPrompt,
+  toQueryPrompt,
+} from "./convert-prompt.ts";
 import { classifyThrownError } from "./errors.ts";
 import { StreamMapper } from "./map-stream.ts";
 import {
@@ -65,7 +69,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
   async doStream(
     options: LanguageModelV4CallOptions,
   ): Promise<LanguageModelV4StreamResult> {
-    const prompt = extractLatestUserText(options.prompt);
+    const prompt = extractLatestUserPrompt(options.prompt);
     if (Result.isFailure(prompt)) {
       // AI SDK との境界なので例外にする
       throw prompt.error;
@@ -94,7 +98,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
         controller.enqueue({ type: "stream-start", warnings });
         try {
           const messages = this.query({
-            prompt: prompt.value.text,
+            prompt: toQueryPrompt(prompt.value),
             options: queryOptions,
           });
           for await (const message of messages) {
@@ -139,6 +143,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
       request: {
         body: {
           prompt: prompt.value.text,
+          images: prompt.value.images.map((image) => image.mediaType),
           model: queryOptions.model,
           resume: queryOptions.resume,
           resumeSessionAt: queryOptions.resumeSessionAt,

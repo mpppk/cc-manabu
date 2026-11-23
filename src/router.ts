@@ -2,6 +2,7 @@ import { eventIterator, os } from "@orpc/server";
 import type { InferUIMessageChunk } from "ai";
 import * as z from "zod";
 import type { ApprovalBroker } from "./chat/approval-broker.ts";
+import { checkImagePart, MAX_IMAGES_PER_MESSAGE } from "./chat/attachments.ts";
 import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
 import type { ClaudeStatusHolder } from "./claude/status.ts";
 import type { ChatRepository } from "./db/chat-repository.ts";
@@ -89,16 +90,36 @@ const userMessage = z.object({
   parts: z
     .array(z.object({ type: z.string() }).passthrough())
     .min(1)
-    .refine(
-      (parts) =>
-        parts.some(
-          (part) =>
-            part.type === "text" &&
-            typeof part.text === "string" &&
-            part.text.trim() !== "",
-        ),
-      "message must contain text",
-    ),
+    .superRefine((parts, ctx) => {
+      const hasText = parts.some(
+        (part) =>
+          part.type === "text" &&
+          typeof part.text === "string" &&
+          part.text.trim() !== "",
+      );
+      const files = parts.filter((part) => part.type === "file");
+      if (!hasText && files.length === 0) {
+        ctx.addIssue({
+          code: "custom",
+          message: "message must contain text or images",
+        });
+      }
+      if (files.length > MAX_IMAGES_PER_MESSAGE) {
+        ctx.addIssue({
+          code: "custom",
+          message: `画像は 1 つの発話に ${MAX_IMAGES_PER_MESSAGE} 枚まで添付できます。`,
+        });
+      }
+      for (const file of files) {
+        const problem = checkImagePart({
+          mediaType: file.mediaType,
+          url: file.url,
+        });
+        if (problem !== undefined) {
+          ctx.addIssue({ code: "custom", message: problem });
+        }
+      }
+    }),
 });
 
 export const router = {

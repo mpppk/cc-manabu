@@ -1,4 +1,7 @@
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  SDKMessage,
+  SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import type { QueryFunction } from "../../src/provider/types.ts";
 
 /**
@@ -6,6 +9,7 @@ import type { QueryFunction } from "../../src/provider/types.ts";
  *
  * - 「承認」を含む: Bash の承認を求め、許可なら「許可されました」、拒否なら「拒否されました」と返す
  * - 「ゆっくり」を含む: 1〜40 を 1 行ずつ、150ms 間隔で流す（リロード・停止の確認用）
+ * - 画像付き: 「画像 <枚数> 枚: <テキスト>」と返す
  * - それ以外: 「了解: <プロンプト>」と返す
  *
  * resume / fork を受け取ったセッション ID はそのまま（fork なら新しい ID を）返す。
@@ -13,7 +17,6 @@ import type { QueryFunction } from "../../src/provider/types.ts";
 export const createScriptedQuery = (): QueryFunction => {
   let counter = 0;
   return ({ prompt, options }) => {
-    const text = typeof prompt === "string" ? prompt : "";
     const sessionId =
       options?.resume !== undefined && options.forkSession !== true
         ? options.resume
@@ -84,6 +87,19 @@ export const createScriptedQuery = (): QueryFunction => {
     }
 
     return (async function* (): AsyncGenerator<SDKMessage> {
+      // 画像付きの発話は、content ブロックを持つユーザーメッセージで届く
+      let text = typeof prompt === "string" ? prompt : "";
+      let images = 0;
+      if (typeof prompt !== "string") {
+        for await (const message of prompt as AsyncIterable<SDKUserMessage>) {
+          const { content } = message.message;
+          for (const item of typeof content === "string" ? [] : content) {
+            if (item.type === "image") images++;
+            if (item.type === "text") text += item.text;
+          }
+        }
+      }
+
       yield {
         ...base,
         type: "system",
@@ -117,6 +133,8 @@ export const createScriptedQuery = (): QueryFunction => {
           Array.from({ length: 40 }, (_, i) => `${i + 1}\n`),
           150,
         );
+      } else if (images > 0) {
+        yield* textMessage([`画像 ${images} 枚: `, text], 0);
       } else {
         yield* textMessage(["了解: ", text], 0);
       }

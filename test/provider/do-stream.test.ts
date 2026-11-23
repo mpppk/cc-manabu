@@ -55,6 +55,51 @@ describe("doStream", () => {
     });
   });
 
+  test("画像付きの発話は、画像ブロックを含むユーザーメッセージとして渡す", async () => {
+    const { model, calls } = await setup("text-partial");
+    const result = streamText({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "file",
+              mediaType: "image/png",
+              data: "data:image/png;base64,iVBORw0KGgo=",
+            },
+            { type: "text", text: "これは？" },
+          ],
+        },
+      ],
+    });
+    await result.consumeStream();
+    const messages: unknown[] = [];
+    const sent = calls[0]?.prompt as AsyncIterable<unknown>;
+    for await (const message of sent) {
+      messages.push(message);
+    }
+    expect(messages).toEqual([
+      expect.objectContaining({
+        type: "user",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: "image/png",
+                data: "iVBORw0KGgo=",
+              },
+            },
+            { type: "text", text: "これは？" },
+          ],
+        },
+      }),
+    ]);
+  });
+
   test("テキストの応答（text-partial）", async () => {
     const { model } = await setup("text-partial");
     const result = streamText({ model, prompt });

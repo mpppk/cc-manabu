@@ -1,3 +1,4 @@
+import path from "node:path";
 import { expect, type Page, test } from "@playwright/test";
 
 const TOKEN = "e2e-token";
@@ -147,4 +148,102 @@ test("会話の切り替え・名前変更・削除", async ({ page }) => {
   await page.getByRole("button", { name: "削除", exact: true }).click();
   await expect(list.getByText("名前を変えた")).toHaveCount(0);
   await expect(page).toHaveURL(/\/$/);
+});
+
+/** 入力欄に画像ファイルを貼り付ける（クリップボードの画像だけを貼った状態）。 */
+const pasteImage = (page: Page, init: { width: number; height: number }) =>
+  page
+    .getByRole("textbox", { name: "メッセージ" })
+    .evaluate(async (textarea, { width, height }) => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext("2d");
+      if (context === null) throw new Error("no 2d context");
+      context.fillStyle = "#00d";
+      context.fillRect(0, 0, width, height);
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, "image/png"),
+      );
+      if (blob === null) throw new Error("toBlob failed");
+      const data = new DataTransfer();
+      data.items.add(new File([blob], "pasted.png", { type: "image/png" }));
+      textarea.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    }, init);
+
+test("画像を添付して送れる（選択・貼り付け・縮小・取り消し・拡大）", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const attachments = page.getByRole("list", { name: "添付する画像" });
+  const fileInput = page.getByTestId("image-input");
+  const fixture = path.join(
+    import.meta.dirname,
+    "..",
+    "fixtures",
+    "images",
+    "red-7.png",
+  );
+
+  // 対応していない形式はエラー
+  await fileInput.setInputFiles({
+    name: "note.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("hello"),
+  });
+  await expect(page.getByRole("alert")).toContainText("PNG・JPEG・GIF・WebP");
+
+  // ファイル選択で添付し、取り消せる
+  await fileInput.setInputFiles(fixture);
+  await expect(attachments.getByRole("img")).toHaveCount(1);
+  await page.getByRole("button", { name: "画像を削除（red-7.png）" }).click();
+  await expect(attachments).toHaveCount(0);
+
+  // 選択と貼り付けで 2 枚。大きい画像は長辺 1568px に縮小される
+  await fileInput.setInputFiles(fixture);
+  await pasteImage(page, { width: 3000, height: 2000 });
+  await expect(attachments.getByRole("img")).toHaveCount(2);
+  const pasted = attachments.getByRole("img", { name: "pasted.png" });
+  await expect
+    .poll(() => pasted.evaluate((img: HTMLImageElement) => img.naturalWidth))
+    .toBe(1568);
+
+  await send(page, "これは？");
+  await expect(page.getByText("画像 2 枚: これは？")).toBeVisible();
+  await idle(page);
+  await expect(attachments).toHaveCount(0);
+
+  // 送った発話に画像が表示され、クリックで拡大できる。リロードしても残る
+  await page.reload();
+  await page.getByRole("button", { name: "画像を拡大（red-7.png）" }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(
+    page.getByRole("dialog").getByRole("img", { name: "red-7.png" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("画像だけでも送れて、タイトルは「画像」になる", async ({ page }) => {
+  await open(page);
+  await newChat(page);
+  await pasteImage(page, { width: 100, height: 100 });
+  await expect(
+    page.getByRole("list", { name: "添付する画像" }).getByRole("img"),
+  ).toHaveCount(1);
+  await page.getByRole("button", { name: "送信", exact: true }).click();
+  await expect(page.getByText("画像 1 枚:")).toBeVisible();
+  await idle(page);
+  await expect(
+    page.getByRole("navigation", { name: "会話一覧" }).getByText("画像", {
+      exact: true,
+    }),
+  ).toBeVisible();
 });

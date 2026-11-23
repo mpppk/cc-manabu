@@ -44,7 +44,7 @@ export class OrpcChatTransport implements ChatTransport<ChatUIMessage> {
     // sendMessage({ messageId }) は既存の発話の書き換え（それより後ろは消える）
     if (messageId !== undefined) {
       const text = last.parts
-        .map((part) => (part.type === "text" ? part.text : ""))
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
         .join("\n\n");
       return toReadableStream(
         await this.api.chat.edit({ chatId, messageId, text }, options),
