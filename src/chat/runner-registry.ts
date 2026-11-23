@@ -41,7 +41,7 @@ export class RunnerRegistry {
     }
     const runner = new ChatRunner(chatId, start);
     this.runners.set(chatId, runner);
-    runner.done.then(() => {
+    runner.onFinish(() => {
       if (this.runners.get(chatId) === runner) {
         this.runners.delete(chatId);
       }

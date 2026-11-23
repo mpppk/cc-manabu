@@ -15,6 +15,7 @@ export class ChatRunner {
   private readonly abortController = new AbortController();
   private stateValue: RunnerState = "running";
   private wake: () => void = () => {};
+  private readonly finishListeners: ((runner: ChatRunner) => void)[] = [];
   private changed: Promise<void>;
   /** 生成が終わる（成功・中断・エラー）と解決する。 */
   readonly done: Promise<void>;
@@ -34,6 +35,18 @@ export class ChatRunner {
 
   get aborted(): boolean {
     return this.abortController.signal.aborted;
+  }
+
+  /**
+   * 生成が終わったときに呼ぶ処理を登録する。
+   * 購読者に終了を知らせる前に同期的に呼ぶので、購読が終わった時点で後始末（レジストリからの削除など）は済んでいる。
+   */
+  onFinish(listener: (runner: ChatRunner) => void): void {
+    if (this.stateValue === "finished") {
+      listener(this);
+      return;
+    }
+    this.finishListeners.push(listener);
   }
 
   /** これまでに届いたチャンク（コピー）。 */
@@ -137,6 +150,9 @@ export class ChatRunner {
       });
     } finally {
       this.stateValue = "finished";
+      for (const listener of this.finishListeners) {
+        listener(this);
+      }
       this.notify();
     }
   }

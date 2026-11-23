@@ -14,6 +14,7 @@ import { router } from "./router.ts";
 import type { RuntimeConfig } from "./runtime-config.ts";
 import { generateToken } from "./server/access-control.ts";
 import { openBrowser, startServer } from "./server/server.ts";
+import index from "./web/index.html";
 
 /** 引数なしで起動したときの処理: DB を開き、サーバを立ち上げてブラウザを開く。 */
 export const serve = async (config: RuntimeConfig): Promise<void> => {
@@ -57,6 +58,8 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         port: config.port,
         token: generateToken(),
         router,
+        index,
+        development: process.env.NODE_ENV !== "production",
         context: { chats, chatService, approvals, claude, cwd: process.cwd() },
       });
     }),
