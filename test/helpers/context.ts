@@ -2,6 +2,7 @@ import { Result } from "@praha/byethrow";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
+import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import {
@@ -41,10 +42,30 @@ export const createTestContext = (
     languageModel: (modelId, { canUseTool }) =>
       createClaudeCode({ cwd: "/work", query, canUseTool })(modelId),
   });
+  const claude = createClaudeStatus(
+    { found: true, path: "/usr/local/bin/claude" },
+    {
+      version: async () => "2.1.330",
+      probe: async () =>
+        Result.succeed({
+          models: [
+            {
+              value: "default",
+              displayName: "Default",
+              description: "",
+              supportsEffort: true,
+              supportedEffortLevels: ["low", "medium", "high"],
+            },
+          ],
+          account: { subscriptionType: "Claude Max" },
+        }),
+    },
+  );
   const context: RouterContext = {
     chats,
     chatService,
     approvals,
+    claude,
     cwd: "/work",
   };
   return {

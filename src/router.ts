@@ -3,6 +3,7 @@ import type { InferUIMessageChunk } from "ai";
 import * as z from "zod";
 import type { ApprovalBroker } from "./chat/approval-broker.ts";
 import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
+import type { ClaudeStatusHolder } from "./claude/status.ts";
 import type { ChatRepository } from "./db/chat-repository.ts";
 import type { ChatRow, MessageRow } from "./db/schema.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
@@ -13,6 +14,7 @@ export type RouterContext = {
   chats: ChatRepository;
   chatService: ChatService;
   approvals: ApprovalBroker;
+  claude: ClaudeStatusHolder;
   /** 新しい会話の作業ディレクトリ（起動時のカレントディレクトリ）。 */
   cwd: string;
 };
@@ -103,6 +105,12 @@ export const router = {
   system: {
     /** サーバが動いていて、トークンが正しいかを確かめる。 */
     ping: base.handler(() => ({ ok: true as const, version })),
+    /** Claude Code の状態（インストール・バージョン・アカウント種別・モデル一覧）。 */
+    status: base.handler(({ context }) => ({
+      version,
+      cwd: context.cwd,
+      claude: context.claude.get(),
+    })),
   },
   chats: {
     list: base.handler(async ({ context }) =>
