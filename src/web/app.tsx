@@ -207,6 +207,9 @@ export const App = ({ api }: { api: ApiClient }) => {
             api={api}
             chat={current.chat}
             initialMessages={current.messages}
+            models={
+              status?.claude.state === "ready" ? status.claude.models : []
+            }
             onActivity={() => void refreshChats()}
           />
         ) : (
