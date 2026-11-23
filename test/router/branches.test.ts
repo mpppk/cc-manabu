@@ -254,3 +254,87 @@ describe("分岐（#76）", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("選択範囲を引用して質問（#91）", () => {
+  test("引用と質問を区別してモデルに渡し、引用を発話に残す。編集しても引用は消えない", async () => {
+    const scripted = createScriptedQuery();
+    const prompts: string[] = [];
+    const query: QueryFunction = (params) => {
+      if (typeof params.prompt === "string") prompts.push(params.prompt);
+      return scripted(params);
+    };
+    const ctx = createTestContext({ query });
+    const client = createRouterClient(router, { context: ctx.context });
+    const root = await twoTurns(client);
+    const { messages } = await client.chats.get({ id: root.id });
+    const answer = messages[1];
+    const branchId = crypto.randomUUID();
+    const quote = {
+      type: "data-quote" as const,
+      data: {
+        text: "方式 B\n失敗時は再送する",
+        sourceMessageId: answer?.id ?? "",
+      },
+    };
+    await client.chat.branch({
+      parentId: root.id,
+      messageId: answer?.id ?? "",
+      branchId,
+      message: {
+        id: "q1",
+        role: "user",
+        parts: [quote, { type: "text", text: "失敗時はどう復旧する？" }],
+      },
+    });
+    await drain(await client.chat.reconnect({ chatId: branchId }));
+    await waitFor(
+      async () =>
+        (await client.chats.get({ id: branchId })).chat.status === "idle",
+    );
+
+    const sent = prompts.at(-1) ?? "";
+    expect(sent).toContain("<quote>\n方式 B\n失敗時は再送する\n</quote>");
+    expect(sent.indexOf("</quote>")).toBeLessThan(
+      sent.indexOf("失敗時はどう復旧する？"),
+    );
+    const branch = await client.chats.get({ id: branchId });
+    expect(branch.chat.branchTitle).toBe("失敗時はどう復旧する？");
+    expect(branch.messages[2]?.parts).toEqual([
+      quote,
+      { type: "text", text: "失敗時はどう復旧する？" },
+    ]);
+
+    await drain(
+      await client.chat.edit({
+        chatId: branchId,
+        messageId: "q1",
+        text: "失敗時の通知は？",
+      }),
+    );
+    expect(
+      (await client.chats.get({ id: branchId })).messages[2]?.parts,
+    ).toEqual([quote, { type: "text", text: "失敗時の通知は？" }]);
+    expect(prompts.at(-1)).toContain("<quote>");
+  });
+
+  test("空の引用は BAD_REQUEST", async () => {
+    const { client } = setup();
+    const root = await twoTurns(client);
+    const { messages } = await client.chats.get({ id: root.id });
+    expect(
+      client.chat.branch({
+        parentId: root.id,
+        messageId: messages[1]?.id ?? "",
+        branchId: crypto.randomUUID(),
+        message: {
+          id: "q",
+          role: "user",
+          parts: [
+            { type: "data-quote", data: { text: " ", sourceMessageId: "x" } },
+            { type: "text", text: "質問" },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});
