@@ -21,5 +21,10 @@
     "@types/bun": "^1.4.5",
     "typescript": "^7.0.2"
   },
-  "packageManager": "bun@1.4.4"
+  "packageManager": "bun@1.4.4",
+  "dependencies": {
+    "@orpc/server": "^1.16.5",
+    "@praha/byethrow": "^0.13.0",
+    "@praha/error-factory": "^1.4.1"
+  }
 }
