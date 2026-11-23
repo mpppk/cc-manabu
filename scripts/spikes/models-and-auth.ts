@@ -14,9 +14,12 @@ const idleInput = () => {
     close = resolve;
   });
   const iterable: AsyncIterable<SDKUserMessage> = {
-    async *[Symbol.asyncIterator]() {
-      await closed;
-    },
+    [Symbol.asyncIterator]: () => ({
+      next: async (): Promise<IteratorResult<SDKUserMessage>> => {
+        await closed;
+        return { done: true, value: undefined };
+      },
+    }),
   };
   return { iterable, close };
 };
