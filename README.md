@@ -3,7 +3,7 @@
 インストール済みの [Claude Code](https://code.claude.com/docs/en/overview)（`claude` コマンド）を使って、ブラウザから Claude と会話するためのローカルチャットアプリです。
 Bun 製の単一バイナリとして動き、起動するとローカルに Web UI を立ち上げます。
 
-> **開発中です。** 最初のリリースはまだありません。設計と進め方は [開発計画](docs/development-plan.md) を参照してください。
+> 設計と進め方は [開発計画](docs/development-plan.md) を参照してください。
 
 ## 特徴
 
