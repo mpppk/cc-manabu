@@ -15,7 +15,8 @@
     "format": "biome format --write .",
     "check": "biome check .",
     "test": "bun test",
-    "record:fixtures": "bun scripts/record-sdk-messages.ts"
+    "record:fixtures": "bun scripts/record-sdk-messages.ts",
+    "test:live": "CC_MANABU_LIVE=1 bun test test/live"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",
