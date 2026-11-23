@@ -1,0 +1,39 @@
+[
+  {
+    "toolName": "Bash",
+    "input": {
+      "command": "touch created.txt && ls",
+      "description": "Create created.txt and list directory contents"
+    },
+    "options": {
+      "suggestions": [
+        {
+          "type": "addRules",
+          "rules": [
+            {
+              "toolName": "Bash",
+              "ruleContent": "touch created.txt && ls"
+            }
+          ],
+          "behavior": "allow",
+          "destination": "localSettings"
+        },
+        {
+          "type": "addDirectories",
+          "directories": ["/tmp/cc-manabu-fixture"],
+          "destination": "session"
+        },
+        {
+          "type": "setMode",
+          "mode": "acceptEdits",
+          "destination": "session"
+        }
+      ],
+      "blockedPath": "/tmp/cc-manabu-fixture/created.txt",
+      "displayName": "Bash",
+      "description": "Create created.txt and list directory contents",
+      "toolUseID": "toolu_01H8HGC2g6ypCWWtbn7dyUT9",
+      "requestId": "65709b54-ea8b-45f3-92e5-898e48f38c3d"
+    }
+  }
+]
