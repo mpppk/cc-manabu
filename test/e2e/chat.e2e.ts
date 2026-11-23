@@ -8,7 +8,8 @@ const open = async (page: Page) => {
 };
 
 const newChat = async (page: Page) => {
-  await page.getByRole("button", { name: "新しい会話" }).click();
+  // 無題の会話もサイドバーに「新しい会話」と表示されるので、aria-label で作成ボタンを指す
+  await page.getByLabel("新しい会話", { exact: true }).click();
   await expect(page).toHaveURL(/\/c\/.+/);
 };
 
