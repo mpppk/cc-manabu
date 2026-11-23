@@ -17,7 +17,8 @@
     "test": "bun test",
     "record:fixtures": "bun scripts/record-sdk-messages.ts",
     "test:live": "CC_MANABU_LIVE=1 bun test test/live",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build:binary": "bun run build-binary.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.8",
