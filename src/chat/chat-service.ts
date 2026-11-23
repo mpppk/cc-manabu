@@ -8,6 +8,7 @@ import {
   streamText,
   type UIMessage,
   type UIMessageChunk,
+  type UserContent,
 } from "ai";
 import type {
   ChatNotFoundError,
@@ -96,6 +97,29 @@ const textOf = (parts: ChatUIMessage["parts"]): string =>
     .filter((text) => text !== "")
     .join("\n\n");
 
+const filesOf = (parts: ChatUIMessage["parts"]) =>
+  parts.filter((part) => part.type === "file");
+
+/** 最初の発話から付けるタイトル。画像だけなら「画像」。 */
+const titleOf = (parts: ChatUIMessage["parts"]): string => {
+  const text = textOf(parts);
+  return text === "" && filesOf(parts).length > 0 ? "画像" : makeTitle(text);
+};
+
+/** ユーザー発話の parts を、モデルに渡す content（テキストと画像）にする。 */
+export const toUserContent = (parts: ChatUIMessage["parts"]): UserContent => {
+  const text = textOf(parts);
+  return [
+    ...filesOf(parts).map((part) => ({
+      type: "file" as const,
+      mediaType: part.mediaType,
+      // data URL のまま渡すと、AI SDK がバイト列にして Provider に渡す
+      data: part.url,
+    })),
+    ...(text === "" ? [] : [{ type: "text" as const, text }]),
+  ];
+};
+
 const isInitMessage = (
   value: unknown,
 ): value is { type: "system"; subtype: "init"; session_id: string } =>
@@ -126,7 +150,7 @@ export const createChatService = (deps: {
     model: string;
     effort: Effort | null;
     sessionId: string | null;
-    prompt: string;
+    content: UserContent;
     resumeSessionAt?: string;
     forkSession?: boolean;
   }): Result.Result<
@@ -143,7 +167,7 @@ export const createChatService = (deps: {
           );
           const result = streamText({
             model: deps.languageModel(params.model, { canUseTool }),
-            messages: [{ role: "user", content: params.prompt }],
+            messages: [{ role: "user", content: params.content }],
             ...(params.effort === null ? {} : { reasoning: params.effort }),
             providerOptions: {
               [PROVIDER_NAME]: {
@@ -226,9 +250,7 @@ export const createChatService = (deps: {
           ...(input.model === undefined ? {} : { model: input.model }),
           ...(input.effort === undefined ? {} : { effort: input.effort }),
           // 最初の発話でタイトルを付ける（名前を変えていればそのまま）
-          ...(chat.title === ""
-            ? { title: makeTitle(textOf(input.message.parts)) }
-            : {}),
+          ...(chat.title === "" ? { title: titleOf(input.message.parts) } : {}),
         }),
       ),
       Result.andThen((chat) =>
@@ -247,7 +269,7 @@ export const createChatService = (deps: {
           model: chat.model,
           effort: (chat.effort as Effort | null) ?? null,
           sessionId: chat.sessionId,
-          prompt: textOf(input.message.parts),
+          content: toUserContent(input.message.parts),
         }),
       ),
       Result.inspect((runner) => trackStatus(runner)),
@@ -292,7 +314,7 @@ export const createChatService = (deps: {
           effort: (chat.effort as Effort | null) ?? null,
           // 分岐点が無ければ（最初の発話からやり直すなら）新しいセッションにする
           sessionId: forkPoint === undefined ? null : chat.sessionId,
-          prompt: textOf(userMessage.parts),
+          content: toUserContent(userMessage.parts),
           ...(forkPoint === undefined
             ? {}
             : { resumeSessionAt: forkPoint, forkSession: true }),
@@ -322,7 +344,10 @@ export const createChatService = (deps: {
       }),
     );
 
-  /** ユーザー発話を書き換えて、そこから生成し直す。以降のメッセージは消える。 */
+  /**
+   * ユーザー発話を書き換えて、そこから生成し直す。以降のメッセージは消える。
+   * 書き換えるのは本文だけで、添付した画像はそのまま送る。
+   */
   const edit = (input: {
     chatId: string;
     messageId: string;
@@ -343,9 +368,10 @@ export const createChatService = (deps: {
             new MessageNotFoundError({ messageId: input.messageId }),
           );
         }
+        const original = messages[index]?.parts as ChatUIMessage["parts"];
         return restartFrom(chat, messages, index, {
           id: input.messageId,
-          parts: input.parts,
+          parts: [...filesOf(original), ...input.parts],
         });
       }),
     );

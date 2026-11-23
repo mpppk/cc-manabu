@@ -3,13 +3,14 @@ import type { LanguageModelV4CallOptions } from "@ai-sdk/provider";
 import { Result } from "@praha/byethrow";
 import {
   buildQueryOptions,
-  extractLatestUserText,
+  extractLatestUserPrompt,
+  toQueryPrompt,
 } from "../../src/provider/convert-prompt.ts";
 import { PROVIDER_NAME } from "../../src/provider/types.ts";
 
-describe("extractLatestUserText", () => {
+describe("extractLatestUserPrompt", () => {
   test("末尾のユーザー発話のテキストだけを返す", () => {
-    const result = extractLatestUserText([
+    const result = extractLatestUserPrompt([
       { role: "user", content: [{ type: "text", text: "1 回目" }] },
       { role: "assistant", content: [{ type: "text", text: "返答" }] },
       {
@@ -21,12 +22,49 @@ describe("extractLatestUserText", () => {
       },
     ]);
     expect(result).toEqual(
-      Result.succeed({ text: "2 回目\n\n続き", warnings: [] }),
+      Result.succeed({ text: "2 回目\n\n続き", images: [], warnings: [] }),
     );
   });
 
-  test("テキスト以外のパーツと system メッセージは warning にする", () => {
-    const result = extractLatestUserText([
+  test("画像の file パーツを base64 の画像にする", () => {
+    const result = extractLatestUserPrompt([
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            mediaType: "image/png",
+            data: { type: "data", data: new Uint8Array([1, 2, 3]) },
+          },
+          {
+            type: "file",
+            mediaType: "image/jpeg",
+            data: { type: "data", data: "QUJD" },
+          },
+          {
+            type: "file",
+            mediaType: "image/webp",
+            data: { type: "url", url: new URL("data:image/webp;base64,WFla") },
+          },
+          { type: "text", text: "これは？" },
+        ],
+      },
+    ]);
+    expect(result).toEqual(
+      Result.succeed({
+        text: "これは？",
+        images: [
+          { mediaType: "image/png", base64: "AQID" },
+          { mediaType: "image/jpeg", base64: "QUJD" },
+          { mediaType: "image/webp", base64: "WFla" },
+        ],
+        warnings: [],
+      }),
+    );
+  });
+
+  test("送れないパーツと system メッセージは warning にする", () => {
+    const result = extractLatestUserPrompt([
       { role: "system", content: "you are helpful" },
       {
         role: "user",
@@ -34,8 +72,13 @@ describe("extractLatestUserText", () => {
           { type: "text", text: "これは？" },
           {
             type: "file",
-            mediaType: "image/png",
+            mediaType: "application/pdf",
             data: { type: "data", data: new Uint8Array([1]) },
+          },
+          {
+            type: "file",
+            mediaType: "image/png",
+            data: { type: "url", url: new URL("https://example.com/a.png") },
           },
         ],
       },
@@ -43,7 +86,9 @@ describe("extractLatestUserText", () => {
     expect(Result.isSuccess(result)).toBe(true);
     if (Result.isSuccess(result)) {
       expect(result.value.text).toBe("これは？");
+      expect(result.value.images).toEqual([]);
       expect(result.value.warnings.map((w) => w.type)).toEqual([
+        "unsupported",
         "unsupported",
         "unsupported",
       ]);
@@ -51,12 +96,58 @@ describe("extractLatestUserText", () => {
   });
 
   test("末尾がユーザー発話でなければ NoUserMessageError", () => {
-    const result = extractLatestUserText([
+    const result = extractLatestUserPrompt([
       { role: "assistant", content: [{ type: "text", text: "返答" }] },
     ]);
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
       expect(result.error.name).toBe("NoUserMessageError");
+    }
+  });
+});
+
+describe("toQueryPrompt", () => {
+  test("画像が無ければ文字列", () => {
+    expect(toQueryPrompt({ text: "hi", images: [] })).toBe("hi");
+  });
+
+  test("画像があれば、画像ブロックとテキストを持つユーザーメッセージを 1 つ流す", async () => {
+    const prompt = toQueryPrompt({
+      text: "これは？",
+      images: [{ mediaType: "image/png", base64: "AQID" }],
+    });
+    expect(typeof prompt).not.toBe("string");
+    const messages = [];
+    for await (const message of prompt as AsyncIterable<unknown>) {
+      messages.push(message);
+    }
+    expect(messages).toEqual([
+      {
+        type: "user",
+        parent_tool_use_id: null,
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: "image/png", data: "AQID" },
+            },
+            { type: "text", text: "これは？" },
+          ],
+        },
+      },
+    ]);
+  });
+
+  test("本文が空なら画像だけ", async () => {
+    const prompt = toQueryPrompt({
+      text: "",
+      images: [{ mediaType: "image/gif", base64: "R0lG" }],
+    }) as AsyncIterable<{ message: { content: { type: string }[] } }>;
+    for await (const message of prompt) {
+      expect(message.message.content.map((block) => block.type)).toEqual([
+        "image",
+      ]);
     }
   });
 });

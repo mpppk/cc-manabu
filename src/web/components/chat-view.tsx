@@ -1,15 +1,18 @@
 import { useChat } from "@ai-sdk/react";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
-import { ArrowUp, Pencil, RotateCcw, Square } from "lucide-react";
-import { type KeyboardEvent, useMemo, useRef, useState } from "react";
+import { Pencil, RotateCcw } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
 import type { ChatDto } from "../../router.ts";
 import { OrpcChatTransport } from "../lib/chat-transport.ts";
+import type { ImageAttachment } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { ApprovalCard } from "./approval-card.tsx";
+import { Composer } from "./composer.tsx";
 import { Markdown } from "./markdown.tsx";
+import { imagePartsOf, MessageImages } from "./message-images.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { Reasoning } from "./reasoning.tsx";
 import { ToolCard } from "./tool-card.tsx";
@@ -17,7 +20,7 @@ import { Button } from "./ui/button.tsx";
 
 const textOf = (message: ChatUIMessage): string =>
   message.parts
-    .map((part) => (part.type === "text" ? part.text : ""))
+    .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n\n");
 
 /** ユーザー発話。生成中でなければ編集できる（それより後ろの会話は消える）。 */
@@ -33,9 +36,13 @@ const UserMessage = ({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 
+  const images = imagePartsOf(message);
+  const text = textOf(message);
+
   if (editing) {
     return (
       <div className="flex flex-col items-end gap-2">
+        <MessageImages images={images} />
         <textarea
           className="min-h-24 w-full max-w-[80%] resize-y rounded-2xl border bg-background px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
           aria-label="発話を編集"
@@ -44,6 +51,7 @@ const UserMessage = ({
         />
         <p className="text-muted-foreground text-xs">
           送信すると、この発話より後ろの会話は消えて作り直されます。
+          {images.length > 0 && "添付した画像はそのまま送られます。"}
         </p>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
@@ -80,8 +88,13 @@ const UserMessage = ({
           <Pencil className="size-3.5" />
         </Button>
       )}
-      <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-secondary px-4 py-2">
-        {textOf(message)}
+      <div className="flex max-w-[80%] flex-col items-end gap-2">
+        <MessageImages images={images} />
+        {text !== "" && (
+          <div className="whitespace-pre-wrap rounded-2xl bg-secondary px-4 py-2">
+            {text}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -229,28 +242,22 @@ export const ChatView = ({
       resume: true,
       onFinish: () => onActivity?.(),
     });
-  const [input, setInput] = useState("");
   const busy = status === "submitted" || status === "streaming";
 
-  const submit = () => {
-    const text = input.trim();
-    if (text === "" || busy) return;
-    setInput("");
+  const submit = (text: string, images: ImageAttachment[]) => {
+    if (busy) return;
     requestNotificationPermission();
-    void sendMessage({ text }).then(() => onActivity?.());
+    const files = images.map(({ mediaType, filename, url }) => ({
+      type: "file" as const,
+      mediaType,
+      filename,
+      url,
+    }));
+    void sendMessage(text === "" ? { files } : { text, files }).then(() =>
+      onActivity?.(),
+    );
     // タイトルと状態（生成中）をすぐ一覧に反映する
     setTimeout(() => onActivity?.(), 300);
-  };
-
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !event.nativeEvent.isComposing
-    ) {
-      event.preventDefault();
-      submit();
-    }
   };
 
   const onStop = async () => {
@@ -271,7 +278,9 @@ export const ChatView = ({
               canAct={!busy}
               isLast={index === messages.length - 1}
               onEdit={(messageId, text) => {
-                void sendMessage({ text, messageId }).then(() =>
+                // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
+                const files = imagePartsOf(message);
+                void sendMessage({ text, files, messageId }).then(() =>
                   onActivity?.(),
                 );
               }}
@@ -307,31 +316,7 @@ export const ChatView = ({
           />
           <UsageTotal messages={messages} />
         </div>
-        <div className="mx-auto flex max-w-3xl items-end gap-2">
-          <textarea
-            className="max-h-48 min-h-11 flex-1 resize-none rounded-xl border bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            placeholder="メッセージを入力（Enter で送信、Shift+Enter で改行）"
-            aria-label="メッセージ"
-            rows={1}
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            onKeyDown={onKeyDown}
-          />
-          {busy ? (
-            <Button size="icon" aria-label="停止" onClick={onStop}>
-              <Square />
-            </Button>
-          ) : (
-            <Button
-              size="icon"
-              aria-label="送信"
-              onClick={submit}
-              disabled={input.trim() === ""}
-            >
-              <ArrowUp />
-            </Button>
-          )}
-        </div>
+        <Composer busy={busy} onSubmit={submit} onStop={onStop} />
       </div>
     </div>
   );

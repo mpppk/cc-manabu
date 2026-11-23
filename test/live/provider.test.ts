@@ -154,4 +154,38 @@ describe.skipIf(!LIVE)("live: Claude Code provider", () => {
     },
     TIMEOUT,
   );
+  test(
+    "画像を読み取り、resume 後も前の画像を覚えている",
+    async () => {
+      const image = await Bun.file(
+        path.join(import.meta.dir, "..", "fixtures", "images", "red-7.png"),
+      ).bytes();
+      const turn1 = await generateText({
+        model: model(),
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "file", mediaType: "image/png", data: image },
+              {
+                type: "text",
+                text: "この画像に書かれている数字を、数字 1 文字だけで答えてください。",
+              },
+            ],
+          },
+        ],
+      });
+      expect(turn1.text).toContain("7");
+      const sessionId = metadataOf(turn1.providerMetadata)?.sessionId;
+
+      const turn2 = await generateText({
+        model: model(),
+        prompt:
+          "さっきの画像の背景は何色でしたか？色の名前だけで答えてください。",
+        providerOptions: { [PROVIDER_NAME]: { sessionId } },
+      });
+      expect(turn2.text).toMatch(/赤|red/i);
+    },
+    TIMEOUT,
+  );
 });
