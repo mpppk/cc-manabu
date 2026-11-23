@@ -82,6 +82,41 @@ describe("OrpcChatTransport", () => {
     expect(calls[1]?.prompt).toBe("1");
   });
 
+  test("messageId 付きの submit-message は chat.edit を呼ぶ（発話の書き換え）", async () => {
+    const { api, chat, calls, chats } = await setup();
+    const transport = new OrpcChatTransport(api);
+    const first = userMessage("1");
+    await lastMessage(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: chat.id,
+        messageId: undefined,
+        messages: [first],
+        abortSignal: undefined,
+      }),
+    );
+    await waitFor(() => {
+      const r = chats.getChat(chat.id);
+      return r.type === "Success" && r.value.chat.status === "idle";
+    });
+    await lastMessage(
+      await transport.sendMessages({
+        trigger: "submit-message",
+        chatId: chat.id,
+        messageId: first.id,
+        messages: [{ ...first, parts: [{ type: "text", text: "一" }] }],
+        abortSignal: undefined,
+      }),
+    );
+    expect(calls[1]?.prompt).toBe("一");
+    const saved = chats.getChat(chat.id);
+    if (saved.type === "Failure") throw saved.error;
+    expect(saved.value.messages.map((m) => m.id)[0]).toBe(first.id);
+    expect(saved.value.messages[0]?.parts).toEqual([
+      { type: "text", text: "一" },
+    ]);
+  });
+
   test("生成中でなければ reconnectToStream は null", async () => {
     const { api, chat } = await setup();
     const transport = new OrpcChatTransport(api);
