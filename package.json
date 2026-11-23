@@ -1,0 +1,24 @@
+{
+  "name": "cc-manabu",
+  "version": "0.0.0",
+  "description": "Local chat app that talks to Claude through your Claude Code login",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "cc-manabu": "./src/binary.ts"
+  },
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "check": "biome check .",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.8",
+    "@types/bun": "^1.4.5",
+    "typescript": "^7.0.2"
+  }
+}
