@@ -968,3 +968,55 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
     .selectOption({ label: "元の会話" });
   await expect(main.locator("blockquote")).toHaveCount(0);
 });
+
+test("生成中に予約したメッセージは回答のあとに順に送られ、停止すると一時停止する", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const panel = page.getByRole("region", { name: "予約したメッセージ" });
+
+  // 生成中に Enter で予約する（割り込まない）
+  await send(page, "ゆっくり数えて");
+  await expect(page.locator("main")).toContainText("2");
+  await send(page, "予約その1");
+  await send(page, "予約その2");
+  await expect(panel).toContainText("予約 2 件");
+  await expect(panel).toContainText("予約その1");
+  await expect(page.getByText("了解: 予約その2")).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(panel).toHaveCount(0);
+  await idle(page);
+  const text = (await page.locator("main").textContent()) ?? "";
+  expect(text.indexOf("40")).toBeLessThan(text.indexOf("了解: 予約その1"));
+  expect(text.indexOf("了解: 予約その1")).toBeLessThan(
+    text.indexOf("予約その2"),
+  );
+
+  // 停止すると予約は送らずに一時停止する。リロードしても残る
+  await send(page, "もう一度ゆっくり数えて");
+  await expect(page.getByRole("button", { name: "停止" })).toBeVisible();
+  await send(page, "止めたあと");
+  await expect(panel).toContainText("予約 1 件");
+  await page.getByRole("button", { name: "停止" }).click();
+  await expect(panel).toContainText("一時停止中");
+  await page.reload();
+  await expect(panel).toContainText("一時停止中");
+  await expect(page.getByText("了解: 止めたあと")).toHaveCount(0);
+
+  // 書き換えてから再開する
+  await panel.getByRole("button", { name: "予約を編集" }).click();
+  await panel
+    .getByRole("textbox", { name: "予約を編集" })
+    .fill("書き換えた予約");
+  await panel.getByRole("button", { name: "保存" }).click();
+  await expect(panel).toContainText("書き換えた予約");
+  await panel.getByRole("button", { name: "再開" }).click();
+  await expect(page.getByText("了解: 書き換えた予約")).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(panel).toHaveCount(0);
+  await idle(page);
+  await expect(page.getByText("了解: 止めたあと")).toHaveCount(0);
+});

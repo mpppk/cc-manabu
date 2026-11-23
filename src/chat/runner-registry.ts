@@ -27,10 +27,13 @@ export class RunnerRegistry {
     this.maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
   }
 
-  start(
+  /**
+   * いま生成を始められるか。発話を保存する前に確かめる
+   * （保存してから始められないと、応答の無い発話が残る）。
+   */
+  canStart(
     chatId: string,
-    start: (signal: AbortSignal) => ReadableStream<UIMessageChunk>,
-  ): Result.Result<ChatRunner, ChatAlreadyRunningError | TooManyRunnersError> {
+  ): Result.Result<void, ChatAlreadyRunningError | TooManyRunnersError> {
     if (this.runners.has(chatId)) {
       return Result.fail(new ChatAlreadyRunningError({ chatId }));
     }
@@ -38,6 +41,17 @@ export class RunnerRegistry {
       return Result.fail(
         new TooManyRunnersError({ limit: this.maxConcurrent }),
       );
+    }
+    return Result.succeed();
+  }
+
+  start(
+    chatId: string,
+    start: (signal: AbortSignal) => ReadableStream<UIMessageChunk>,
+  ): Result.Result<ChatRunner, ChatAlreadyRunningError | TooManyRunnersError> {
+    const allowed = this.canStart(chatId);
+    if (Result.isFailure(allowed)) {
+      return allowed;
     }
     const runner = new ChatRunner(chatId, start);
     this.runners.set(chatId, runner);

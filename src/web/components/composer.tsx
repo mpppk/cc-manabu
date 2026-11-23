@@ -1,5 +1,5 @@
 import { Result } from "@praha/byethrow";
-import { ArrowUp, ImagePlus, Square, X } from "lucide-react";
+import { ArrowUp, ImagePlus, ListPlus, Square, X } from "lucide-react";
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -18,14 +18,22 @@ import { Button } from "./ui/button.tsx";
 const hasFiles = (event: DragEvent) =>
   event.dataTransfer.types.includes("Files");
 
-/** 発話の入力欄。テキストと画像（貼り付け・選択・ドロップ）を送る。 */
+/**
+ * 発話の入力欄。テキストと画像（貼り付け・選択・ドロップ）を送る。
+ * 生成中は、送る代わりに予約できる（#102）。
+ */
 export const Composer = ({
   busy,
+  queueing = false,
   onSubmit,
+  onQueue,
   onStop,
 }: {
   busy: boolean;
+  /** 送る代わりに予約するか（生成中・送信待ちの予約があるとき）。 */
+  queueing?: boolean;
   onSubmit: (text: string, images: ImageAttachment[]) => void;
+  onQueue?: (text: string, images: ImageAttachment[]) => void;
   onStop: () => void;
 }) => {
   const [input, setInput] = useState("");
@@ -57,12 +65,19 @@ export const Composer = ({
     }
   };
 
+  const queue = queueing && onQueue !== undefined;
   const canSend =
-    !busy && loading === 0 && (input.trim() !== "" || images.length > 0);
+    (!busy || queue) &&
+    loading === 0 &&
+    (input.trim() !== "" || images.length > 0);
 
   const submit = () => {
     if (!canSend) return;
-    onSubmit(input.trim(), images);
+    if (queue) {
+      onQueue(input.trim(), images);
+    } else {
+      onSubmit(input.trim(), images);
+    }
     setInput("");
     setImages([]);
     setAttachError(undefined);
@@ -164,14 +179,18 @@ export const Composer = ({
           size="icon"
           aria-label="画像を添付"
           title="画像を添付（貼り付け・ドロップもできます）"
-          disabled={busy}
+          disabled={busy && !queue}
           onClick={() => fileInput.current?.click()}
         >
           <ImagePlus />
         </Button>
         <textarea
           className="max-h-48 min-h-11 flex-1 resize-none rounded-xl border bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          placeholder="メッセージを入力（Enter で送信、Shift+Enter で改行。画像は貼り付けできます）"
+          placeholder={
+            queue
+              ? "メッセージを予約（今の回答が終わったあとに順に送ります）"
+              : "メッセージを入力（Enter で送信、Shift+Enter で改行。画像は貼り付けできます）"
+          }
           aria-label="メッセージ"
           rows={1}
           value={input}
@@ -179,11 +198,23 @@ export const Composer = ({
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />
+        {queue && (
+          <Button
+            size="icon"
+            variant={busy ? "outline" : "default"}
+            aria-label="送信を予約"
+            title="送信を予約（今の回答が終わったあとに順に送ります）"
+            onClick={submit}
+            disabled={!canSend}
+          >
+            <ListPlus />
+          </Button>
+        )}
         {busy ? (
           <Button size="icon" aria-label="停止" onClick={onStop}>
             <Square />
           </Button>
-        ) : (
+        ) : queue ? null : (
           <Button
             size="icon"
             aria-label="送信"

@@ -84,6 +84,10 @@ export const chats = sqliteTable(
     forkFromUuid: text("fork_from_uuid"),
     /** 最後にこの分岐を開いた日時（会話を開き直したときに表示する分岐）。 */
     lastSelectedAt: integer("last_selected_at", { mode: "timestamp_ms" }),
+    /** 予約したメッセージの送信を止めているか（停止・エラーのあと。#102）。 */
+    queuePaused: integer("queue_paused", { mode: "boolean" })
+      .notNull()
+      .default(false),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(unixepoch('subsec') * 1000)`),
@@ -183,7 +187,43 @@ export const projectLinks = sqliteTable(
   (table) => [index("project_links_project_id_idx").on(table.projectId)],
 );
 
+export const QUEUE_STATUSES = ["pending", "sending", "held"] as const;
+export type QueueStatus = (typeof QUEUE_STATUSES)[number];
+
+/**
+ * 生成中に予約したメッセージ（#102）。分岐（chats の行）ごとに、追加した順に 1 件ずつ送る。
+ * 送るときは id をそのまま発話の id にするので、送信済みかどうかを発話の有無で確かめられる。
+ */
+export const queuedMessages = sqliteTable(
+  "queued_messages",
+  {
+    id: text("id").primaryKey(),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    /** 送る順番。 */
+    position: integer("position").notNull(),
+    /** 送る発話の parts（JSON）。 */
+    parts: text("parts", { mode: "json" }).notNull().$type<unknown[]>(),
+    /**
+     * pending: 送信待ち / sending: 送信中 /
+     * held: 送信済みか分からない（サーバ再起動時の送信中など）。利用者に確かめてもらう
+     */
+    status: text("status", { enum: QUEUE_STATUSES })
+      .notNull()
+      .default("pending"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+  },
+  (table) => [index("queued_messages_chat_id_idx").on(table.chatId)],
+);
+
 export type ProjectRow = typeof projects.$inferSelect;
+export type QueuedMessageRow = typeof queuedMessages.$inferSelect;
 export type ProjectLinkRow = typeof projectLinks.$inferSelect;
 export type WikiPageRow = typeof wikiPages.$inferSelect;
 export type ChatRow = typeof chats.$inferSelect;
