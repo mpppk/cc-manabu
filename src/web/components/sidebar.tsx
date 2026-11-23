@@ -1,5 +1,7 @@
 import {
   Check,
+  FolderMinus,
+  ListPlus,
   Loader2,
   MessageSquarePlus,
   Pencil,
@@ -7,8 +9,9 @@ import {
   X,
 } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import type { ChatDto } from "../../router.ts";
+import type { ChatDto, ProjectDto } from "../../router.ts";
 import { cn } from "../lib/utils.ts";
+import { AddThreadsDialog, ProjectSwitcher } from "./project-switcher.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 
@@ -44,12 +47,15 @@ const ChatItem = ({
   onSelect,
   onRename,
   onDelete,
+  onRemoveFromProject,
 }: {
   chat: ChatDto;
   selected: boolean;
   onSelect: () => void;
   onRename: (title: string) => Promise<void>;
   onDelete: () => void;
+  /** プロジェクト内の一覧なら、プロジェクトから外せる。 */
+  onRemoveFromProject?: () => void;
 }) => {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(chat.title);
@@ -129,6 +135,18 @@ const ChatItem = ({
         >
           <Pencil className="size-3.5" />
         </Button>
+        {onRemoveFromProject !== undefined && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            aria-label={`「${label}」をプロジェクトから外す`}
+            title="プロジェクトから外す"
+            onClick={onRemoveFromProject}
+          >
+            <FolderMinus className="size-3.5" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"
@@ -145,20 +163,40 @@ const ChatItem = ({
 
 export const Sidebar = ({
   chats,
+  projects,
+  projectId,
   selectedId,
   onNew,
   onSelect,
   onRename,
   onDelete,
+  onSelectProject,
+  onCreateProject,
+  onRenameProject,
+  onDeleteProject,
+  onSetProject,
 }: {
+  /** すべての会話（表示は選択中のプロジェクトで絞る）。 */
   chats: ChatDto[];
+  projects: ProjectDto[];
+  /** 選択中のプロジェクト。null は未所属の会話。 */
+  projectId: string | null;
   selectedId: string | undefined;
   onNew: () => void;
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onSelectProject: (projectId: string | null) => void;
+  onCreateProject: (name: string) => Promise<void>;
+  onRenameProject: (projectId: string, name: string) => Promise<void>;
+  onDeleteProject: (projectId: string) => Promise<void>;
+  /** 会話の所属を変える（null で未所属に戻す）。 */
+  onSetProject: (chatId: string, projectId: string | null) => Promise<void>;
 }) => {
   const [deleting, setDeleting] = useState<ChatDto>();
+  const [adding, setAdding] = useState(false);
+  const visible = chats.filter((chat) => chat.projectId === projectId);
+  const project = projects.find((p) => p.id === projectId);
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
@@ -168,19 +206,47 @@ export const Sidebar = ({
           variant="ghost"
           size="icon"
           aria-label="新しい会話"
+          title={
+            project === undefined
+              ? "新しい会話"
+              : `「${project.name}」に新しい会話`
+          }
           onClick={onNew}
         >
           <MessageSquarePlus />
         </Button>
       </div>
+      <ProjectSwitcher
+        projects={projects}
+        projectId={projectId}
+        onSelect={onSelectProject}
+        onCreate={onCreateProject}
+        onRename={onRenameProject}
+        onDelete={onDeleteProject}
+      />
+      {project !== undefined && (
+        <div className="px-3 pb-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => setAdding(true)}
+          >
+            <ListPlus className="size-3.5" />
+            既存のスレッドを追加
+          </Button>
+        </div>
+      )}
       <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
-        {chats.length === 0 ? (
+        {visible.length === 0 ? (
           <p className="px-2 py-4 text-muted-foreground text-sm">
-            まだ会話がありません。
+            {project === undefined
+              ? "未所属の会話はありません。"
+              : "このプロジェクトにはまだ会話がありません。"}
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {chats.map((chat) => (
+            {visible.map((chat) => (
               <li key={chat.id}>
                 <ChatItem
                   chat={chat}
@@ -188,12 +254,27 @@ export const Sidebar = ({
                   onSelect={() => onSelect(chat.id)}
                   onRename={(title) => onRename(chat.id, title)}
                   onDelete={() => setDeleting(chat)}
+                  {...(project === undefined
+                    ? {}
+                    : {
+                        onRemoveFromProject: () =>
+                          void onSetProject(chat.id, null),
+                      })}
                 />
               </li>
             ))}
           </ul>
         )}
       </nav>
+      <AddThreadsDialog
+        open={adding}
+        projectName={project?.name ?? ""}
+        candidates={chats.filter((chat) => chat.projectId === null)}
+        onAdd={async (chatId) => {
+          if (project !== undefined) await onSetProject(chatId, project.id);
+        }}
+        onClose={() => setAdding(false)}
+      />
       <Dialog
         open={deleting !== undefined}
         onOpenChange={(open) => {

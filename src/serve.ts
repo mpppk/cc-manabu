@@ -8,6 +8,7 @@ import { createClaudeStatus } from "./claude/status.ts";
 import { createChatRepository } from "./db/chat-repository.ts";
 import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
+import { createProjectRepository } from "./db/project-repository.ts";
 import { CliExit } from "./errors/index.ts";
 import { createClaudeCode } from "./provider/index.ts";
 import { router } from "./router.ts";
@@ -22,6 +23,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
     openDatabase(resolveDbPath()),
     Result.andThen(({ db }) => {
       const chats = createChatRepository(db);
+      const projects = createProjectRepository(db);
       const claudePath = resolveClaudePath({
         env: process.env,
         which: (command) => Bun.which(command),
@@ -60,7 +62,14 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         router,
         index,
         development: process.env.NODE_ENV !== "production",
-        context: { chats, chatService, approvals, claude, cwd: process.cwd() },
+        context: {
+          chats,
+          projects,
+          chatService,
+          approvals,
+          claude,
+          cwd: process.cwd(),
+        },
       });
     }),
   );

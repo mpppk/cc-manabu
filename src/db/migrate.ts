@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import init from "./migrations/0000_init.sql" with { type: "text" };
+import projects from "./migrations/0001_projects.sql" with { type: "text" };
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -7,6 +8,7 @@ import init from "./migrations/0000_init.sql" with { type: "text" };
  */
 export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0000_init", sql: init },
+  { name: "0001_projects", sql: projects },
 ];
 
 /** 未適用のマイグレーションを順に適用する。 */

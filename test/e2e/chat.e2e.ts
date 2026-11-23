@@ -247,3 +247,91 @@ test("画像だけでも送れて、タイトルは「画像」になる", async
     }),
   ).toBeVisible();
 });
+
+const createProject = async (page: Page, name: string) => {
+  await page.getByRole("button", { name: "新しいプロジェクト" }).click();
+  await page.getByRole("textbox", { name: "プロジェクトの名前" }).fill(name);
+  await page.getByRole("button", { name: "作成" }).click();
+  await expect(page).toHaveURL(/\/p\/.+/);
+  await expect(
+    page.getByRole("combobox", { name: "プロジェクト" }),
+  ).toHaveValue(/.+/);
+};
+
+test("プロジェクトでスレッドをまとめ、既存のスレッドを追加できる", async ({
+  page,
+}) => {
+  await open(page);
+  const list = page.getByRole("navigation", { name: "会話一覧" });
+  const projectSelect = page.getByRole("combobox", { name: "プロジェクト" });
+
+  // 未所属のスレッドを 1 つ作っておく
+  await newChat(page);
+  await send(page, "あとで追加する会話");
+  await idle(page);
+
+  // プロジェクトを 2 つ作り、それぞれにスレッドを作る
+  await createProject(page, "認可基盤");
+  await expect(
+    list.getByText("このプロジェクトにはまだ会話がありません。"),
+  ).toBeVisible();
+  await newChat(page);
+  await send(page, "認可の会話");
+  await idle(page);
+  await createProject(page, "家計簿");
+  await newChat(page);
+  await send(page, "家計簿の会話");
+  await idle(page);
+
+  // 切り替えると、それぞれのスレッドだけが並ぶ
+  await projectSelect.selectOption({ label: "認可基盤" });
+  await expect(list.getByText("認可の会話")).toBeVisible();
+  await expect(list.getByText("家計簿の会話")).toHaveCount(0);
+  await projectSelect.selectOption({ label: "未所属のスレッド" });
+  await expect(list.getByText("あとで追加する会話")).toBeVisible();
+  await expect(list.getByText("認可の会話")).toHaveCount(0);
+
+  // 未所属のスレッドを追加すると、過去のメッセージごと移って続けられる
+  await projectSelect.selectOption({ label: "認可基盤" });
+  await page.getByRole("button", { name: "既存のスレッドを追加" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "「あとで追加する会話」を追加" })
+    .click();
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await list.getByText("あとで追加する会話").click();
+  await expect(page.getByText("了解: あとで追加する会話")).toBeVisible();
+  await send(page, "続きの発話");
+  await expect(page.getByText("了解: 続きの発話")).toBeVisible();
+  await idle(page);
+
+  // リロードしてもプロジェクトと所属は保たれる
+  await page.reload();
+  await expect(projectSelect).toHaveValue(/.+/);
+  await expect(projectSelect.locator("option:checked")).toHaveText("認可基盤");
+  await expect(list.getByText("あとで追加する会話")).toBeVisible();
+  await expect(list.getByText("認可の会話")).toBeVisible();
+
+  // プロジェクトから外すと未所属に戻る
+  const item = list.locator("li").filter({ hasText: "あとで追加する会話" });
+  await item.hover();
+  await item.getByRole("button", { name: /をプロジェクトから外す$/ }).click();
+  await expect(list.getByText("あとで追加する会話")).toHaveCount(0);
+
+  // 名前を変えて、削除するとスレッドは未所属に戻る
+  await page
+    .getByRole("button", { name: "プロジェクトの名前を変える" })
+    .click();
+  await page.getByRole("textbox", { name: "プロジェクトの名前" }).fill("認可");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(projectSelect.locator("option:checked")).toHaveText("認可");
+  await page.getByRole("button", { name: "プロジェクトを削除" }).click();
+  await page.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(projectSelect.locator("option:checked")).toHaveText(
+    "未所属のスレッド",
+  );
+  await expect(list.getByText("認可の会話")).toBeVisible();
+  await expect(list.getByText("あとで追加する会話")).toBeVisible();
+  await expect(list.getByText("家計簿の会話")).toHaveCount(0);
+});

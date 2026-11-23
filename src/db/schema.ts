@@ -15,10 +15,26 @@ export const CHAT_STATUSES = [
 ] as const;
 export type ChatStatus = (typeof CHAT_STATUSES)[number];
 
+/** 複数の会話（と、のちに Wiki）をまとめる単位。 */
+export const projects = sqliteTable("projects", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch('subsec') * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch('subsec') * 1000)`),
+});
+
 export const chats = sqliteTable(
   "chats",
   {
     id: text("id").primaryKey(),
+    /** 所属するプロジェクト。未所属なら null。プロジェクトを消すと未所属に戻る。 */
+    projectId: text("project_id").references(() => projects.id, {
+      onDelete: "set null",
+    }),
     title: text("title").notNull().default(""),
     /** resume する Claude Code のセッション ID。最初の送信まではない。 */
     sessionId: text("session_id"),
@@ -33,7 +49,10 @@ export const chats = sqliteTable(
       .notNull()
       .default(sql`(unixepoch('subsec') * 1000)`),
   },
-  (table) => [index("chats_updated_at_idx").on(table.updatedAt)],
+  (table) => [
+    index("chats_updated_at_idx").on(table.updatedAt),
+    index("chats_project_id_idx").on(table.projectId),
+  ],
 );
 
 export const messages = sqliteTable(
@@ -63,5 +82,6 @@ export const messages = sqliteTable(
   (table) => [uniqueIndex("messages_chat_seq_idx").on(table.chatId, table.seq)],
 );
 
+export type ProjectRow = typeof projects.$inferSelect;
 export type ChatRow = typeof chats.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;

@@ -1,7 +1,7 @@
 import { Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
-import type { ChatDto } from "../router.ts";
+import type { ChatDto, ProjectDto } from "../router.ts";
 import { ChatView } from "./components/chat-view.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { Button } from "./components/ui/button.tsx";
@@ -11,7 +11,12 @@ import {
   titleFor,
 } from "./lib/notify.ts";
 import type { ApiClient } from "./lib/orpc.ts";
-import { chatIdFromPath, pathForChat } from "./lib/route.ts";
+import {
+  chatIdFromPath,
+  pathForChat,
+  pathForProject,
+  projectIdFromPath,
+} from "./lib/route.ts";
 import { applyTheme, loadTheme, type Theme } from "./lib/theme.ts";
 
 type Status = Awaited<ReturnType<ApiClient["system"]["status"]>>;
@@ -54,9 +59,9 @@ export const App = ({ api }: { api: ApiClient }) => {
   const [status, setStatus] = useState<Status>();
   const [theme, setTheme] = useState<Theme>(loadTheme);
   const [chats, setChats] = useState<ChatDto[]>([]);
-  const [selectedId, setSelectedId] = useState<string | undefined>(() =>
-    chatIdFromPath(window.location.pathname),
-  );
+  const [projects, setProjects] = useState<ProjectDto[]>();
+  const [path, setPath] = useState(() => window.location.pathname);
+  const selectedId = chatIdFromPath(path);
   const [current, setCurrent] = useState<{
     chat: ChatDto;
     messages: ChatUIMessage[];
@@ -108,17 +113,28 @@ export const App = ({ api }: { api: ApiClient }) => {
     return () => clearInterval(timer);
   }, [refreshChats]);
 
-  // 選んだ会話を URL に反映し、ブラウザの戻る・進むにも対応する
-  const select = useCallback((id: string | undefined) => {
-    if (window.location.pathname !== pathForChat(id)) {
-      window.history.pushState(null, "", pathForChat(id));
-    }
-    setSelectedId(id);
-  }, []);
+  const refreshProjects = useCallback(async () => {
+    setProjects(await api.projects.list());
+  }, [api]);
 
   useEffect(() => {
-    const onPopState = () =>
-      setSelectedId(chatIdFromPath(window.location.pathname));
+    void refreshProjects();
+  }, [refreshProjects]);
+
+  // 選んだ会話・プロジェクトを URL に反映し、ブラウザの戻る・進むにも対応する
+  const navigate = useCallback((next: string) => {
+    if (window.location.pathname !== next) {
+      window.history.pushState(null, "", next);
+    }
+    setPath(next);
+  }, []);
+  const select = useCallback(
+    (id: string | undefined) => navigate(pathForChat(id)),
+    [navigate],
+  );
+
+  useEffect(() => {
+    const onPopState = () => setPath(window.location.pathname);
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
@@ -148,10 +164,50 @@ export const App = ({ api }: { api: ApiClient }) => {
     };
   }, [api, selectedId]);
 
+  // 一覧に出すプロジェクト。会話を開いていればその所属先、そうでなければ URL のプロジェクト
+  const selectedChat =
+    chats.find((chat) => chat.id === selectedId) ??
+    (current?.chat.id === selectedId ? current?.chat : undefined);
+  const routeProjectId = projectIdFromPath(path);
+  const projectId =
+    selectedId !== undefined
+      ? (selectedChat?.projectId ?? null)
+      : routeProjectId !== undefined &&
+          (projects === undefined ||
+            projects.some((project) => project.id === routeProjectId))
+        ? routeProjectId
+        : null;
+
   const newChat = async () => {
-    const chat = await api.chats.create({});
+    const chat = await api.chats.create({ projectId });
     await refreshChats();
     select(chat.id);
+  };
+
+  const createProject = async (name: string) => {
+    const project = await api.projects.create({ name });
+    await refreshProjects();
+    navigate(pathForProject(project.id));
+  };
+
+  const renameProject = async (id: string, name: string) => {
+    await api.projects.rename({ id, name });
+    await refreshProjects();
+  };
+
+  const deleteProject = async (id: string) => {
+    await api.projects.delete({ id });
+    await Promise.all([refreshProjects(), refreshChats()]);
+    navigate(pathForProject(null));
+  };
+
+  const setProject = async (chatId: string, next: string | null) => {
+    await api.chats.setProject({ id: chatId, projectId: next });
+    // 開いている会話を今の一覧から外したら、一覧ごと移動せずにこのプロジェクトに留まる
+    if (chatId === selectedId && next !== projectId) {
+      navigate(pathForProject(projectId));
+    }
+    await refreshChats();
   };
 
   const rename = async (id: string, title: string) => {
@@ -171,11 +227,18 @@ export const App = ({ api }: { api: ApiClient }) => {
     <div className="flex h-full">
       <Sidebar
         chats={chats}
+        projects={projects ?? []}
+        projectId={projectId}
         selectedId={selectedId}
         onNew={() => void newChat()}
         onSelect={select}
         onRename={rename}
         onDelete={remove}
+        onSelectProject={(id) => navigate(pathForProject(id))}
+        onCreateProject={createProject}
+        onRenameProject={renameProject}
+        onDeleteProject={deleteProject}
+        onSetProject={setProject}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b px-4">
