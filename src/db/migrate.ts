@@ -3,6 +3,9 @@ import init from "./migrations/0000_init.sql" with { type: "text" };
 import projects from "./migrations/0001_projects.sql" with { type: "text" };
 import wiki from "./migrations/0002_wiki.sql" with { type: "text" };
 import autoTerms from "./migrations/0003_auto_terms.sql" with { type: "text" };
+import projectLinks from "./migrations/0004_project_links.sql" with {
+  type: "text",
+};
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -13,6 +16,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0001_projects", sql: projects },
   { name: "0002_wiki", sql: wiki },
   { name: "0003_auto_terms", sql: autoTerms },
+  { name: "0004_project_links", sql: projectLinks },
 ];
 
 /** 未適用のマイグレーションを順に適用する。 */

@@ -242,7 +242,7 @@ export const Sidebar = ({
             aria-pressed={view === "threads"}
             onClick={() => onSelectProject(project.id)}
           >
-            スレッド
+            概要
           </Button>
           <Button
             variant={view === "wiki" ? "secondary" : "ghost"}

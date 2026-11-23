@@ -14,6 +14,7 @@ import type {
 import type {
   ChatRow,
   MessageRow,
+  ProjectLinkRow,
   ProjectRow,
   WikiPageRow,
 } from "./db/schema.ts";
@@ -38,6 +39,7 @@ export const base = os.$context<RouterContext>();
 const ERROR_CODES: OrpcErrorCodeMap = {
   ChatNotFoundError: "NOT_FOUND",
   ProjectNotFoundError: "NOT_FOUND",
+  ProjectLinkNotFoundError: "NOT_FOUND",
   WikiPageNotFoundError: "NOT_FOUND",
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
@@ -123,6 +125,39 @@ const requireProject = (
         context.projects.getProject(projectId),
         Result.map(() => undefined),
       );
+
+/** クライアントに返す関連リンク。 */
+export type ProjectLinkDto = Pick<
+  ProjectLinkRow,
+  "id" | "projectId" | "url" | "label"
+>;
+
+const toProjectLinkDto = (row: ProjectLinkRow): ProjectLinkDto => ({
+  id: row.id,
+  projectId: row.projectId,
+  url: row.url,
+  label: row.label,
+});
+
+/** 関連リンクの入力。URL は http / https だけ。表示名は空なら null（URL を表示する）。 */
+const projectLinkInput = z.object({
+  url: z
+    .string()
+    .trim()
+    .max(2000)
+    .url()
+    .refine(
+      (url) => URL.canParse(url) && /^https?:$/.test(new URL(url).protocol),
+      "http または https の URL を入力してください。",
+    ),
+  label: z
+    .string()
+    .trim()
+    .max(200)
+    .nullable()
+    .optional()
+    .transform((label) => (label === "" || label === undefined ? null : label)),
+});
 
 /** クライアントに返す Wiki ページ。 */
 export type WikiPageDto = Pick<
@@ -257,6 +292,61 @@ export const router = {
           context.projects.deleteProject(input.id),
           ERROR_CODES,
         );
+        return { id: input.id };
+      }),
+  },
+  links: {
+    /** プロジェクトの関連リンク（登録した順）。 */
+    list: base
+      .input(z.object({ projectId: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        (
+          await unwrapForOrpc(
+            Result.pipe(
+              requireProject(context, input.projectId),
+              Result.andThen(() => context.projects.listLinks(input.projectId)),
+            ),
+            ERROR_CODES,
+          )
+        ).map(toProjectLinkDto),
+      ),
+    create: base
+      .input(projectLinkInput.extend({ projectId: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        toProjectLinkDto(
+          await unwrapForOrpc(
+            Result.pipe(
+              requireProject(context, input.projectId),
+              Result.andThen(() =>
+                context.projects.createLink({
+                  projectId: input.projectId,
+                  url: input.url,
+                  label: input.label,
+                }),
+              ),
+            ),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    update: base
+      .input(projectLinkInput.extend({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        toProjectLinkDto(
+          await unwrapForOrpc(
+            context.projects.updateLink(input.id, {
+              url: input.url,
+              label: input.label,
+            }),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** リンクの登録を消す（リンク先には何もしない）。 */
+    delete: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(context.projects.deleteLink(input.id), ERROR_CODES);
         return { id: input.id };
       }),
   },
