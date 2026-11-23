@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   chatIdFromPath,
+  isProjectListPath,
   pathForChat,
   pathForProject,
   pathForWiki,
@@ -36,5 +37,11 @@ describe("route", () => {
     expect(projectIdFromPath("/p/xyz/wiki")).toBeUndefined();
     expect(pathForWiki("xyz")).toBe("/p/xyz/wiki");
     expect(pathForWiki("xyz", "pg1")).toBe("/p/xyz/wiki/pg1");
+  });
+
+  test("プロジェクト一覧のパス", () => {
+    expect(isProjectListPath("/projects")).toBe(true);
+    expect(isProjectListPath("/projects/")).toBe(true);
+    expect(isProjectListPath("/p/x")).toBe(false);
   });
 });

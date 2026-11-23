@@ -5,6 +5,7 @@
  * - `/p/<projectId>`: プロジェクトの会話一覧
  * - `/c/<chatId>`: 会話（一覧はその会話の所属先）
  * - `/p/<projectId>/wiki[/<pageId>]`: プロジェクトの Wiki
+ * - `/projects`: プロジェクト一覧（`?status=` で絞り込み）
  */
 export const chatIdFromPath = (pathname: string): string | undefined =>
   /^\/c\/([^/]+)\/?$/.exec(pathname)?.[1];
@@ -30,3 +31,8 @@ export const wikiFromPath = (
 
 export const pathForWiki = (projectId: string, pageId?: string): string =>
   `/p/${encodeURIComponent(projectId)}/wiki${pageId === undefined ? "" : `/${encodeURIComponent(pageId)}`}`;
+
+export const PROJECT_LIST_PATH = "/projects";
+
+export const isProjectListPath = (pathname: string): boolean =>
+  /^\/projects\/?$/.test(pathname);

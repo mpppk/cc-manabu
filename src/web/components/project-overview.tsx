@@ -2,6 +2,7 @@ import { BookOpen, MessageSquare } from "lucide-react";
 import type { ChatDto, ProjectDto } from "../../router.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { ProjectLinks } from "./project-links.tsx";
+import { ProjectProgress } from "./project-progress.tsx";
 import { Button } from "./ui/button.tsx";
 
 /** プロジェクト画面（`/p/<id>`）。スレッド・Wiki への入口と関連リンク。 */
@@ -12,9 +13,12 @@ export const ProjectOverview = ({
   onOpenChat,
   onOpenWiki,
   onNewChat,
+  onChanged,
 }: {
   api: ApiClient;
   project: ProjectDto;
+  /** 進捗を保存したあと、プロジェクトを取り直す。 */
+  onChanged: () => Promise<void>;
   /** このプロジェクトのスレッド（更新日時の新しい順）。 */
   threads: ChatDto[];
   onOpenChat: (chatId: string) => void;
@@ -36,6 +40,8 @@ export const ProjectOverview = ({
           </Button>
         </div>
       </header>
+
+      <ProjectProgress api={api} project={project} onChanged={onChanged} />
 
       <ProjectLinks key={project.id} api={api} projectId={project.id} />
 

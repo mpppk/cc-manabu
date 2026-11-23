@@ -139,7 +139,7 @@ test("会話の切り替え・名前変更・削除", async ({ page }) => {
   await item.hover();
   await item.getByRole("button", { name: /の名前を変える/ }).click();
   await page.getByRole("textbox", { name: "会話の名前" }).fill("名前を変えた");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(list.getByText("名前を変えた")).toBeVisible();
 
   const renamed = list.locator("li").filter({ hasText: "名前を変えた" });
@@ -323,7 +323,7 @@ test("プロジェクトでスレッドをまとめ、既存のスレッドを�
     .getByRole("button", { name: "プロジェクトの名前を変える" })
     .click();
   await page.getByRole("textbox", { name: "プロジェクトの名前" }).fill("認可");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(projectSelect.locator("option:checked")).toHaveText("認可");
   await page.getByRole("button", { name: "プロジェクトを削除" }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
@@ -357,14 +357,14 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await page
     .getByRole("textbox", { name: "本文（Markdown）" })
     .fill("## 定義\n主体・関係・対象の **3 つ組**。");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page).toHaveURL(/\/wiki\/.+/);
   await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
   await expect(page.getByText("3 つ組")).toBeVisible();
   const pageUrl = page.url();
 
   // 一覧の検索
-  await page.getByRole("button", { name: "一覧" }).click();
+  await page.getByRole("button", { name: "一覧", exact: true }).click();
   await page.getByRole("textbox", { name: "Wiki を検索" }).fill("タプル");
   await expect(
     page.getByRole("list", { name: "Wiki のページ" }).getByText("関係タプル"),
@@ -459,7 +459,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await page
     .getByRole("textbox", { name: "本文（Markdown）" })
     .fill("利用者が書いた説明");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("利用者が書いた説明")).toBeVisible();
   await page.getByRole("button", { name: "概要", exact: true }).click();
   await page
@@ -512,7 +512,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
       .getByRole("textbox", { name: "別名（カンマ区切り）" })
       .fill(aliases);
     await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(body);
-    await page.getByRole("button", { name: "保存" }).click();
+    await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("heading", { name: title })).toBeVisible();
     await page.getByRole("button", { name: "概要", exact: true }).click();
   };
@@ -596,7 +596,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await page
     .getByRole("textbox", { name: "本文（Markdown）" })
     .fill("編集後の説明");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("編集後の説明")).toBeVisible();
   await page.getByRole("button", { name: "概要", exact: true }).click();
   await page
@@ -678,7 +678,7 @@ test("プロジェクトに関連リンクを登録し、開き、編集・削�
     .getByRole("textbox", { name: "表示名（任意）" })
     .first()
     .fill("設計資料");
-  await page.getByRole("button", { name: "保存" }).click();
+  await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(links.getByRole("link", { name: /設計資料/ })).toBeVisible();
   await page.getByRole("button", { name: "「リポジトリ」を削除" }).click();
   await expect(links.getByRole("link")).toHaveCount(1);
@@ -692,4 +692,87 @@ test("プロジェクトに関連リンクを登録し、開き、編集・削�
     .getByRole("combobox", { name: "プロジェクト" })
     .selectOption({ label: "リンクの検証" });
   await expect(links.getByRole("link")).toHaveCount(1);
+});
+
+test("プロジェクトの進捗を記録し、一覧で状態ごとに確認できる", async ({
+  page,
+}) => {
+  await open(page);
+  const status = page.getByRole("combobox", { name: "状態" });
+  const progress = page.getByRole("region", { name: "進捗" });
+
+  await createProject(page, "進捗A");
+  await expect(status).toHaveValue("not_started");
+  await expect(progress).toContainText("最終更新: —");
+
+  // 状態はすぐ保存、次にやること・進捗メモは「進捗を保存」で保存
+  await status.selectOption({ label: "進行中" });
+  await expect(progress).not.toContainText("最終更新: —");
+  await page
+    .getByRole("textbox", { name: "次にやること" })
+    .fill("検証環境で権限モデルを試す");
+  await page
+    .getByRole("textbox", { name: "進捗メモ" })
+    .fill("設計と調査を複数のスレッドで進めた");
+  await page.getByRole("button", { name: "進捗を保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+  const updatedText = await progress.getByText(/最終更新:/).textContent();
+
+  // 別のプロジェクトには反映されない
+  await createProject(page, "進捗B");
+  await expect(status).toHaveValue("not_started");
+  await expect(page.getByRole("textbox", { name: "次にやること" })).toHaveValue(
+    "",
+  );
+
+  // スレッドで会話を続けても、状態と最終更新は変わらない
+  const projectSelect = page.getByRole("combobox", { name: "プロジェクト" });
+  await projectSelect.selectOption({ label: "進捗A" });
+  await newChat(page);
+  await send(page, "進捗の続き");
+  await idle(page);
+  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await expect(status).toHaveValue("in_progress");
+  await expect(progress.getByText(/最終更新:/)).toHaveText(updatedText ?? "");
+
+  // 一覧で状態と次にやることを確認し、絞り込める（リロードしても保たれる）
+  await page.getByRole("button", { name: "プロジェクト一覧" }).click();
+  await expect(page).toHaveURL(/\/projects$/);
+  const rows = page.getByRole("row");
+  await expect(rows.filter({ hasText: "進捗A" })).toContainText("進行中");
+  await expect(rows.filter({ hasText: "進捗A" })).toContainText(
+    "検証環境で権限モデルを試す",
+  );
+  await expect(rows.filter({ hasText: "進捗B" })).toContainText("未着手");
+  const filters = page.getByRole("navigation", { name: "状態で絞り込む" });
+  await filters.getByRole("button", { name: /^進行中/ }).click();
+  await expect(page).toHaveURL(/status=in_progress/);
+  await expect(rows.filter({ hasText: "進捗A" })).toBeVisible();
+  await expect(rows.filter({ hasText: "進捗B" })).toHaveCount(0);
+  await page.reload();
+  await expect(
+    filters.getByRole("button", { name: /^進行中/ }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await expect(rows.filter({ hasText: "進捗A" })).toContainText(
+    "検証環境で権限モデルを試す",
+  );
+  await expect(rows.filter({ hasText: "進捗B" })).toHaveCount(0);
+
+  // 完了してもスレッド・Wiki・関連リンクを開け、進行中に戻せる
+  await rows.filter({ hasText: "進捗A" }).getByRole("button").click();
+  await status.selectOption({ label: "完了" });
+  await expect(projectSelect.locator("option:checked")).toHaveText(
+    "進捗A（完了）",
+  );
+  await expect(page.getByRole("heading", { name: "関連リンク" })).toBeVisible();
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: /進捗の続き/ })
+    .click();
+  await expect(page.getByText("了解: 進捗の続き")).toBeVisible();
+  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await expect(page).toHaveURL(/\/wiki$/);
+  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await status.selectOption({ label: "進行中" });
+  await expect(projectSelect.locator("option:checked")).toHaveText("進捗A");
 });

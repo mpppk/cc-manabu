@@ -109,7 +109,9 @@ export const ProjectSwitcher = ({
         <option value={UNASSIGNED}>未所属のスレッド</option>
         {projects.map((project) => (
           <option key={project.id} value={project.id}>
-            {project.name}
+            {project.status === "done"
+              ? `${project.name}（完了）`
+              : project.name}
           </option>
         ))}
       </select>

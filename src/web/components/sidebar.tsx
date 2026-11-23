@@ -2,6 +2,7 @@ import {
   BookOpen,
   Check,
   FolderMinus,
+  LayoutList,
   ListPlus,
   Loader2,
   MessageSquarePlus,
@@ -179,6 +180,7 @@ export const Sidebar = ({
   view,
   onOpenWiki,
   onSetAutoTerms,
+  onOpenProjectList,
 }: {
   /** すべての会話（表示は選択中のプロジェクトで絞る）。 */
   chats: ChatDto[];
@@ -200,6 +202,7 @@ export const Sidebar = ({
   view: "threads" | "wiki";
   onOpenWiki: () => void;
   onSetAutoTerms: (projectId: string, enabled: boolean) => Promise<void>;
+  onOpenProjectList: () => void;
 }) => {
   const [deleting, setDeleting] = useState<ChatDto>();
   const [adding, setAdding] = useState(false);
@@ -210,19 +213,30 @@ export const Sidebar = ({
     <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
       <div className="flex items-center justify-between p-3">
         <span className="font-semibold">cc-manabu</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="新しい会話"
-          title={
-            project === undefined
-              ? "新しい会話"
-              : `「${project.name}」に新しい会話`
-          }
-          onClick={onNew}
-        >
-          <MessageSquarePlus />
-        </Button>
+        <div className="flex items-center">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="プロジェクト一覧"
+            title="プロジェクト一覧"
+            onClick={onOpenProjectList}
+          >
+            <LayoutList />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="新しい会話"
+            title={
+              project === undefined
+                ? "新しい会話"
+                : `「${project.name}」に新しい会話`
+            }
+            onClick={onNew}
+          >
+            <MessageSquarePlus />
+          </Button>
+        </div>
       </div>
       <ProjectSwitcher
         projects={projects}

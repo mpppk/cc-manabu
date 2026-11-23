@@ -15,12 +15,31 @@ export const CHAT_STATUSES = [
 ] as const;
 export type ChatStatus = (typeof CHAT_STATUSES)[number];
 
+/** プロジェクトの進捗の状態（#104）。 */
+export const PROJECT_STATUSES = [
+  "not_started",
+  "in_progress",
+  "on_hold",
+  "done",
+] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
 /** 複数の会話（と、のちに Wiki）をまとめる単位。 */
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   /** 回答から用語ページを自動で作るか（回答ごとに Claude を追加で呼び出す）。 */
   autoTerms: integer("auto_terms", { mode: "boolean" }).notNull().default(true),
+  /** 進捗の状態。既存のプロジェクトは未着手として扱う。 */
+  status: text("status", { enum: PROJECT_STATUSES })
+    .notNull()
+    .default("not_started"),
+  /** 進捗メモ（任意）。 */
+  progressNote: text("progress_note").notNull().default(""),
+  /** 次にやること（任意）。 */
+  nextAction: text("next_action").notNull().default(""),
+  /** 状態・進捗メモ・次にやることを最後に変えた日時。まだ変えていなければ null。 */
+  progressUpdatedAt: integer("progress_updated_at", { mode: "timestamp_ms" }),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`),

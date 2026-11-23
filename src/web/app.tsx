@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
 import type { ChatDto, ProjectDto } from "../router.ts";
 import { ChatView } from "./components/chat-view.tsx";
+import { ProjectList } from "./components/project-list.tsx";
 import { ProjectOverview } from "./components/project-overview.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { Button } from "./components/ui/button.tsx";
@@ -15,6 +16,8 @@ import {
 import type { ApiClient } from "./lib/orpc.ts";
 import {
   chatIdFromPath,
+  isProjectListPath,
+  PROJECT_LIST_PATH,
   pathForChat,
   pathForProject,
   pathForWiki,
@@ -260,6 +263,7 @@ export const App = ({ api }: { api: ApiClient }) => {
           if (projectId !== null) navigate(pathForWiki(projectId));
         }}
         onSetAutoTerms={setAutoTerms}
+        onOpenProjectList={() => navigate(PROJECT_LIST_PATH)}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b px-4">
@@ -285,7 +289,12 @@ export const App = ({ api }: { api: ApiClient }) => {
             </Button>
           </div>
         </header>
-        {showWiki ? (
+        {isProjectListPath(path) ? (
+          <ProjectList
+            projects={projects ?? []}
+            onOpen={(id) => navigate(pathForProject(id))}
+          />
+        ) : showWiki ? (
           <WikiView
             key={project.id}
             api={api}
@@ -326,6 +335,7 @@ export const App = ({ api }: { api: ApiClient }) => {
             onOpenChat={select}
             onOpenWiki={() => navigate(pathForWiki(project.id))}
             onNewChat={() => void newChat()}
+            onChanged={refreshProjects}
           />
         ) : (
           <section className="flex flex-1 items-center justify-center text-muted-foreground">
