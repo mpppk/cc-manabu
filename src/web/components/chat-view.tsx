@@ -1,10 +1,15 @@
 import { useChat } from "@ai-sdk/react";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Pencil, RotateCcw } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
 import type { ChatDto } from "../../router.ts";
 import { citedPageIds, linkWikiCitations } from "../../wiki/citations.ts";
+import {
+  createTermMatcher,
+  type TermEntry,
+  type TermMatch,
+} from "../../wiki/term-matcher.ts";
 import { OrpcChatTransport } from "../lib/chat-transport.ts";
 import type { ImageAttachment } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
@@ -19,6 +24,7 @@ import { ModelPicker } from "./model-picker.tsx";
 import { Reasoning } from "./reasoning.tsx";
 import { ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
+import { WikiTermsContext, type WikiTermsContextValue } from "./wiki-term.tsx";
 
 const textOf = (message: ChatUIMessage): string =>
   message.parts
@@ -111,6 +117,7 @@ const MessageView = ({
   onEdit,
   onRegenerate,
   onOpenWikiPage,
+  termMatcher,
 }: {
   message: ChatUIMessage;
   streaming: boolean;
@@ -125,6 +132,8 @@ const MessageView = ({
   onEdit: (messageId: string, text: string) => void;
   onRegenerate: () => void;
   onOpenWikiPage?: (projectId: string, pageId: string) => void;
+  /** 本文の用語を Wiki の用語ページに結び付ける（プロジェクトの会話だけ）。 */
+  termMatcher?: (text: string) => TermMatch[];
 }) => {
   if (message.role === "user") {
     return (
@@ -164,6 +173,7 @@ const MessageView = ({
                 text={linkWikiCitations(part.text, wikiIds)}
                 streaming={streaming}
                 {...(wikiLinks === undefined ? {} : { wikiLinks })}
+                {...(termMatcher === undefined ? {} : { termMatcher })}
               />
             );
           case "reasoning":
@@ -252,6 +262,43 @@ const UsageTotal = ({ messages }: { messages: ChatUIMessage[] }) => {
   );
 };
 
+/** 用語の照合を取り直す間隔（自動作成・編集されたページを反映する）。 */
+const TERMS_REFRESH_MS = 10_000;
+
+/** プロジェクトの用語ページ（タイトルと別名）から、本文の用語の照合を作る。 */
+const useProjectTerms = (api: ApiClient, projectId: string | null) => {
+  const [entries, setEntries] = useState<TermEntry[]>([]);
+  const refreshTerms = useCallback(() => {
+    if (projectId === null) return;
+    api.wiki
+      .list({ projectId })
+      .then((pages) => {
+        const next = pages.map((page) => ({
+          pageId: page.id,
+          names: [page.title, ...page.aliases],
+        }));
+        // 変わっていなければ照合を作り直さない（本文の再描画を避ける）
+        setEntries((current) =>
+          JSON.stringify(current) === JSON.stringify(next) ? current : next,
+        );
+      })
+      .catch(() => {});
+  }, [api, projectId]);
+  useEffect(() => {
+    refreshTerms();
+    const timer = setInterval(refreshTerms, TERMS_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [refreshTerms]);
+  const termMatcher = useMemo(
+    () =>
+      projectId === null || entries.length === 0
+        ? undefined
+        : createTermMatcher(entries),
+    [projectId, entries],
+  );
+  return { termMatcher, refreshTerms };
+};
+
 /** 1 つの会話の画面。useChat に oRPC の ChatTransport を渡す。 */
 export const ChatView = ({
   api,
@@ -278,6 +325,19 @@ export const ChatView = ({
   // transport は作り直さず、送信時に最新の設定を読む
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const { termMatcher, refreshTerms } = useProjectTerms(api, chat.projectId);
+  const wikiTerms = useMemo<WikiTermsContextValue | undefined>(
+    () =>
+      chat.projectId === null || onOpenWikiPage === undefined
+        ? undefined
+        : {
+            load: (pageId) =>
+              api.wiki.get({ id: pageId }).catch(() => undefined),
+            open: (pageId) =>
+              chat.projectId !== null && onOpenWikiPage(chat.projectId, pageId),
+          },
+    [api, chat.projectId, onOpenWikiPage],
+  );
   const transport = useMemo(
     () => new OrpcChatTransport(api, () => settingsRef.current),
     [api],
@@ -289,7 +349,11 @@ export const ChatView = ({
       transport,
       // リロード時に生成中なら、途中から表示する
       resume: true,
-      onFinish: () => onActivity?.(),
+      onFinish: () => {
+        onActivity?.();
+        // 回答のあとに用語ページが自動で作られるので、少し待ってから取り直す
+        setTimeout(refreshTerms, 3000);
+      },
     });
   const busy = status === "submitted" || status === "streaming";
 
@@ -316,58 +380,61 @@ export const ChatView = ({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
-          {messages.map((message, index) => (
-            <MessageView
-              key={message.id}
-              message={message}
-              streaming={busy && index === messages.length - 1}
-              canAct={!busy}
-              isLast={index === messages.length - 1}
-              onEdit={(messageId, text) => {
-                // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
-                const files = imagePartsOf(message);
-                void sendMessage({ text, files, messageId }).then(() =>
-                  onActivity?.(),
-                );
-              }}
-              onRegenerate={() => {
-                void regenerate().then(() => onActivity?.());
-              }}
-              {...(onOpenWikiPage === undefined ? {} : { onOpenWikiPage })}
-              onRespond={async (approvalId, behavior, reason) => {
-                await api.approvals.respond({
-                  chatId: chat.id,
-                  approvalId,
-                  behavior,
-                  ...(reason === undefined ? {} : { message: reason }),
-                });
-                onActivity?.();
-              }}
+    <WikiTermsContext.Provider value={wikiTerms}>
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex-1 overflow-y-auto">
+          <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
+            {messages.map((message, index) => (
+              <MessageView
+                key={message.id}
+                message={message}
+                streaming={busy && index === messages.length - 1}
+                canAct={!busy}
+                isLast={index === messages.length - 1}
+                onEdit={(messageId, text) => {
+                  // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
+                  const files = imagePartsOf(message);
+                  void sendMessage({ text, files, messageId }).then(() =>
+                    onActivity?.(),
+                  );
+                }}
+                onRegenerate={() => {
+                  void regenerate().then(() => onActivity?.());
+                }}
+                {...(onOpenWikiPage === undefined ? {} : { onOpenWikiPage })}
+                {...(termMatcher === undefined ? {} : { termMatcher })}
+                onRespond={async (approvalId, behavior, reason) => {
+                  await api.approvals.respond({
+                    chatId: chat.id,
+                    approvalId,
+                    behavior,
+                    ...(reason === undefined ? {} : { message: reason }),
+                  });
+                  onActivity?.();
+                }}
+              />
+            ))}
+            {error !== undefined && (
+              <p className="text-destructive text-sm" role="alert">
+                {error.message}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="border-t p-4">
+          <div className="mx-auto mb-2 flex max-w-3xl items-center justify-between gap-2">
+            <ModelPicker
+              models={models}
+              model={settings.model}
+              effort={settings.effort}
+              disabled={busy}
+              onChange={setSettings}
             />
-          ))}
-          {error !== undefined && (
-            <p className="text-destructive text-sm" role="alert">
-              {error.message}
-            </p>
-          )}
+            <UsageTotal messages={messages} />
+          </div>
+          <Composer busy={busy} onSubmit={submit} onStop={onStop} />
         </div>
       </div>
-      <div className="border-t p-4">
-        <div className="mx-auto mb-2 flex max-w-3xl items-center justify-between gap-2">
-          <ModelPicker
-            models={models}
-            model={settings.model}
-            effort={settings.effort}
-            disabled={busy}
-            onChange={setSettings}
-          />
-          <UsageTotal messages={messages} />
-        </div>
-        <Composer busy={busy} onSubmit={submit} onStop={onStop} />
-      </div>
-    </div>
+    </WikiTermsContext.Provider>
   );
 };

@@ -125,12 +125,15 @@ export const App = ({ api }: { api: ApiClient }) => {
   }, [refreshProjects]);
 
   // 選んだ会話・プロジェクトを URL に反映し、ブラウザの戻る・進むにも対応する
-  const navigate = useCallback((next: string) => {
-    if (window.location.pathname !== next) {
-      window.history.pushState(null, "", next);
-    }
-    setPath(next);
-  }, []);
+  const navigate = useCallback(
+    (next: string, state?: { returnTo?: string }) => {
+      if (window.location.pathname !== next) {
+        window.history.pushState(state ?? null, "", next);
+      }
+      setPath(next);
+    },
+    [],
+  );
   const select = useCallback(
     (id: string | undefined) => navigate(pathForChat(id)),
     [navigate],
@@ -290,6 +293,10 @@ export const App = ({ api }: { api: ApiClient }) => {
             autoTerms={project.autoTerms}
             pageId={wikiRoute.pageId}
             onOpenChat={select}
+            returnTo={
+              (window.history.state as { returnTo?: string } | null)?.returnTo
+            }
+            onReturn={(to) => navigate(to)}
             onNavigate={(pageId) => navigate(pathForWiki(project.id, pageId))}
           />
         ) : current !== undefined && current.chat.id === selectedId ? (
@@ -303,7 +310,8 @@ export const App = ({ api }: { api: ApiClient }) => {
             }
             onActivity={() => void refreshChats()}
             onOpenWikiPage={(projectId, pageId) =>
-              navigate(pathForWiki(projectId, pageId))
+              // Wiki から元の回答に戻れるようにする
+              navigate(pathForWiki(projectId, pageId), { returnTo: path })
             }
           />
         ) : (
