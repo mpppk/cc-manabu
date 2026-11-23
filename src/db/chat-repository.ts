@@ -1,6 +1,6 @@
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import type { Db } from "./index.ts";
 import {
   type ChatRow,
@@ -60,10 +60,13 @@ export const createChatRepository = (db: Db) => {
     }): Result.Result<ChatRow, DatabaseError> =>
       run(() => {
         const now = new Date();
+        const id = input.id ?? crypto.randomUUID();
         return db
           .insert(chats)
           .values({
-            id: input.id ?? crypto.randomUUID(),
+            id,
+            // 新しい会話は、自分自身が会話（分岐のまとまり）になる
+            groupId: id,
             projectId: input.projectId ?? null,
             cwd: input.cwd,
             model: input.model ?? "default",
@@ -125,6 +128,131 @@ export const createChatRepository = (db: Db) => {
         ),
         Result.andThen((row) => requireChat(row, chatId)),
       ),
+
+    /**
+     * 分岐を作る（#76）。分岐元の seq ≤ upToSeq のメッセージを新しい id でコピーし、
+     * 分岐元が後で編集・再生成されても分岐の履歴が残るようにする。
+     * タイトル・プロジェクト・作業ディレクトリは会話で共有する。
+     */
+    createBranch: (input: {
+      id: string;
+      parent: ChatRow;
+      forkMessageId: string;
+      upToSeq: number;
+      branchTitle: string;
+      forkSessionId: string;
+      forkFromUuid: string;
+      model: string;
+      effort: string | null;
+    }): Result.Result<ChatRow, DatabaseError> =>
+      run(() =>
+        db.transaction((tx) => {
+          const now = new Date();
+          const inherited = tx
+            .select()
+            .from(messages)
+            .where(
+              and(
+                eq(messages.chatId, input.parent.id),
+                lte(messages.seq, input.upToSeq),
+              ),
+            )
+            .orderBy(asc(messages.seq))
+            .all();
+          const branch = tx
+            .insert(chats)
+            .values({
+              id: input.id,
+              groupId: input.parent.groupId,
+              parentId: input.parent.id,
+              forkMessageId: input.forkMessageId,
+              inheritedCount: inherited.length,
+              branchTitle: input.branchTitle,
+              forkSessionId: input.forkSessionId,
+              forkFromUuid: input.forkFromUuid,
+              projectId: input.parent.projectId,
+              title: input.parent.title,
+              cwd: input.parent.cwd,
+              model: input.model,
+              effort: input.effort,
+              lastSelectedAt: now,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .returning()
+            .get();
+          inherited.forEach((message, seq) => {
+            tx.insert(messages)
+              .values({
+                id: crypto.randomUUID(),
+                chatId: branch.id,
+                seq,
+                role: message.role,
+                parts: message.parts,
+                metadata: message.metadata,
+                sdkUuid: message.sdkUuid,
+                createdAt: message.createdAt,
+              })
+              .run();
+          });
+          return branch;
+        }),
+      ),
+
+    /** 会話（分岐のまとまり）の分岐。作った順。 */
+    listGroup: (groupId: string): Result.Result<ChatRow[], DatabaseError> =>
+      run(() =>
+        db
+          .select()
+          .from(chats)
+          .where(eq(chats.groupId, groupId))
+          .orderBy(asc(chats.createdAt))
+          .all(),
+      ),
+
+    /** 会話のタイトルを、すべての分岐で変える。 */
+    setGroupTitle: (
+      groupId: string,
+      title: string,
+    ): Result.Result<void, DatabaseError> =>
+      run(() => {
+        db.update(chats)
+          .set({ title, updatedAt: new Date() })
+          .where(eq(chats.groupId, groupId))
+          .run();
+      }),
+
+    /** 会話の所属プロジェクトを、すべての分岐で変える（更新日時は動かさない）。 */
+    setGroupProject: (
+      groupId: string,
+      projectId: string | null,
+    ): Result.Result<void, DatabaseError> =>
+      run(() => {
+        db.update(chats)
+          .set({ projectId })
+          .where(eq(chats.groupId, groupId))
+          .run();
+      }),
+
+    /** 会話をすべての分岐ごと消す。消した分岐の id を返す。 */
+    deleteGroup: (groupId: string): Result.Result<string[], DatabaseError> =>
+      run(() =>
+        db
+          .delete(chats)
+          .where(eq(chats.groupId, groupId))
+          .returning({ id: chats.id })
+          .all()
+          .map((row) => row.id),
+      ),
+
+    /** この分岐を開いたことを記録する（会話を開き直したときに表示する分岐）。 */
+    markSelected: (chatId: string): Result.Result<void, DatabaseError> =>
+      run(() => {
+        db.update(chats)
+          .set({ lastSelectedAt: new Date() })
+          .where(eq(chats.id, chatId))
+          .run();
+      }),
 
     /**
      * 会話の所属プロジェクトを変える（null で未所属）。

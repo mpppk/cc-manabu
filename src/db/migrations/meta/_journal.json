@@ -43,6 +43,13 @@
       "when": 1795462254102,
       "tag": "0005_project_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1795476280973,
+      "tag": "0006_branches",
+      "breakpoints": true
     }
   ]
 }

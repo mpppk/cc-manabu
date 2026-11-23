@@ -38,6 +38,13 @@ export class MessageNotFoundError extends ErrorFactory({
   fields: ErrorFactory.fields<{ messageId: string }>(),
 }) {}
 
+export class NotBranchableError extends ErrorFactory({
+  name: "NotBranchableError",
+  message: (fields) =>
+    `This message cannot be a branch point (a completed assistant message is required): ${fields.messageId}`,
+  fields: ErrorFactory.fields<{ messageId: string }>(),
+}) {}
+
 export class NothingToRegenerateError extends ErrorFactory({
   name: "NothingToRegenerateError",
   message: "There is no user message to regenerate a response for.",
@@ -100,6 +107,27 @@ const textOf = (parts: ChatUIMessage["parts"]): string =>
     .map((part) => (part.type === "text" ? part.text : ""))
     .filter((text) => text !== "")
     .join("\n\n");
+
+/**
+ * 送信で resume するセッション。自分のセッションがあればそれを、分岐でまだ無ければ
+ * 分岐元のセッションを分岐点まで巻き戻して fork する（#76）。
+ */
+const resumeOf = (
+  chat: ChatRow,
+): {
+  sessionId: string | null;
+  resumeSessionAt?: string;
+  forkSession?: boolean;
+} =>
+  chat.sessionId === null &&
+  chat.forkSessionId !== null &&
+  chat.forkFromUuid !== null
+    ? {
+        sessionId: chat.forkSessionId,
+        resumeSessionAt: chat.forkFromUuid,
+        forkSession: true,
+      }
+    : { sessionId: chat.sessionId };
 
 const filesOf = (parts: ChatUIMessage["parts"]) =>
   parts.filter((part) => part.type === "file");
@@ -306,17 +334,19 @@ export const createChatService = (deps: {
       });
     });
 
-  const send = (input: SendInput): Result.Result<ChatRunner, SendError> =>
-    Result.pipe(
+  const send = (input: SendInput): Result.Result<ChatRunner, SendError> => {
+    let titled = false;
+    return Result.pipe(
       chats.getChat(input.chatId),
-      Result.andThen(({ chat }) =>
-        chats.updateChat(chat.id, {
+      Result.andThen(({ chat }) => {
+        titled = chat.title === "";
+        return chats.updateChat(chat.id, {
           ...(input.model === undefined ? {} : { model: input.model }),
           ...(input.effort === undefined ? {} : { effort: input.effort }),
           // 最初の発話でタイトルを付ける（名前を変えていればそのまま）
           ...(chat.title === "" ? { title: titleOf(input.message.parts) } : {}),
-        }),
-      ),
+        });
+      }),
       Result.andThen((chat) =>
         Result.pipe(
           chats.saveMessage(chat.id, {
@@ -327,16 +357,95 @@ export const createChatService = (deps: {
           Result.map(() => chat),
         ),
       ),
+      Result.inspect((chat) => {
+        // 最初の発話で付けたタイトルは、会話（分岐のまとまり）で共有する
+        if (titled && chat.groupId !== chat.id) {
+          chats.setGroupTitle(chat.groupId, chat.title);
+        }
+      }),
       Result.andThen((chat) =>
         startGeneration({
           chatId: chat.id,
           model: chat.model,
           effort: (chat.effort as Effort | null) ?? null,
-          sessionId: chat.sessionId,
+          ...resumeOf(chat),
           content: toUserContent(input.message.parts),
           projectId: chat.projectId,
           question: textOf(input.message.parts),
           context: contextFor(chat, input.message.parts),
+        }),
+      ),
+      Result.inspect((runner) => trackStatus(runner)),
+    );
+  };
+
+  /**
+   * 分岐を作り、最初の発話から生成を始める（#76）。分岐元のセッションを分岐点まで巻き戻して
+   * fork し、新しいセッションを分岐に保存する。分岐元の会話はそのまま残る。
+   */
+  const branch = (input: {
+    parentId: string;
+    /** 分岐点にする、分岐元の完了した assistant メッセージ。 */
+    messageId: string;
+    /** 新しい分岐の id（クライアントが決める）。 */
+    branchId: string;
+    message: SendInput["message"];
+    model?: string;
+    effort?: Effort | null;
+  }): Result.Result<
+    ChatRunner,
+    SendError | MessageNotFoundError | NotBranchableError
+  > =>
+    Result.pipe(
+      chats.getChat(input.parentId),
+      Result.andThen(({ chat, messages }) => {
+        const fork = messages.find(
+          (m) => m.id === input.messageId && m.role === "assistant",
+        );
+        if (fork === undefined) {
+          return Result.fail(
+            new MessageNotFoundError({ messageId: input.messageId }),
+          );
+        }
+        const forkSessionId = chat.sessionId ?? chat.forkSessionId;
+        if (fork.sdkUuid === null || forkSessionId === null) {
+          return Result.fail(
+            new NotBranchableError({ messageId: input.messageId }),
+          );
+        }
+        return chats.createBranch({
+          id: input.branchId,
+          parent: chat,
+          forkMessageId: fork.id,
+          upToSeq: fork.seq,
+          branchTitle: makeTitle(textOf(input.message.parts)),
+          forkSessionId,
+          forkFromUuid: fork.sdkUuid,
+          model: input.model ?? chat.model,
+          effort:
+            input.effort === undefined ? chat.effort : (input.effort ?? null),
+        });
+      }),
+      Result.andThen((created) =>
+        Result.pipe(
+          chats.saveMessage(created.id, {
+            id: input.message.id,
+            role: "user",
+            parts: input.message.parts,
+          }),
+          Result.map(() => created),
+        ),
+      ),
+      Result.andThen((created) =>
+        startGeneration({
+          chatId: created.id,
+          model: created.model,
+          effort: (created.effort as Effort | null) ?? null,
+          ...resumeOf(created),
+          content: toUserContent(input.message.parts),
+          projectId: created.projectId,
+          question: textOf(input.message.parts),
+          context: contextFor(created, input.message.parts),
         }),
       ),
       Result.inspect((runner) => trackStatus(runner)),
@@ -379,8 +488,12 @@ export const createChatService = (deps: {
           chatId: chat.id,
           model: chat.model,
           effort: (chat.effort as Effort | null) ?? null,
-          // 分岐点が無ければ（最初の発話からやり直すなら）新しいセッションにする
-          sessionId: forkPoint === undefined ? null : chat.sessionId,
+          // 分岐点が無ければ（最初の発話からやり直すなら）新しいセッションにする。
+          // 分岐でまだ自分のセッションが無ければ、分岐元のセッションから fork する
+          sessionId:
+            forkPoint === undefined
+              ? null
+              : (chat.sessionId ?? chat.forkSessionId),
           content: toUserContent(userMessage.parts),
           projectId: chat.projectId,
           question: textOf(userMessage.parts),
@@ -458,6 +571,7 @@ export const createChatService = (deps: {
 
   return {
     send,
+    branch,
     regenerate,
     edit,
     startGeneration,

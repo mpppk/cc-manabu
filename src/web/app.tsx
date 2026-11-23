@@ -8,6 +8,7 @@ import { ProjectOverview } from "./components/project-overview.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { WikiView } from "./components/wiki-view.tsx";
+import { groupChats } from "./lib/groups.ts";
 import {
   newlyAwaiting,
   notifyAwaitingApproval,
@@ -139,8 +140,17 @@ export const App = ({ api }: { api: ApiClient }) => {
     [],
   );
   const select = useCallback(
-    (id: string | undefined) => navigate(pathForChat(id)),
-    [navigate],
+    (id: string | undefined) => {
+      navigate(pathForChat(id));
+      // 会話を開き直したときにこの分岐を表示する（#76）
+      if (id !== undefined) {
+        void api.chats
+          .select({ id })
+          .then(() => refreshChats())
+          .catch(() => {});
+      }
+    },
+    [navigate, api, refreshChats],
   );
 
   useEffect(() => {
@@ -319,6 +329,10 @@ export const App = ({ api }: { api: ApiClient }) => {
               status?.claude.state === "ready" ? status.claude.models : []
             }
             onActivity={() => void refreshChats()}
+            branches={chats.filter(
+              (chat) => chat.groupId === current.chat.groupId,
+            )}
+            onSelectBranch={select}
             onOpenWikiPage={(projectId, pageId) =>
               // Wiki から元の回答に戻れるようにする
               navigate(pathForWiki(projectId, pageId), { returnTo: path })
@@ -331,7 +345,9 @@ export const App = ({ api }: { api: ApiClient }) => {
             key={project.id}
             api={api}
             project={project}
-            threads={chats.filter((chat) => chat.projectId === project.id)}
+            threads={groupChats(chats)
+              .filter((group) => group.primary.projectId === project.id)
+              .map((group) => group.primary)}
             onOpenChat={select}
             onOpenWiki={() => navigate(pathForWiki(project.id))}
             onNewChat={() => void newChat()}

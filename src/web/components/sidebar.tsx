@@ -2,6 +2,7 @@ import {
   BookOpen,
   Check,
   FolderMinus,
+  GitBranch,
   LayoutList,
   ListPlus,
   Loader2,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import type { ChatDto, ProjectDto } from "../../router.ts";
+import { groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
 import { AddThreadsDialog, ProjectSwitcher } from "./project-switcher.tsx";
 import { Button } from "./ui/button.tsx";
@@ -50,8 +52,11 @@ const ChatItem = ({
   onRename,
   onDelete,
   onRemoveFromProject,
+  branchCount = 1,
 }: {
   chat: ChatDto;
+  /** 会話の分岐の数（2 以上なら表示する）。 */
+  branchCount?: number;
   selected: boolean;
   onSelect: () => void;
   onRename: (title: string) => Promise<void>;
@@ -122,6 +127,15 @@ const ChatItem = ({
         aria-current={selected ? "page" : undefined}
       >
         <span className="truncate">{label}</span>
+        {branchCount > 1 && (
+          <span
+            className="shrink-0 text-muted-foreground text-xs"
+            title={`${branchCount} 個の分岐`}
+          >
+            <GitBranch className="inline size-3" />
+            {branchCount}
+          </span>
+        )}
         <StatusBadge status={chat.status} />
       </button>
       <div className="hidden shrink-0 group-hover:flex group-focus-within:flex">
@@ -206,7 +220,11 @@ export const Sidebar = ({
 }) => {
   const [deleting, setDeleting] = useState<ChatDto>();
   const [adding, setAdding] = useState(false);
-  const visible = chats.filter((chat) => chat.projectId === projectId);
+  // 分岐は会話ごとに 1 行にまとめる（#76）
+  const groups = groupChats(chats);
+  const visible = groups.filter(
+    (group) => group.primary.projectId === projectId,
+  );
   const project = projects.find((p) => p.id === projectId);
 
   return (
@@ -292,19 +310,20 @@ export const Sidebar = ({
           </p>
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {visible.map((chat) => (
-              <li key={chat.id}>
+            {visible.map(({ groupId, primary, branches, status }) => (
+              <li key={groupId}>
                 <ChatItem
-                  chat={chat}
-                  selected={chat.id === selectedId}
-                  onSelect={() => onSelect(chat.id)}
-                  onRename={(title) => onRename(chat.id, title)}
-                  onDelete={() => setDeleting(chat)}
+                  chat={{ ...primary, status }}
+                  branchCount={branches.length}
+                  selected={branches.some((chat) => chat.id === selectedId)}
+                  onSelect={() => onSelect(primary.id)}
+                  onRename={(title) => onRename(primary.id, title)}
+                  onDelete={() => setDeleting(primary)}
                   {...(project === undefined
                     ? {}
                     : {
                         onRemoveFromProject: () =>
-                          void onSetProject(chat.id, null),
+                          void onSetProject(primary.id, null),
                       })}
                 />
               </li>
@@ -315,7 +334,9 @@ export const Sidebar = ({
       <AddThreadsDialog
         open={adding}
         projectName={project?.name ?? ""}
-        candidates={chats.filter((chat) => chat.projectId === null)}
+        candidates={groups
+          .filter((group) => group.primary.projectId === null)
+          .map((group) => group.primary)}
         onAdd={async (chatId) => {
           if (project !== undefined) await onSetProject(chatId, project.id);
         }}
@@ -327,7 +348,7 @@ export const Sidebar = ({
           if (!open) setDeleting(undefined);
         }}
         title="会話を削除しますか？"
-        description={`「${deleting?.title || "新しい会話"}」を削除します。この操作は取り消せません。${deleting?.status === "running" ? "生成中の応答は止まります。" : ""}`}
+        description={`「${deleting?.title || "新しい会話"}」を、すべての分岐ごと削除します。この操作は取り消せません。${deleting?.status === "running" ? "生成中の応答は止まります。" : ""}`}
       >
         <DialogFooter>
           <Button variant="outline" onClick={() => setDeleting(undefined)}>
