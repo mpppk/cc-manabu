@@ -1,4 +1,5 @@
 import { Result } from "@praha/byethrow";
+import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
@@ -24,19 +25,34 @@ export const createTestContext = (
   const registry = new RunnerRegistry({
     maxConcurrent: options.maxConcurrent,
   });
-  const claudeCode = createClaudeCode({
-    cwd: "/work",
-    query:
-      options.query ??
-      (() => {
-        throw new Error("query is not configured in this test");
-      }),
+  const approvals = createApprovalBroker({
+    onPendingChange: (chatId, count) =>
+      chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
   });
+  const query: QueryFunction =
+    options.query ??
+    (() => {
+      throw new Error("query is not configured in this test");
+    });
   const chatService = createChatService({
     chats,
     registry,
-    languageModel: (modelId) => claudeCode(modelId),
+    approvals,
+    languageModel: (modelId, { canUseTool }) =>
+      createClaudeCode({ cwd: "/work", query, canUseTool })(modelId),
   });
-  const context: RouterContext = { chats, chatService, cwd: "/work" };
-  return { context, chats, registry, chatService, sqlite: opened.value.sqlite };
+  const context: RouterContext = {
+    chats,
+    chatService,
+    approvals,
+    cwd: "/work",
+  };
+  return {
+    context,
+    chats,
+    registry,
+    chatService,
+    approvals,
+    sqlite: opened.value.sqlite,
+  };
 };

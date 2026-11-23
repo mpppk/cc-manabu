@@ -124,7 +124,9 @@ export class ChatRunner {
         if (done) {
           break;
         }
-        this.chunks.push(value);
+        // AI SDK は同じ id の data パーツを受け取ると、先に流したチャンクのオブジェクトを書き換える。
+        // 再送時に当時の内容を流せるよう、受け取った時点で複製しておく。
+        this.chunks.push(structuredClone(value));
         this.notify();
       }
     } catch (error) {

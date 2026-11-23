@@ -1,4 +1,5 @@
 import { Result } from "@praha/byethrow";
+import { createApprovalBroker } from "./chat/approval-broker.ts";
 import { createChatService } from "./chat/chat-service.ts";
 import { RunnerRegistry } from "./chat/runner-registry.ts";
 import { createChatRepository } from "./db/chat-repository.ts";
@@ -17,21 +18,27 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
     openDatabase(resolveDbPath()),
     Result.andThen(({ db }) => {
       const chats = createChatRepository(db);
-      const claudeCode = createClaudeCode({
+      const providerSettings = {
         cwd: process.cwd(),
         // claude の探索と未インストールの案内は #32 で実装する
         pathToClaudeCodeExecutable: Bun.which("claude") ?? undefined,
+      };
+      const approvals = createApprovalBroker({
+        onPendingChange: (chatId, count) =>
+          chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
       });
       const chatService = createChatService({
         chats,
         registry: new RunnerRegistry(),
-        languageModel: (modelId) => claudeCode(modelId),
+        approvals,
+        languageModel: (modelId, { canUseTool }) =>
+          createClaudeCode({ ...providerSettings, canUseTool })(modelId),
       });
       return startServer({
         port: config.port,
         token: generateToken(),
         router,
-        context: { chats, chatService, cwd: process.cwd() },
+        context: { chats, chatService, approvals, cwd: process.cwd() },
       });
     }),
   );

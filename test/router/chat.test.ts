@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { createRouterClient } from "@orpc/server";
 import { readUIMessageStream, type UIMessageChunk } from "ai";
-import { router } from "../../src/router.ts";
+import { type ChatChunk, router } from "../../src/router.ts";
 import { createTestContext } from "../helpers/context.ts";
 import { createFakeQuery, loadFixture } from "../provider/fake-query.ts";
 
@@ -227,5 +227,67 @@ describe("chat.reconnect / chat.stop", () => {
     expect(saved.value.messages.at(-1)?.metadata).toMatchObject({
       aborted: true,
     });
+  });
+});
+
+describe("approvals", () => {
+  test("生成中に承認要求が流れ、approvals.respond で答えると続きが流れる", async () => {
+    const lines = await loadFixture("text-partial");
+    const fake = createFakeQuery(lines);
+    const decisions: string[] = [];
+    // 最初のメッセージの前に、Claude Code がツールの承認を求めたことにする
+    const query: typeof fake.query = (params) => {
+      const inner = fake.query(params) as AsyncIterable<SDKMessage>;
+      return (async function* () {
+        const result = await params.options?.canUseTool?.(
+          "Bash",
+          { command: "touch a.txt" },
+          {
+            signal: new AbortController().signal,
+            suggestions: [],
+            toolUseID: "toolu_x",
+            displayName: "Bash",
+            description: "Create a.txt",
+          } as never,
+        );
+        decisions.push(result?.behavior ?? "none");
+        yield* inner;
+      })();
+    };
+    const ctx = createTestContext({ query });
+    const client = createRouterClient(router, { context: ctx.context });
+    const chat = await client.chats.create({});
+    const stream = await client.chat.send({
+      chatId: chat.id,
+      message: userMessage("ファイルを作って"),
+    });
+    const chunks: ChatChunk[] = [];
+    for await (const chunk of stream) {
+      chunks.push(chunk);
+      if (chunk.type === "data-approval" && chunk.data.status === "pending") {
+        expect((await client.chats.get({ id: chat.id })).chat.status).toBe(
+          "awaiting_approval",
+        );
+        // 別の会話の ID では答えられない
+        expect(
+          client.approvals.respond({
+            chatId: "other",
+            approvalId: chunk.data.approvalId,
+            behavior: "allow",
+          }),
+        ).rejects.toMatchObject({ code: "NOT_FOUND" });
+        await client.approvals.respond({
+          chatId: chat.id,
+          approvalId: chunk.data.approvalId,
+          behavior: "allow",
+        });
+      }
+    }
+    expect(decisions).toEqual(["allow"]);
+    const approvalChunks = chunks.filter((c) => c.type === "data-approval");
+    expect(
+      approvalChunks.map((c) => c.type === "data-approval" && c.data.status),
+    ).toEqual(["pending", "allowed"]);
+    expect(chunks.some((c) => c.type === "text-delta")).toBe(true);
   });
 });
