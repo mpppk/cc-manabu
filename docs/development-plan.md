@@ -90,16 +90,16 @@ build-binary.ts  build.ts  bunfig.toml  biome.json
 
 ### 2.2 自前 Provider の設計
 
-`LanguageModel` の仕様は、採用する AI SDK のメジャーバージョンに合わせます（2026-11 時点の最新は AI SDK v7 / `LanguageModelV4` の想定。Phase 0 で確定）。
+AI SDK 7 / `LanguageModelV4` を実装します（[spike](spikes/ai-sdk-spec.md)、[SDKMessage の観察](spikes/sdk-messages.md)）。
 
 - **入力の変換**: AI SDK の `prompt` は全履歴を含みますが、送るのは末尾の user メッセージだけです。resume 先の `sessionId` などは `providerOptions["claude-code"]` で受け取ります。
   - `sessionId` がなければ新規セッション、あれば `resume`。
   - 再生成・編集は `resume`＋`resumeSessionAt: <分岐点の SDK message uuid>`＋`forkSession: true`。
 - **出力の変換**（`includePartialMessages: true`）:
   - `stream_event` の text/thinking delta → `text-*` / `reasoning-*`
-  - `assistant` の `tool_use` → `tool-call`（`providerExecuted: true`）
+  - `assistant` の `tool_use` → `tool-call`（`providerExecuted: true, dynamic: true`。UI では `dynamic-tool` パーツになる）
   - `user` の `tool_result` → `tool-result`（エラー時は `isError`）
-  - `result` → `finish`。usage、finishReason、`providerMetadata["claude-code"]`（`sessionId`、`costUsd`、`durationMs`、各メッセージの uuid）
+  - `result` → `finish`。usage、finishReason、`providerMetadata["claude-code"]`（`sessionId`、`costUsd`、`durationMs`、各メッセージの uuid）。UIMessage の metadata へは `toUIMessageStream` の `messageMetadata` で `finish-step` から移す
   - `system/init` → `sessionId` を早めに通知する（中断時にも resume できるようにするため）
 - **非対応の設定**（temperature、topP、maxOutputTokens、stopSequences、AI SDK のユーザー定義 tools など）は `unsupported` の warning を返すだけにします。
 - **中断**: `abortSignal` を `AbortController` に橋渡しします。
