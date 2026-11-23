@@ -1,7 +1,10 @@
+import { existsSync } from "node:fs";
 import { Result } from "@praha/byethrow";
 import { createApprovalBroker } from "./chat/approval-broker.ts";
 import { createChatService } from "./chat/chat-service.ts";
 import { RunnerRegistry } from "./chat/runner-registry.ts";
+import { resolveClaudePath } from "./claude/detect.ts";
+import { createClaudeStatus } from "./claude/status.ts";
 import { createChatRepository } from "./db/chat-repository.ts";
 import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
@@ -18,10 +21,26 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
     openDatabase(resolveDbPath()),
     Result.andThen(({ db }) => {
       const chats = createChatRepository(db);
+      const claudePath = resolveClaudePath({
+        env: process.env,
+        which: (command) => Bun.which(command),
+        exists: existsSync,
+      });
+      if (Result.isFailure(claudePath)) {
+        console.warn(
+          "Claude Code（claude コマンド）が見つかりません。インストールしてから起動し直してください: https://docs.claude.com/en/docs/claude-code",
+        );
+      }
+      const claude = createClaudeStatus(
+        Result.isSuccess(claudePath)
+          ? { found: true, path: claudePath.value }
+          : { found: false, message: claudePath.error.message },
+      );
       const providerSettings = {
         cwd: process.cwd(),
-        // claude の探索と未インストールの案内は #32 で実装する
-        pathToClaudeCodeExecutable: Bun.which("claude") ?? undefined,
+        pathToClaudeCodeExecutable: Result.isSuccess(claudePath)
+          ? claudePath.value
+          : undefined,
       };
       const approvals = createApprovalBroker({
         onPendingChange: (chatId, count) =>
@@ -38,7 +57,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         port: config.port,
         token: generateToken(),
         router,
-        context: { chats, chatService, approvals, cwd: process.cwd() },
+        context: { chats, chatService, approvals, claude, cwd: process.cwd() },
       });
     }),
   );

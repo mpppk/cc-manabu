@@ -69,3 +69,22 @@ describe("chats", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
+
+describe("system.status", () => {
+  test("Claude Code の状態とモデル一覧を返す", async () => {
+    const { context } = createTestContext();
+    await context.claude.ready;
+    const status = await createRouterClient(router, {
+      context,
+    }).system.status();
+    expect(status).toMatchObject({
+      cwd: "/work",
+      claude: {
+        state: "ready",
+        version: "2.1.330",
+        account: { subscriptionType: "Claude Max" },
+        models: [{ value: "default" }],
+      },
+    });
+  });
+});
