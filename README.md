@@ -23,12 +23,15 @@ cc-manabu は自分では認証情報を扱いません。PATH 上の `claude`�
 
 ## 認証と利用規約
 
-**利用前に必ず確認してください。** Anthropic のドキュメントでは、次のように定められています（2026 年 11 月時点）。
+cc-manabu は、利用者が自分の PC で起動し、自分だけが使うローカルツールです。
 
-- [Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview): 事前の承認がない限り、サードパーティの開発者が claude.ai のログインやレート制限を自分の製品（Agent SDK で作ったエージェントを含む）で提供することは認められておらず、API キーによる認証を使うよう案内されています
-- [Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance): OAuth 認証（Free / Pro / Max などのサブスクリプション）は Claude Code と Anthropic 純正アプリでの通常の利用のためのものです。Agent SDK を使う製品の開発者は API キー認証を使うべきとされています
+- Web サービスとして公開したり、他の人に Claude を使わせたりするものではありません（サーバは `127.0.0.1` でのみ待ち受けます）
+- 認証情報を収集・保存・中継しません。ログインは Anthropic 純正の `claude` で利用者自身が行い、cc-manabu は改変していない `claude` をそのまま起動します
+- 利用枠は、その利用者自身の Claude のプラン（または API キー）のものが使われます
 
-規約は変わることがあります。上のページと [Usage Policy](https://www.anthropic.com/legal/aup)、[Consumer Terms](https://www.anthropic.com/legal/consumer-terms)、[Commercial Terms](https://www.anthropic.com/legal/commercial-terms) の最新版を確認し、自分の使い方が規約に沿っているかを判断してください。
+Anthropic は、サードパーティの製品が claude.ai のログインを提供したり、利用者に代わってサブスクリプションの認証情報でリクエストを中継したりすることを認めていません（[Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview)、[Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)）。また、Pro / Max などの利用枠は、Claude Code と Agent SDK の通常の個人利用を前提としています。cc-manabu を複数人で共有するサーバとして動かしたり、他の人の利用を肩代わりしたりしないでください。
+
+規約は変わることがあります。上のページと [Usage Policy](https://www.anthropic.com/legal/aup)、[Consumer Terms](https://www.anthropic.com/legal/consumer-terms)、[Commercial Terms](https://www.anthropic.com/legal/commercial-terms) の最新版を確認し、自分の使い方が規約に沿っているかを確認してください。
 
 API キーで使う場合は、[Claude Console](https://platform.claude.com/) で発行したキーを環境変数に設定してから起動します。cc-manabu は環境変数をそのまま `claude` に渡します。
 
