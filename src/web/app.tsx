@@ -1,5 +1,8 @@
 import { MessageSquarePlus, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { ChatUIMessage } from "../chat/chat-service.ts";
+import type { ChatDto } from "../router.ts";
+import { ChatView } from "./components/chat-view.tsx";
 import { Button } from "./components/ui/button.tsx";
 import type { ApiClient } from "./lib/orpc.ts";
 import { applyTheme, loadTheme, type Theme } from "./lib/theme.ts";
@@ -40,6 +43,20 @@ const ClaudeStatusBadge = ({ status }: { status: Status | undefined }) => {
 /** 画面全体のレイアウト。サイドバー（#36）とチャット画面（#35 以降）はここに入る。 */
 export const App = ({ api }: { api: ApiClient }) => {
   const [status, setStatus] = useState<Status>();
+  const [current, setCurrent] = useState<{
+    chat: ChatDto;
+    messages: ChatUIMessage[];
+  }>();
+
+  const openChat = async (id: string) => {
+    const { chat, messages } = await api.chats.get({ id });
+    setCurrent({ chat, messages: messages as ChatUIMessage[] });
+  };
+
+  const newChat = async () => {
+    const chat = await api.chats.create({});
+    await openChat(chat.id);
+  };
   const [theme, setTheme] = useState<Theme>(loadTheme);
 
   useEffect(() => {
@@ -68,7 +85,12 @@ export const App = ({ api }: { api: ApiClient }) => {
       <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
         <div className="flex items-center justify-between p-3">
           <span className="font-semibold">cc-manabu</span>
-          <Button variant="ghost" size="icon" aria-label="新しい会話">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="新しい会話"
+            onClick={() => void newChat()}
+          >
             <MessageSquarePlus />
           </Button>
         </div>
@@ -98,9 +120,18 @@ export const App = ({ api }: { api: ApiClient }) => {
             </Button>
           </div>
         </header>
-        <section className="flex flex-1 items-center justify-center text-muted-foreground">
-          会話を選ぶか、新しい会話を始めてください。
-        </section>
+        {current === undefined ? (
+          <section className="flex flex-1 items-center justify-center text-muted-foreground">
+            会話を選ぶか、新しい会話を始めてください。
+          </section>
+        ) : (
+          <ChatView
+            key={current.chat.id}
+            api={api}
+            chat={current.chat}
+            initialMessages={current.messages}
+          />
+        )}
       </main>
     </div>
   );
