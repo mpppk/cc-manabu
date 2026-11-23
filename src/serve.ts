@@ -17,7 +17,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         port: config.port,
         token: generateToken(),
         router,
-        context: { chats: createChatRepository(db) },
+        context: { chats: createChatRepository(db), cwd: process.cwd() },
       }),
     ),
   );

@@ -18,7 +18,7 @@ const start = () => {
     port: 0,
     token: TOKEN,
     router,
-    context: { chats: createChatRepository(opened.value.db) },
+    context: { chats: createChatRepository(opened.value.db), cwd: "/work" },
   });
   if (Result.isFailure(result)) throw result.error;
   server = result.value;
@@ -87,7 +87,7 @@ describe("startServer", () => {
       port: s.port,
       token: TOKEN,
       router,
-      context: { chats: createChatRepository(opened.value.db) },
+      context: { chats: createChatRepository(opened.value.db), cwd: "/work" },
     });
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
