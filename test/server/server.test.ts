@@ -3,22 +3,19 @@ import { createORPCClient } from "@orpc/client";
 import { RPCLink } from "@orpc/client/fetch";
 import type { RouterClient } from "@orpc/server";
 import { Result } from "@praha/byethrow";
-import { createChatRepository } from "../../src/db/chat-repository.ts";
-import { openDatabase } from "../../src/db/index.ts";
 import { type Router, router } from "../../src/router.ts";
 import { type RunningServer, startServer } from "../../src/server/server.ts";
+import { createTestContext } from "../helpers/context.ts";
 
 const TOKEN = "test-token";
 let server: RunningServer | undefined;
 
 const start = () => {
-  const opened = openDatabase(":memory:");
-  if (Result.isFailure(opened)) throw opened.error;
   const result = startServer({
     port: 0,
     token: TOKEN,
     router,
-    context: { chats: createChatRepository(opened.value.db), cwd: "/work" },
+    context: createTestContext().context,
   });
   if (Result.isFailure(result)) throw result.error;
   server = result.value;
@@ -81,13 +78,11 @@ describe("startServer", () => {
 
   test("使用中のポートなら PortInUseError", () => {
     const s = start();
-    const opened = openDatabase(":memory:");
-    if (Result.isFailure(opened)) throw opened.error;
     const result = startServer({
       port: s.port,
       token: TOKEN,
       router,
-      context: { chats: createChatRepository(opened.value.db), cwd: "/work" },
+      context: createTestContext().context,
     });
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
