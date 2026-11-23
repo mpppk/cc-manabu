@@ -7,6 +7,7 @@ import { OrpcChatTransport } from "../lib/chat-transport.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { Markdown } from "./markdown.tsx";
 import { Reasoning } from "./reasoning.tsx";
+import { ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
 
 const MessageView = ({
@@ -46,8 +47,10 @@ const MessageView = ({
                 streaming={streaming && part.state === "streaming"}
               />
             );
+          case "dynamic-tool":
+            return <ToolCard key={part.toolCallId} part={part} />;
           default:
-            // ツール・承認は #38・#39 で描画する
+            // 承認は #39 で描画する
             return null;
         }
       })}
