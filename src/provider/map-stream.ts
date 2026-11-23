@@ -8,6 +8,7 @@ import type {
   SDKMessage,
   SDKResultMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import { ClaudeCodeApiError, ClaudeCodeExecutionError } from "./errors.ts";
 import { PROVIDER_NAME } from "./types.ts";
 
 type BlockKind = "text" | "reasoning" | "tool-input";
@@ -269,6 +270,21 @@ export class StreamMapper {
   ): LanguageModelV4StreamPart[] {
     this.lastAssistantUuid = message.uuid;
     const parts: LanguageModelV4StreamPart[] = [];
+    if (message.error !== undefined) {
+      // 認証・課金・レート制限などのエラー。本文は Claude Code が作った説明文なので detail に残す
+      const detail = message.message.content
+        .map((block) => (block.type === "text" ? block.text : ""))
+        .join("")
+        .trim();
+      parts.push({
+        type: "error",
+        error: new ClaudeCodeApiError({
+          kind: message.error,
+          detail: detail === "" ? undefined : detail,
+        }),
+      });
+      return parts;
+    }
     for (const block of message.message.content) {
       if (block.type === "tool_use") {
         this.toolNames.set(block.id, block.name);
@@ -309,7 +325,18 @@ export class StreamMapper {
   }
 
   private mapResult(result: SDKResultMessage): LanguageModelV4StreamPart[] {
+    const parts: LanguageModelV4StreamPart[] = [];
+    if (result.subtype !== "success") {
+      parts.push({
+        type: "error",
+        error: new ClaudeCodeExecutionError({
+          subtype: result.subtype,
+          errors: result.errors,
+        }),
+      });
+    }
     return [
+      ...parts,
       {
         type: "finish",
         usage: mapUsage(result.usage),

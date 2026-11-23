@@ -10,6 +10,7 @@ import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { collectWarnings } from "./call-options.ts";
 import { buildQueryOptions, extractLatestUserText } from "./convert-prompt.ts";
+import { classifyThrownError } from "./errors.ts";
 import { StreamMapper } from "./map-stream.ts";
 import {
   type ClaudeCodeModelId,
@@ -72,10 +73,6 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
       callOptions: options,
       abortController,
     });
-    const messages = this.query({
-      prompt: prompt.value.text,
-      options: queryOptions,
-    });
     const mapper = new StreamMapper();
     const includeRaw = options.includeRawChunks === true;
 
@@ -83,6 +80,10 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
       start: async (controller) => {
         controller.enqueue({ type: "stream-start", warnings });
         try {
+          const messages = this.query({
+            prompt: prompt.value.text,
+            options: queryOptions,
+          });
           for await (const message of messages) {
             // abort 後も SDK はバッファ済みのメッセージを流してくるので捨てる（docs/spikes/sdk-messages.md）
             if (abortController.signal.aborted) {
@@ -97,7 +98,13 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
           }
         } catch (error) {
           if (!abortController.signal.aborted) {
-            controller.enqueue({ type: "error", error });
+            controller.enqueue({
+              type: "error",
+              error: classifyThrownError(
+                error,
+                this.settings.pathToClaudeCodeExecutable,
+              ),
+            });
           }
         } finally {
           options.abortSignal?.removeEventListener("abort", abort);
