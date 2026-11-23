@@ -50,10 +50,13 @@ export const ChatView = ({
   api,
   chat,
   initialMessages,
+  onActivity,
 }: {
   api: ApiClient;
   chat: ChatDto;
   initialMessages: ChatUIMessage[];
+  /** 送信・完了など、一覧の表示（タイトル・状態）が変わりうるときに呼ぶ。 */
+  onActivity?: () => void;
 }) => {
   const transport = useMemo(() => new OrpcChatTransport(api), [api]);
   const { messages, sendMessage, status, stop, error } = useChat<ChatUIMessage>(
@@ -63,6 +66,7 @@ export const ChatView = ({
       transport,
       // リロード時に生成中なら、途中から表示する
       resume: true,
+      onFinish: () => onActivity?.(),
     },
   );
   const [input, setInput] = useState("");
@@ -72,7 +76,9 @@ export const ChatView = ({
     const text = input.trim();
     if (text === "" || busy) return;
     setInput("");
-    void sendMessage({ text });
+    void sendMessage({ text }).then(() => onActivity?.());
+    // タイトルと状態（生成中）をすぐ一覧に反映する
+    setTimeout(() => onActivity?.(), 300);
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
