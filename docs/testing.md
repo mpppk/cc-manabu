@@ -3,6 +3,7 @@
 | 種類 | コマンド | CI | 内容 |
 | --- | --- | --- | --- |
 | 単体テスト | `bun test` | 実行する | Provider は記録済みの SDKMessage（`test/fixtures/sdk-messages/`）を流す fake query で検証する |
+| E2E テスト | `bun run test:e2e` | 実行する | Playwright で本物の Web UI を動かす。Claude はモック（`test/e2e/scripted-query.ts` の台本どおりに応答する）。送信、リロード後の再開、承認、停止・再生成・編集、会話の管理を確認する |
 | 実機の結合テスト | `bun run test:live` | 実行しない | 実際の `claude` を使う。`CC_MANABU_LIVE=1` のときだけ動き、普段の `bun test` では skip される |
 
 ## 実機の結合テスト（`test/live/`）
