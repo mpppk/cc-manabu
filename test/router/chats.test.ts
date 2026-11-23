@@ -1,23 +1,16 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createRouterClient, type RouterClient } from "@orpc/server";
-import { Result } from "@praha/byethrow";
-import {
-  type ChatRepository,
-  createChatRepository,
-} from "../../src/db/chat-repository.ts";
-import { openDatabase } from "../../src/db/index.ts";
+import type { ChatRepository } from "../../src/db/chat-repository.ts";
 import { type Router, router } from "../../src/router.ts";
+import { createTestContext } from "../helpers/context.ts";
 
 let client: RouterClient<Router>;
 let repo: ChatRepository;
 
 beforeEach(() => {
-  const opened = openDatabase(":memory:");
-  if (Result.isFailure(opened)) throw opened.error;
-  repo = createChatRepository(opened.value.db);
-  client = createRouterClient(router, {
-    context: { chats: repo, cwd: "/work" },
-  });
+  const { context, chats } = createTestContext();
+  repo = chats;
+  client = createRouterClient(router, { context });
 });
 
 describe("chats", () => {
