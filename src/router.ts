@@ -11,12 +11,13 @@ import type {
   ProjectNotFoundError,
   ProjectRepository,
 } from "./db/project-repository.ts";
-import type {
-  ChatRow,
-  MessageRow,
-  ProjectLinkRow,
-  ProjectRow,
-  WikiPageRow,
+import {
+  type ChatRow,
+  type MessageRow,
+  PROJECT_STATUSES,
+  type ProjectLinkRow,
+  type ProjectRow,
+  type WikiPageRow,
 } from "./db/schema.ts";
 import type { WikiRepository } from "./db/wiki-repository.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
@@ -104,13 +105,24 @@ const toMessageDto = (row: MessageRow): MessageDto => ({
 /** クライアントに返すプロジェクト。 */
 export type ProjectDto = Pick<
   ProjectRow,
-  "id" | "name" | "autoTerms" | "createdAt"
+  | "id"
+  | "name"
+  | "autoTerms"
+  | "status"
+  | "progressNote"
+  | "nextAction"
+  | "progressUpdatedAt"
+  | "createdAt"
 >;
 
 const toProjectDto = (row: ProjectRow): ProjectDto => ({
   id: row.id,
   name: row.name,
   autoTerms: row.autoTerms,
+  status: row.status,
+  progressNote: row.progressNote,
+  nextAction: row.nextAction,
+  progressUpdatedAt: row.progressUpdatedAt,
   createdAt: row.createdAt,
 });
 
@@ -269,6 +281,32 @@ export const router = {
         toProjectDto(
           await unwrapForOrpc(
             context.projects.renameProject(input.id, input.name),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** 進捗（状態・進捗メモ・次にやること）を更新する。指定した項目だけを変える。 */
+    updateProgress: base
+      .input(
+        z.object({
+          id: z.string().min(1),
+          status: z.enum(PROJECT_STATUSES).optional(),
+          progressNote: z.string().max(20_000).optional(),
+          nextAction: z.string().trim().max(500).optional(),
+        }),
+      )
+      .handler(async ({ context, input }) =>
+        toProjectDto(
+          await unwrapForOrpc(
+            context.projects.updateProgress(input.id, {
+              ...(input.status === undefined ? {} : { status: input.status }),
+              ...(input.progressNote === undefined
+                ? {}
+                : { progressNote: input.progressNote }),
+              ...(input.nextAction === undefined
+                ? {}
+                : { nextAction: input.nextAction }),
+            }),
             ERROR_CODES,
           ),
         ),

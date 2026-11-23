@@ -6,6 +6,7 @@ import type { Db } from "./index.ts";
 import {
   type ProjectLinkRow,
   type ProjectRow,
+  type ProjectStatus,
   projectLinks,
   projects,
 } from "./schema.ts";
@@ -118,6 +119,43 @@ export const createProjectRepository = (db: Db) => ({
       run(() =>
         db.delete(projects).where(eq(projects.id, projectId)).returning().get(),
       ),
+      Result.andThen((row) => requireProject(row, projectId)),
+    ),
+
+  /**
+   * 進捗（状態・進捗メモ・次にやること）を更新する。指定した項目だけを変え、
+   * 進捗の最終更新日時を今にする。会話の送信など、ほかの操作では変わらない。
+   */
+  updateProgress: (
+    projectId: string,
+    progress: {
+      status?: ProjectStatus;
+      progressNote?: string;
+      nextAction?: string;
+    },
+  ): Result.Result<ProjectRow, ProjectNotFoundError | DatabaseError> =>
+    Result.pipe(
+      run(() => {
+        const now = new Date();
+        return db
+          .update(projects)
+          .set({
+            ...(progress.status === undefined
+              ? {}
+              : { status: progress.status }),
+            ...(progress.progressNote === undefined
+              ? {}
+              : { progressNote: progress.progressNote }),
+            ...(progress.nextAction === undefined
+              ? {}
+              : { nextAction: progress.nextAction }),
+            progressUpdatedAt: now,
+            updatedAt: now,
+          })
+          .where(eq(projects.id, projectId))
+          .returning()
+          .get();
+      }),
       Result.andThen((row) => requireProject(row, projectId)),
     ),
 

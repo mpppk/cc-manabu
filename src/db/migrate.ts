@@ -6,6 +6,9 @@ import autoTerms from "./migrations/0003_auto_terms.sql" with { type: "text" };
 import projectLinks from "./migrations/0004_project_links.sql" with {
   type: "text",
 };
+import projectProgress from "./migrations/0005_project_progress.sql" with {
+  type: "text",
+};
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -17,6 +20,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0002_wiki", sql: wiki },
   { name: "0003_auto_terms", sql: autoTerms },
   { name: "0004_project_links", sql: projectLinks },
+  { name: "0005_project_progress", sql: projectProgress },
 ];
 
 /** 未適用のマイグレーションを順に適用する。 */
