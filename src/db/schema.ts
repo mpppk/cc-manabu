@@ -120,7 +120,30 @@ export const wikiPages = sqliteTable(
   (table) => [index("wiki_pages_project_id_idx").on(table.projectId)],
 );
 
+/** プロジェクトの関連リンク（GitHub リポジトリ・設計資料など、繰り返し開く URL）。 */
+export const projectLinks = sqliteTable(
+  "project_links",
+  {
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** http / https の URL。 */
+    url: text("url").notNull(),
+    /** 表示名。無ければ URL を表示する。 */
+    label: text("label"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+  },
+  (table) => [index("project_links_project_id_idx").on(table.projectId)],
+);
+
 export type ProjectRow = typeof projects.$inferSelect;
+export type ProjectLinkRow = typeof projectLinks.$inferSelect;
 export type WikiPageRow = typeof wikiPages.$inferSelect;
 export type ChatRow = typeof chats.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;

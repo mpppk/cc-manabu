@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
 import type { ChatDto, ProjectDto } from "../router.ts";
 import { ChatView } from "./components/chat-view.tsx";
+import { ProjectOverview } from "./components/project-overview.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { WikiView } from "./components/wiki-view.tsx";
@@ -313,6 +314,18 @@ export const App = ({ api }: { api: ApiClient }) => {
               // Wiki から元の回答に戻れるようにする
               navigate(pathForWiki(projectId, pageId), { returnTo: path })
             }
+          />
+        ) : selectedId === undefined &&
+          wikiRoute === undefined &&
+          project !== undefined ? (
+          <ProjectOverview
+            key={project.id}
+            api={api}
+            project={project}
+            threads={chats.filter((chat) => chat.projectId === project.id)}
+            onOpenChat={select}
+            onOpenWiki={() => navigate(pathForWiki(project.id))}
+            onNewChat={() => void newChat()}
           />
         ) : (
           <section className="flex flex-1 items-center justify-center text-muted-foreground">

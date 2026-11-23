@@ -3,13 +3,32 @@ import { ErrorFactory } from "@praha/error-factory";
 import { asc, eq } from "drizzle-orm";
 import { DatabaseError } from "./chat-repository.ts";
 import type { Db } from "./index.ts";
-import { type ProjectRow, projects } from "./schema.ts";
+import {
+  type ProjectLinkRow,
+  type ProjectRow,
+  projectLinks,
+  projects,
+} from "./schema.ts";
 
 export class ProjectNotFoundError extends ErrorFactory({
   name: "ProjectNotFoundError",
   message: (fields) => `Project not found: ${fields.projectId}`,
   fields: ErrorFactory.fields<{ projectId: string }>(),
 }) {}
+
+export class ProjectLinkNotFoundError extends ErrorFactory({
+  name: "ProjectLinkNotFoundError",
+  message: (fields) => `Project link not found: ${fields.linkId}`,
+  fields: ErrorFactory.fields<{ linkId: string }>(),
+}) {}
+
+const requireLink = (
+  row: ProjectLinkRow | undefined,
+  linkId: string,
+): Result.Result<ProjectLinkRow, ProjectLinkNotFoundError> =>
+  row === undefined
+    ? Result.fail(new ProjectLinkNotFoundError({ linkId }))
+    : Result.succeed(row);
 
 const run = <T>(fn: () => T): Result.Result<T, DatabaseError> =>
   Result.try({ try: fn, catch: (cause) => new DatabaseError({ cause }) });
@@ -100,6 +119,70 @@ export const createProjectRepository = (db: Db) => ({
         db.delete(projects).where(eq(projects.id, projectId)).returning().get(),
       ),
       Result.andThen((row) => requireProject(row, projectId)),
+    ),
+
+  /** プロジェクトの関連リンク（登録した順）。 */
+  listLinks: (
+    projectId: string,
+  ): Result.Result<ProjectLinkRow[], DatabaseError> =>
+    run(() =>
+      db
+        .select()
+        .from(projectLinks)
+        .where(eq(projectLinks.projectId, projectId))
+        .orderBy(asc(projectLinks.createdAt))
+        .all(),
+    ),
+
+  createLink: (input: {
+    projectId: string;
+    url: string;
+    label: string | null;
+  }): Result.Result<ProjectLinkRow, DatabaseError> =>
+    run(() => {
+      const now = new Date();
+      return db
+        .insert(projectLinks)
+        .values({
+          id: crypto.randomUUID(),
+          projectId: input.projectId,
+          url: input.url,
+          label: input.label,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .returning()
+        .get();
+    }),
+
+  updateLink: (
+    linkId: string,
+    input: { url: string; label: string | null },
+  ): Result.Result<ProjectLinkRow, ProjectLinkNotFoundError | DatabaseError> =>
+    Result.pipe(
+      run(() =>
+        db
+          .update(projectLinks)
+          .set({ ...input, updatedAt: new Date() })
+          .where(eq(projectLinks.id, linkId))
+          .returning()
+          .get(),
+      ),
+      Result.andThen((row) => requireLink(row, linkId)),
+    ),
+
+  deleteLink: (
+    linkId: string,
+  ): Result.Result<ProjectLinkRow, ProjectLinkNotFoundError | DatabaseError> =>
+    Result.pipe(
+      run(() =>
+        db
+          .delete(projectLinks)
+          .where(eq(projectLinks.id, linkId))
+          .returning()
+          .get(),
+      ),
+      Result.andThen((row) => requireLink(row, linkId)),
     ),
 });
 

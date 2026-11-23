@@ -373,7 +373,7 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await expect(page.getByText("一致するページはありません。")).toBeVisible();
 
   // スレッドから質問すると、引用したページだけがリンクになる
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page.getByRole("button", { name: "概要", exact: true }).click();
   await expect(page).toHaveURL(projectUrl.replace(/#.*$/, ""));
   await newChat(page);
   await send(page, "関係タプルって何？");
@@ -390,7 +390,7 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
 
   // 同じプロジェクトの別のスレッドからも参照できる（別名でも一致する）
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page.getByRole("button", { name: "概要", exact: true }).click();
   await newChat(page);
   await send(page, "relation tuple の例は？");
   await idle(page);
@@ -412,7 +412,7 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await page.getByRole("button", { name: "ページを削除" }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
   await expect(page.getByText("まだページがありません。")).toBeVisible();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page.getByRole("button", { name: "概要", exact: true }).click();
   await list.getByText("関係タプルって何？").click();
   await expect(page.getByText(/参照: .*関係タプル/)).toBeVisible();
   await page.getByRole("main").locator("a[data-wiki-page]").click();
@@ -461,7 +461,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
     .fill("利用者が書いた説明");
   await page.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("利用者が書いた説明")).toBeVisible();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page.getByRole("button", { name: "概要", exact: true }).click();
   await page
     .getByRole("navigation", { name: "会話一覧" })
     .getByText("「認可モデル」について")
@@ -484,7 +484,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await toggle.uncheck();
   await expect(toggle).not.toBeChecked();
   await page.getByRole("button", { name: "閉じる" }).click();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page.getByRole("button", { name: "概要", exact: true }).click();
   await newChat(page);
   await send(page, "「止めたあとの語」について");
   await idle(page);
@@ -514,7 +514,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(body);
     await page.getByRole("button", { name: "保存" }).click();
     await expect(page.getByRole("heading", { name: title })).toBeVisible();
-    await page.getByRole("button", { name: "スレッド", exact: true }).click();
+    await page.getByRole("button", { name: "概要", exact: true }).click();
   };
   const terms = page.getByRole("main").locator("button[data-wiki-term]");
   const card = page.getByRole("dialog", { name: "用語の説明" });
@@ -598,7 +598,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     .fill("編集後の説明");
   await page.getByRole("button", { name: "保存" }).click();
   await expect(page.getByText("編集後の説明")).toBeVisible();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page.getByRole("button", { name: "概要", exact: true }).click();
   await page
     .getByRole("navigation", { name: "会話一覧" })
     .getByText("関係タプル と relation tuple")
@@ -618,7 +618,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     .click();
   await page.getByRole("button", { name: "ページを削除" }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page.getByRole("button", { name: "概要", exact: true }).click();
   await page
     .getByRole("navigation", { name: "会話一覧" })
     .getByText("関係タプル と relation tuple")
@@ -630,4 +630,66 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     }),
   ).toHaveCount(0);
   await expect(terms.first()).toHaveText("関係タプル");
+});
+
+test("プロジェクトに関連リンクを登録し、開き、編集・削除できる", async ({
+  page,
+}) => {
+  await open(page);
+  await createProject(page, "リンクの検証");
+  const links = page.getByRole("list", { name: "関連リンク" });
+  const add = async (url: string, label = "") => {
+    await page.getByRole("textbox", { name: "URL" }).last().fill(url);
+    await page
+      .getByRole("textbox", { name: "表示名（任意）" })
+      .last()
+      .fill(label);
+    await page.getByRole("button", { name: "追加", exact: true }).click();
+  };
+
+  // http / https 以外はエラー
+  await add("javascript:alert(1)");
+  await expect(page.getByRole("alert")).toContainText("http または https");
+
+  await add("https://github.com/example/authz", "リポジトリ");
+  await add("https://example.com/design");
+  await expect(links.getByRole("link")).toHaveCount(2);
+  const repo = links.getByRole("link", { name: /リポジトリ/ });
+  await expect(repo).toHaveAttribute(
+    "href",
+    "https://github.com/example/authz",
+  );
+  await expect(repo).toHaveAttribute("target", "_blank");
+  // 表示名を省略すると URL を表示する
+  await expect(
+    links.getByRole("link", { name: "https://example.com/design" }),
+  ).toBeVisible();
+
+  // 新しいタブで開ける
+  const popup = page.waitForEvent("popup");
+  await repo.click();
+  await (await popup).close();
+
+  // 編集と削除
+  await page
+    .getByRole("button", { name: "「https://example.com/design」を編集" })
+    .click();
+  await page
+    .getByRole("textbox", { name: "表示名（任意）" })
+    .first()
+    .fill("設計資料");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(links.getByRole("link", { name: /設計資料/ })).toBeVisible();
+  await page.getByRole("button", { name: "「リポジトリ」を削除" }).click();
+  await expect(links.getByRole("link")).toHaveCount(1);
+
+  // 開き直しても残り、別のプロジェクトには出ない
+  await page.reload();
+  await expect(links.getByRole("link", { name: /設計資料/ })).toBeVisible();
+  await createProject(page, "別のリンク");
+  await expect(page.getByText("よく開く URL を登録できます")).toBeVisible();
+  await page
+    .getByRole("combobox", { name: "プロジェクト" })
+    .selectOption({ label: "リンクの検証" });
+  await expect(links.getByRole("link")).toHaveCount(1);
 });
