@@ -1,6 +1,6 @@
 import { useChat } from "@ai-sdk/react";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Pencil, RotateCcw, Square } from "lucide-react";
 import { type KeyboardEvent, useMemo, useRef, useState } from "react";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
 import type { ChatDto } from "../../router.ts";
@@ -15,29 +15,107 @@ import { Reasoning } from "./reasoning.tsx";
 import { ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
 
+const textOf = (message: ChatUIMessage): string =>
+  message.parts
+    .map((part) => (part.type === "text" ? part.text : ""))
+    .join("\n\n");
+
+/** ユーザー発話。生成中でなければ編集できる（それより後ろの会話は消える）。 */
+const UserMessage = ({
+  message,
+  canEdit,
+  onEdit,
+}: {
+  message: ChatUIMessage;
+  canEdit: boolean;
+  onEdit: (text: string) => void;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  if (editing) {
+    return (
+      <div className="flex flex-col items-end gap-2">
+        <textarea
+          className="min-h-24 w-full max-w-[80%] resize-y rounded-2xl border bg-background px-4 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="発話を編集"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+        />
+        <p className="text-muted-foreground text-xs">
+          送信すると、この発話より後ろの会話は消えて作り直されます。
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={() => setEditing(false)}>
+            キャンセル
+          </Button>
+          <Button
+            size="sm"
+            disabled={draft.trim() === ""}
+            onClick={() => {
+              setEditing(false);
+              onEdit(draft.trim());
+            }}
+          >
+            送信
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="group flex items-start justify-end gap-1">
+      {canEdit && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+          aria-label="この発話を編集"
+          onClick={() => {
+            setDraft(textOf(message));
+            setEditing(true);
+          }}
+        >
+          <Pencil className="size-3.5" />
+        </Button>
+      )}
+      <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-secondary px-4 py-2">
+        {textOf(message)}
+      </div>
+    </div>
+  );
+};
+
 const MessageView = ({
   message,
   streaming,
+  canAct,
+  isLast,
   onRespond,
+  onEdit,
+  onRegenerate,
 }: {
   message: ChatUIMessage;
   streaming: boolean;
+  /** 生成中でなく、編集・再生成ができるか。 */
+  canAct: boolean;
+  isLast: boolean;
   onRespond: (
     approvalId: string,
     behavior: "allow" | "deny",
     reason: string | undefined,
   ) => Promise<void>;
+  onEdit: (messageId: string, text: string) => void;
+  onRegenerate: () => void;
 }) => {
   if (message.role === "user") {
     return (
-      <div className="flex justify-end">
-        <div className="max-w-[80%] whitespace-pre-wrap rounded-2xl bg-secondary px-4 py-2">
-          {message.parts.map((part, i) =>
-            // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
-            part.type === "text" ? <span key={i}>{part.text}</span> : null,
-          )}
-        </div>
-      </div>
+      <UserMessage
+        message={message}
+        canEdit={canAct}
+        onEdit={(text) => onEdit(message.id, text)}
+      />
     );
   }
   const usage = streaming ? undefined : usageOf(message);
@@ -75,14 +153,27 @@ const MessageView = ({
             return null;
         }
       })}
-      {usage !== undefined && (
-        <p className="text-muted-foreground text-xs">
-          {message.metadata?.model !== undefined &&
-            `${message.metadata.model}・`}
-          {formatUsage(usage)}
-          {message.metadata?.aborted === true && "・中断"}
-        </p>
-      )}
+      <div className="flex items-center gap-2">
+        {usage !== undefined && (
+          <p className="text-muted-foreground text-xs">
+            {message.metadata?.model !== undefined &&
+              `${message.metadata.model}・`}
+            {formatUsage(usage)}
+            {message.metadata?.aborted === true && "・中断"}
+          </p>
+        )}
+        {isLast && canAct && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-muted-foreground text-xs"
+            onClick={onRegenerate}
+          >
+            <RotateCcw className="size-3.5" />
+            再生成
+          </Button>
+        )}
+      </div>
     </div>
   );
 };
@@ -129,16 +220,15 @@ export const ChatView = ({
     () => new OrpcChatTransport(api, () => settingsRef.current),
     [api],
   );
-  const { messages, sendMessage, status, stop, error } = useChat<ChatUIMessage>(
-    {
+  const { messages, sendMessage, regenerate, status, stop, error } =
+    useChat<ChatUIMessage>({
       id: chat.id,
       messages: initialMessages,
       transport,
       // リロード時に生成中なら、途中から表示する
       resume: true,
       onFinish: () => onActivity?.(),
-    },
-  );
+    });
   const [input, setInput] = useState("");
   const busy = status === "submitted" || status === "streaming";
 
@@ -178,6 +268,16 @@ export const ChatView = ({
               key={message.id}
               message={message}
               streaming={busy && index === messages.length - 1}
+              canAct={!busy}
+              isLast={index === messages.length - 1}
+              onEdit={(messageId, text) => {
+                void sendMessage({ text, messageId }).then(() =>
+                  onActivity?.(),
+                );
+              }}
+              onRegenerate={() => {
+                void regenerate().then(() => onActivity?.());
+              }}
               onRespond={async (approvalId, behavior, reason) => {
                 await api.approvals.respond({
                   chatId: chat.id,
