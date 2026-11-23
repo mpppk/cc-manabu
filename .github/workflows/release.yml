@@ -1,0 +1,57 @@
+name: Release
+
+# バージョンを上げてタグを打ち、cd.yml（ビルドと GitHub Release）を起動する。
+# バージョンを上げたコミットは PR で main に取り込む。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "新しいバージョン（例: 0.1.0）"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+  # GITHUB_TOKEN で push したタグでは cd.yml が起動しないので、workflow_dispatch で起動する
+  actions: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Bump version
+        run: bun scripts/set-version.ts "${{ inputs.version }}"
+      - name: Commit, tag and push
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "release/v${VERSION}"
+          git commit -am "chore: release v${VERSION}"
+          git tag "v${VERSION}"
+          git push origin "release/v${VERSION}"
+          git push origin "v${VERSION}"
+      - name: Start CD
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: gh workflow run cd.yml --ref "v${VERSION}" -f tag="v${VERSION}"
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh pr create \
+            --base main \
+            --head "release/v${VERSION}" \
+            --title "chore: release v${VERSION}" \
+            --body "v${VERSION} をリリースしました（タグの push で cd.yml がビルドと GitHub Release を行います）。package.json の version を main に取り込みます。"

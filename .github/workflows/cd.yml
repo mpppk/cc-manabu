@@ -1,0 +1,103 @@
+name: CD
+
+# v* タグの push で、品質チェック → 各プラットフォームのバイナリをビルド → GitHub Release を作る。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "リリースするタグ（例: v0.1.0）。既存のタグを作り直すときに使う"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run typecheck
+      - run: bun test
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: linux-x64
+            bun_target: bun-linux-x64
+            binary: cc-manabu
+            archive: cc-manabu-linux-x64.tar.gz
+          - name: linux-arm64
+            bun_target: bun-linux-arm64
+            binary: cc-manabu
+            archive: cc-manabu-linux-arm64.tar.gz
+          - name: darwin-arm64
+            bun_target: bun-darwin-arm64
+            binary: cc-manabu
+            archive: cc-manabu-darwin-arm64.tar.gz
+          - name: windows-x64
+            bun_target: bun-windows-x64
+            binary: cc-manabu.exe
+            archive: cc-manabu-windows-x64.zip
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Build binary
+        env:
+          BUN_TARGET: ${{ matrix.bun_target }}
+          OUTFILE: dist/${{ matrix.binary }}
+        run: bun run build:binary
+      - name: Package
+        working-directory: dist
+        run: |
+          if [[ "${{ matrix.archive }}" == *.zip ]]; then
+            zip "${{ matrix.archive }}" "${{ matrix.binary }}"
+          else
+            tar czf "${{ matrix.archive }}" "${{ matrix.binary }}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/${{ matrix.archive }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Checksums
+        working-directory: artifacts
+        run: sha256sum * > checksums.txt && cat checksums.txt
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${TAG}" artifacts/* \
+            --repo "${{ github.repository }}" \
+            --title "${TAG}" \
+            --generate-notes
