@@ -1,6 +1,7 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
+import { ErrorFactory } from "@praha/error-factory";
 import {
   createUIMessageStream,
   generateId,
@@ -13,6 +14,7 @@ import type {
   ChatRepository,
   DatabaseError,
 } from "../db/chat-repository.ts";
+import type { ChatRow, MessageRow } from "../db/schema.ts";
 import {
   type ClaudeCodeProviderMetadata,
   PROVIDER_NAME,
@@ -20,11 +22,35 @@ import {
 import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
 import { toUserErrorMessage } from "./error-messages.ts";
-import type {
+import {
   ChatAlreadyRunningError,
-  RunnerRegistry,
-  TooManyRunnersError,
+  type RunnerRegistry,
+  type TooManyRunnersError,
 } from "./runner-registry.ts";
+
+export class MessageNotFoundError extends ErrorFactory({
+  name: "MessageNotFoundError",
+  message: (fields) => `User message not found: ${fields.messageId}`,
+  fields: ErrorFactory.fields<{ messageId: string }>(),
+}) {}
+
+export class NothingToRegenerateError extends ErrorFactory({
+  name: "NothingToRegenerateError",
+  message: "There is no user message to regenerate a response for.",
+}) {}
+
+/**
+ * index 番目のメッセージより前で、分岐点（sdk_uuid）を持つ最後の assistant 行。
+ * 無ければ会話の最初からやり直す（新しいセッション）。
+ */
+const findForkPoint = (
+  messages: MessageRow[],
+  index: number,
+): string | undefined =>
+  messages
+    .slice(0, index)
+    .findLast((m) => m.role === "assistant" && m.sdkUuid !== null)?.sdkUuid ??
+  undefined;
 
 /** UIMessage の metadata に入れる値。 */
 export type ChatMessageMetadata = {
@@ -222,6 +248,103 @@ export const createChatService = (deps: {
       Result.inspect((runner) => trackStatus(runner)),
     );
 
+  /** 生成中なら何もしない（メッセージを消す前に確かめる）。 */
+  const ensureIdle = (
+    chatId: string,
+  ): Result.Result<void, ChatAlreadyRunningError> =>
+    registry.get(chatId) === undefined
+      ? Result.succeed()
+      : Result.fail(new ChatAlreadyRunningError({ chatId }));
+
+  /**
+   * messages[index]（ユーザー発話）以降を消して、その発話から生成し直す。
+   * 直前のターンの最後の assistant uuid から fork するので、元のセッションは残る。
+   */
+  const restartFrom = (
+    chat: ChatRow,
+    messages: MessageRow[],
+    index: number,
+    userMessage: { id: string; parts: ChatUIMessage["parts"] },
+  ): Result.Result<ChatRunner, SendError | NothingToRegenerateError> => {
+    const target = messages[index];
+    if (target === undefined) {
+      return Result.fail(new NothingToRegenerateError());
+    }
+    const forkPoint = findForkPoint(messages, index);
+    return Result.pipe(
+      chats.deleteMessagesFrom(chat.id, target.seq),
+      Result.andThen(() =>
+        chats.saveMessage(chat.id, {
+          id: userMessage.id,
+          role: "user",
+          parts: userMessage.parts,
+        }),
+      ),
+      Result.andThen(() =>
+        startGeneration({
+          chatId: chat.id,
+          model: chat.model,
+          effort: (chat.effort as Effort | null) ?? null,
+          // 分岐点が無ければ（最初の発話からやり直すなら）新しいセッションにする
+          sessionId: forkPoint === undefined ? null : chat.sessionId,
+          prompt: textOf(userMessage.parts),
+          ...(forkPoint === undefined
+            ? {}
+            : { resumeSessionAt: forkPoint, forkSession: true }),
+        }),
+      ),
+      Result.inspect((runner) => trackStatus(runner)),
+    );
+  };
+
+  /** 最後の応答を作り直す。 */
+  const regenerate = (
+    chatId: string,
+  ): Result.Result<ChatRunner, SendError | NothingToRegenerateError> =>
+    Result.pipe(
+      ensureIdle(chatId),
+      Result.andThen(() => chats.getChat(chatId)),
+      Result.andThen(({ chat, messages }) => {
+        const index = messages.findLastIndex((m) => m.role === "user");
+        const user = messages[index];
+        if (user === undefined) {
+          return Result.fail(new NothingToRegenerateError());
+        }
+        return restartFrom(chat, messages, index, {
+          id: user.id,
+          parts: user.parts as ChatUIMessage["parts"],
+        });
+      }),
+    );
+
+  /** ユーザー発話を書き換えて、そこから生成し直す。以降のメッセージは消える。 */
+  const edit = (input: {
+    chatId: string;
+    messageId: string;
+    parts: ChatUIMessage["parts"];
+  }): Result.Result<
+    ChatRunner,
+    SendError | MessageNotFoundError | NothingToRegenerateError
+  > =>
+    Result.pipe(
+      ensureIdle(input.chatId),
+      Result.andThen(() => chats.getChat(input.chatId)),
+      Result.andThen(({ chat, messages }) => {
+        const index = messages.findIndex(
+          (m) => m.id === input.messageId && m.role === "user",
+        );
+        if (index < 0) {
+          return Result.fail(
+            new MessageNotFoundError({ messageId: input.messageId }),
+          );
+        }
+        return restartFrom(chat, messages, index, {
+          id: input.messageId,
+          parts: input.parts,
+        });
+      }),
+    );
+
   const trackStatus = (runner: ChatRunner) => {
     chats.setStatus(runner.chatId, "running");
     runner.done.then(() => {
@@ -234,6 +357,8 @@ export const createChatService = (deps: {
 
   return {
     send,
+    regenerate,
+    edit,
     startGeneration,
     trackStatus,
     /** 生成中なら Runner を返す。無ければ undefined。 */

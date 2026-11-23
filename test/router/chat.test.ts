@@ -4,6 +4,7 @@ import { createRouterClient } from "@orpc/server";
 import { readUIMessageStream, type UIMessageChunk } from "ai";
 import { type ChatChunk, router } from "../../src/router.ts";
 import { createTestContext } from "../helpers/context.ts";
+import { waitFor } from "../helpers/wait-for.ts";
 import { createFakeQuery, loadFixture } from "../provider/fake-query.ts";
 
 const userMessage = (text: string, id: string = crypto.randomUUID()) => ({
@@ -47,8 +48,7 @@ const sessionIdOf = (lines: Awaited<ReturnType<typeof loadFixture>>) =>
 
 describe("chat.send", () => {
   test("応答を流し、ユーザー発話と応答を保存し、セッション ID を記録する", async () => {
-    const { client, chat, calls, chats, lines, chatService } =
-      await setup("text-partial");
+    const { client, chat, calls, chats, lines } = await setup("text-partial");
     const chunks = await collect(
       await client.chat.send({
         chatId: chat.id,
@@ -72,7 +72,15 @@ describe("chat.send", () => {
     expect(calls[0]?.prompt).toBe("こんにちは");
     expect(calls[0]?.options?.resume).toBeUndefined();
 
-    await chatService.reconnect(chat.id)?.done;
+    // 生成が終わって保存・状態の更新が済むまで待つ
+    await waitFor(() => {
+      const r = chats.getChat(chat.id);
+      return (
+        r.type === "Success" &&
+        r.value.chat.status === "idle" &&
+        r.value.messages.length === 2
+      );
+    });
     const saved = chats.getChat(chat.id);
     if (saved.type === "Failure") throw saved.error;
     expect(saved.value.chat).toMatchObject({
@@ -118,14 +126,22 @@ describe("chat.send", () => {
   });
 
   test("ツールの結果も保存される（tool-read）", async () => {
-    const { client, chat, chats, chatService } = await setup("tool-read");
+    const { client, chat, chats } = await setup("tool-read");
     await collect(
       await client.chat.send({
         chatId: chat.id,
         message: userMessage("読んで"),
       }),
     );
-    await chatService.reconnect(chat.id)?.done;
+    // 生成が終わって保存・状態の更新が済むまで待つ
+    await waitFor(() => {
+      const r = chats.getChat(chat.id);
+      return (
+        r.type === "Success" &&
+        r.value.chat.status === "idle" &&
+        r.value.messages.length === 2
+      );
+    });
     const saved = chats.getChat(chat.id);
     if (saved.type === "Failure") throw saved.error;
     const parts = saved.value.messages[1]?.parts as { type: string }[];
@@ -149,8 +165,10 @@ describe("chat.send", () => {
     expect(error).toMatchObject({
       errorText: expect.stringContaining("見つかりません"),
     });
-    await Bun.sleep(1);
-    expect((await client.chats.get({ id: chat.id })).chat.status).toBe("error");
+    await waitFor(
+      async () =>
+        (await client.chats.get({ id: chat.id })).chat.status === "error",
+    );
   });
 
   test("テキストの無い発話は BAD_REQUEST", async () => {
@@ -212,7 +230,7 @@ describe("chat.reconnect / chat.stop", () => {
     const reading = (async () => {
       for await (const chunk of replay) replayed.push(chunk);
     })();
-    await Bun.sleep(5);
+    await waitFor(() => replayed.length >= 3);
     expect(replayed.slice(0, 3)).toEqual(firstChunks);
     expect(await client.chat.stop({ chatId: chat.id })).toEqual({
       stopped: true,
@@ -220,7 +238,10 @@ describe("chat.reconnect / chat.stop", () => {
     gate.resolve();
     await reading;
     await ctx.chatService.reconnect(chat.id)?.done;
-    await Bun.sleep(1);
+    await waitFor(() => {
+      const r = ctx.chats.getChat(chat.id);
+      return r.type === "Success" && r.value.messages.length === 2;
+    });
     const saved = ctx.chats.getChat(chat.id);
     if (saved.type === "Failure") throw saved.error;
     // 中断した応答も保存され、aborted が付く
