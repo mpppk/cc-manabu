@@ -1,10 +1,15 @@
 import { Moon, Sun } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
 import type { ChatDto } from "../router.ts";
 import { ChatView } from "./components/chat-view.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { Button } from "./components/ui/button.tsx";
+import {
+  newlyAwaiting,
+  notifyAwaitingApproval,
+  titleFor,
+} from "./lib/notify.ts";
 import type { ApiClient } from "./lib/orpc.ts";
 import { chatIdFromPath, pathForChat } from "./lib/route.ts";
 import { applyTheme, loadTheme, type Theme } from "./lib/theme.ts";
@@ -78,9 +83,23 @@ export const App = ({ api }: { api: ApiClient }) => {
     };
   }, [api]);
 
+  const previousStatuses = useRef(new Map<string, string>());
+
   const refreshChats = useCallback(async () => {
-    setChats(await api.chats.list());
+    const next = await api.chats.list();
+    // 承認待ちになった会話があれば、タブが裏にあるときに通知する
+    for (const chat of newlyAwaiting(previousStatuses.current, next)) {
+      notifyAwaitingApproval(chat.title);
+    }
+    previousStatuses.current = new Map(next.map((c) => [c.id, c.status]));
+    setChats(next);
   }, [api]);
+
+  useEffect(() => {
+    document.title = titleFor(
+      chats.filter((chat) => chat.status === "awaiting_approval").length,
+    );
+  }, [chats]);
 
   // 一覧は定期的に取り直す（別の会話の生成中・承認待ちを表示するため）
   useEffect(() => {
