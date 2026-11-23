@@ -495,3 +495,139 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await expect(wikiPages.getByText("関係タプル")).toBeVisible();
   await expect(wikiPages.getByText("止めたあとの語")).toHaveCount(0);
 });
+
+test("回答中の用語から説明を開き、Wiki へ移って回答に戻れる", async ({
+  page,
+}) => {
+  await open(page);
+  const createWikiPage = async (
+    title: string,
+    aliases: string,
+    body: string,
+  ) => {
+    await page.getByRole("button", { name: "Wiki", exact: true }).click();
+    await page.getByRole("button", { name: "新しいページ" }).click();
+    await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+    await page
+      .getByRole("textbox", { name: "別名（カンマ区切り）" })
+      .fill(aliases);
+    await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(body);
+    await page.getByRole("button", { name: "保存" }).click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+    await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  };
+  const terms = page.getByRole("main").locator("button[data-wiki-term]");
+  const card = page.getByRole("dialog", { name: "用語の説明" });
+
+  // 別のプロジェクトに同じ名前の用語を作っておく
+  await createProject(page, "別のプロジェクト");
+  await createWikiPage("関係タプル", "", "別のプロジェクトでの定義。");
+  await newChat(page);
+  await send(page, "関係タプル とは");
+  await idle(page);
+  await terms.first().hover();
+  await expect(card).toContainText("別のプロジェクトでの定義。");
+
+  await createProject(page, "用語プレビュー");
+  await createWikiPage(
+    "関係タプル",
+    "relation tuple",
+    "## 定義\n主体・関係・対象の **3 つ組**。",
+  );
+  await newChat(page);
+  await send(page, "関係タプル と relation tuple と `関係タプル`");
+  await idle(page);
+
+  // 日本語の名前と英語の別名は用語になり、インラインコードと引用リンクの中はならない
+  const answer = page
+    .getByRole("main")
+    .getByText(/了解|参照/)
+    .last();
+  await expect(answer).toBeVisible();
+  await expect(terms).toHaveCount(2);
+  await expect(terms.nth(0)).toHaveText("関係タプル");
+  await expect(terms.nth(1)).toHaveText("relation tuple");
+  await expect(page.getByRole("main").locator("code")).toContainText(
+    "関係タプル",
+  );
+
+  // マウス: ホバーで所属プロジェクトの要約が出る
+  await terms.nth(0).hover();
+  await expect(card).toContainText("主体・関係・対象の 3 つ組。");
+  await expect(card).not.toContainText("別のプロジェクト");
+  await page.mouse.move(0, 0);
+  await expect(card).toHaveCount(0);
+
+  // キーボード: フォーカスで要約、Enter で固定、「Wiki で開く」で移動
+  await terms.nth(1).focus();
+  await expect(card).toBeVisible();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(card.getByRole("button", { name: "Wiki で開く" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/wiki\/.+/);
+  await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
+  await page.getByRole("button", { name: "回答に戻る" }).click();
+  await expect(page).toHaveURL(/\/c\/.+/);
+
+  // クリック（タップ）で固定して開き、外側を押すと閉じる
+  await terms.nth(0).click();
+  await page.mouse.move(0, 0);
+  await expect(card).toBeVisible();
+  await page.mouse.click(5, 300);
+  await expect(card).toHaveCount(0);
+
+  // 回答のあとに自動作成されたページも、表示中の回答の用語になる
+  await send(page, "「認可モデル」について");
+  await idle(page);
+  await expect(
+    page.getByRole("main").locator("button[data-wiki-term]", {
+      hasText: "認可モデル",
+    }),
+  ).toHaveCount(1, { timeout: 15_000 });
+
+  // 編集すると最新の説明を出し、削除しても回答は表示されたまま
+  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await page
+    .getByRole("list", { name: "Wiki のページ" })
+    .getByText("認可モデル")
+    .click();
+  await page.getByRole("button", { name: "編集" }).click();
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("編集後の説明");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page.getByText("編集後の説明")).toBeVisible();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "会話一覧" })
+    .getByText("関係タプル と relation tuple")
+    .click();
+  await expect(page).toHaveURL(/\/c\/.+/);
+  const model = page
+    .getByRole("main")
+    .locator("button[data-wiki-term]", { hasText: "認可モデル" })
+    .first();
+  await model.hover();
+  await expect(card).toContainText("編集後の説明");
+
+  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await page
+    .getByRole("list", { name: "Wiki のページ" })
+    .getByText("認可モデル")
+    .click();
+  await page.getByRole("button", { name: "ページを削除" }).click();
+  await page.getByRole("button", { name: "削除", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "会話一覧" })
+    .getByText("関係タプル と relation tuple")
+    .click();
+  await expect(page.getByText(/了解: 「認可モデル」について/)).toBeVisible();
+  await expect(
+    page.getByRole("main").locator("button[data-wiki-term]", {
+      hasText: "認可モデル",
+    }),
+  ).toHaveCount(0);
+  await expect(terms.first()).toHaveText("関係タプル");
+});

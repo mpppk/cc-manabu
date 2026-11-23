@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
 import { Markdown } from "../../src/web/components/markdown.tsx";
 import { Reasoning } from "../../src/web/components/reasoning.tsx";
+import {
+  summaryOf,
+  WikiTermsContext,
+} from "../../src/web/components/wiki-term.tsx";
+import { createTermMatcher } from "../../src/wiki/term-matcher.ts";
 
 describe("Markdown", () => {
   test("1 行ずつの改行を改行として表示する", () => {
@@ -31,6 +36,57 @@ describe("Markdown", () => {
     expect(html).toContain('data-wiki-page="p1"');
     expect(html).toContain('data-streamdown="link"');
   });
+});
+
+describe("Markdown の用語（#81）", () => {
+  const termMatcher = createTermMatcher([
+    { pageId: "tuple", names: ["関係タプル", "relation tuple"] },
+  ]);
+  const render = (text: string) =>
+    renderToString(
+      <WikiTermsContext.Provider
+        value={{ load: async () => undefined, open: () => {} }}
+      >
+        <Markdown text={text} termMatcher={termMatcher} />
+      </WikiTermsContext.Provider>,
+    );
+  const terms = (html: string) =>
+    html.match(/data-wiki-term="tuple"/g)?.length ?? 0;
+
+  test("本文の用語名と英語の別名を、同じページの用語にする", () => {
+    const html = render("**関係タプル**（Relation Tuple）を使う。");
+    expect(terms(html)).toBe(2);
+    expect(html).toContain('data-streamdown="strong"');
+  });
+
+  test("コード・インラインコード・数式・リンクの中は用語にしない", () => {
+    const html = render(
+      [
+        "`関係タプル` と [関係タプル](https://example.com)",
+        "",
+        "```",
+        "関係タプル",
+        "```",
+        "",
+        "$$\\text{関係タプル}$$",
+      ].join("\n"),
+    );
+    expect(terms(html)).toBe(0);
+    expect(html).toContain('data-streamdown="code-block"');
+    expect(html).toContain("katex");
+    expect(html).toContain('data-streamdown="link"');
+  });
+
+  test("用語が無い本文はそのまま", () => {
+    expect(terms(render("関係のない文"))).toBe(0);
+  });
+});
+
+test("summaryOf は見出しや記号を除いた本文の先頭", () => {
+  expect(summaryOf("# 見出し\n**3 つ組**の `データ`。\n## 例\n- a")).toBe(
+    "3 つ組の データ。 - a",
+  );
+  expect(summaryOf("あ".repeat(200), 10)).toBe(`${"あ".repeat(10)}…`);
 });
 
 describe("Reasoning", () => {

@@ -97,6 +97,8 @@ export const WikiView = ({
   pageId,
   onNavigate,
   onOpenChat,
+  returnTo,
+  onReturn,
 }: {
   api: ApiClient;
   projectId: string;
@@ -105,6 +107,9 @@ export const WikiView = ({
   autoTerms: boolean;
   /** 自動作成の元になった会話を開く。 */
   onOpenChat: (chatId: string) => void;
+  /** 回答から開いたときの戻り先（回答のある会話のパス）。 */
+  returnTo?: string | undefined;
+  onReturn: (path: string) => void;
   /** 開いているページ。undefined なら一覧。 */
   pageId: string | undefined;
   onNavigate: (pageId: string | undefined) => void;
@@ -278,6 +283,16 @@ export const WikiView = ({
             <ArrowLeft className="size-4" />
             一覧
           </Button>
+          {returnTo !== undefined && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => onReturn(returnTo)}
+            >
+              <ArrowLeft className="size-4" />
+              回答に戻る
+            </Button>
+          )}
           <div className="flex-1" />
           <Button variant="outline" size="sm" onClick={() => setMode("edit")}>
             <Pencil className="size-3.5" />
