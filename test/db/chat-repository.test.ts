@@ -46,7 +46,7 @@ describe("migrations", () => {
 });
 
 describe("chats", () => {
-  test("作成・一覧・名前変更・削除", () => {
+  test("作成・一覧・名前変更・削除", async () => {
     const a = unwrap(repo.createChat({ cwd: "/work" }));
     expect(a).toMatchObject({
       cwd: "/work",
@@ -56,6 +56,8 @@ describe("chats", () => {
       sessionId: null,
     });
     const b = unwrap(repo.createChat({ cwd: "/work", model: "sonnet" }));
+    // updatedAt はミリ秒単位なので、b の作成と同じ時刻にならないようにする
+    await Bun.sleep(5);
     unwrap(repo.updateChat(a.id, { title: "最初の会話" }));
     // 更新した a が先頭に来る
     expect(unwrap(repo.listChats()).map((c) => c.id)).toEqual([a.id, b.id]);
