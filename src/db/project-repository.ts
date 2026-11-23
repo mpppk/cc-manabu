@@ -74,6 +74,23 @@ export const createProjectRepository = (db: Db) => ({
       Result.andThen((row) => requireProject(row, projectId)),
     ),
 
+  /** 回答からの用語ページの自動作成を切り替える。 */
+  setAutoTerms: (
+    projectId: string,
+    enabled: boolean,
+  ): Result.Result<ProjectRow, ProjectNotFoundError | DatabaseError> =>
+    Result.pipe(
+      run(() =>
+        db
+          .update(projects)
+          .set({ autoTerms: enabled, updatedAt: new Date() })
+          .where(eq(projects.id, projectId))
+          .returning()
+          .get(),
+      ),
+      Result.andThen((row) => requireProject(row, projectId)),
+    ),
+
   /** プロジェクトを消す。所属していた会話は消さず、未所属に戻す（外部キーの ON DELETE SET NULL）。 */
   deleteProject: (
     projectId: string,

@@ -1,6 +1,7 @@
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
 import { asc, eq } from "drizzle-orm";
+import { normalizeTerm, type TermCandidate } from "../wiki/terms.ts";
 import { DatabaseError } from "./chat-repository.ts";
 import type { Db } from "./index.ts";
 import { type WikiPageRow, wikiPages } from "./schema.ts";
@@ -85,6 +86,60 @@ export const createWikiRepository = (db: Db) => ({
           .get(),
       ),
       Result.andThen((row) => requirePage(row, pageId)),
+    ),
+
+  /**
+   * 回答から取り出した用語のページを作る。タイトルか別名がすでにある語は作らない（既存のページを使う）。
+   * 照合と作成を 1 つのトランザクションで同期的に行うので、並行・再試行でも重複しない。
+   * 既存のページは書き換えない。作ったページを返す。
+   */
+  createTermPages: (
+    projectId: string,
+    candidates: readonly TermCandidate[],
+    source: { chatId: string; messageId: string },
+  ): Result.Result<WikiPageRow[], DatabaseError> =>
+    run(() =>
+      db.transaction((tx) => {
+        const known = new Set(
+          tx
+            .select({ title: wikiPages.title, aliases: wikiPages.aliases })
+            .from(wikiPages)
+            .where(eq(wikiPages.projectId, projectId))
+            .all()
+            .flatMap((page) => [page.title, ...page.aliases])
+            .map(normalizeTerm),
+        );
+        const created: WikiPageRow[] = [];
+        for (const candidate of candidates) {
+          const names = [candidate.term, ...candidate.aliases].map(
+            normalizeTerm,
+          );
+          if (names.some((name) => known.has(name))) {
+            continue;
+          }
+          const now = new Date();
+          created.push(
+            tx
+              .insert(wikiPages)
+              .values({
+                id: crypto.randomUUID(),
+                projectId,
+                title: candidate.term,
+                aliases: candidate.aliases,
+                body: candidate.summary,
+                origin: "auto",
+                sourceChatId: source.chatId,
+                sourceMessageId: source.messageId,
+                createdAt: now,
+                updatedAt: now,
+              })
+              .returning()
+              .get(),
+          );
+          for (const name of names) known.add(name);
+        }
+        return created;
+      }),
     ),
 
   deletePage: (

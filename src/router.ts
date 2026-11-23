@@ -100,11 +100,15 @@ const toMessageDto = (row: MessageRow): MessageDto => ({
 });
 
 /** クライアントに返すプロジェクト。 */
-export type ProjectDto = Pick<ProjectRow, "id" | "name" | "createdAt">;
+export type ProjectDto = Pick<
+  ProjectRow,
+  "id" | "name" | "autoTerms" | "createdAt"
+>;
 
 const toProjectDto = (row: ProjectRow): ProjectDto => ({
   id: row.id,
   name: row.name,
+  autoTerms: row.autoTerms,
   createdAt: row.createdAt,
 });
 
@@ -123,7 +127,15 @@ const requireProject = (
 /** クライアントに返す Wiki ページ。 */
 export type WikiPageDto = Pick<
   WikiPageRow,
-  "id" | "projectId" | "title" | "aliases" | "body" | "updatedAt"
+  | "id"
+  | "projectId"
+  | "title"
+  | "aliases"
+  | "body"
+  | "origin"
+  | "sourceChatId"
+  | "sourceMessageId"
+  | "updatedAt"
 >;
 
 const toWikiPageDto = (row: WikiPageRow): WikiPageDto => ({
@@ -132,6 +144,9 @@ const toWikiPageDto = (row: WikiPageRow): WikiPageDto => ({
   title: row.title,
   aliases: row.aliases,
   body: row.body,
+  origin: row.origin,
+  sourceChatId: row.sourceChatId,
+  sourceMessageId: row.sourceMessageId,
   updatedAt: row.updatedAt,
 });
 
@@ -219,6 +234,17 @@ export const router = {
         toProjectDto(
           await unwrapForOrpc(
             context.projects.renameProject(input.id, input.name),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** 回答からの用語ページの自動作成を切り替える。 */
+    setAutoTerms: base
+      .input(z.object({ id: z.string().min(1), enabled: z.boolean() }))
+      .handler(async ({ context, input }) =>
+        toProjectDto(
+          await unwrapForOrpc(
+            context.projects.setAutoTerms(input.id, input.enabled),
             ERROR_CODES,
           ),
         ),

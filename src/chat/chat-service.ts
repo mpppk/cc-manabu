@@ -20,6 +20,7 @@ import {
   type ClaudeCodeProviderMetadata,
   PROVIDER_NAME,
 } from "../provider/index.ts";
+import type { AnswerCompleted } from "../wiki/auto-terms.ts";
 import type { WikiContext, WikiContextBuilder } from "../wiki/context.ts";
 import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
@@ -147,6 +148,11 @@ export const createChatService = (deps: {
   ) => LanguageModelV4;
   /** プロジェクトの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
+  /**
+   * プロジェクトの会話で回答が最後まで終わったとき（中断・エラーを除く）に呼ぶ。
+   * 用語ページの自動作成（#80）に使う。回答の保存のあとに呼び、結果は待たない。
+   */
+  onAnswerComplete?: (event: AnswerCompleted) => void;
 }) => {
   const { chats, registry, approvals } = deps;
 
@@ -165,6 +171,10 @@ export const createChatService = (deps: {
     effort: Effort | null;
     sessionId: string | null;
     content: UserContent;
+    /** 会話の所属プロジェクト（回答後の用語ページ作成に使う）。 */
+    projectId: string | null;
+    /** 質問の本文（回答後の用語ページ作成に使う）。 */
+    question: string;
     /** 質問とは別に渡す Wiki の参照資料。DB の発話には保存しない。 */
     context?: WikiContext;
     resumeSessionAt?: string;
@@ -173,8 +183,9 @@ export const createChatService = (deps: {
     ChatRunner,
     ChatAlreadyRunningError | TooManyRunnersError
   > =>
-    registry.start(params.chatId, (signal) =>
-      createUIMessageStream<ChatUIMessage>({
+    registry.start(params.chatId, (signal) => {
+      let failed = false;
+      return createUIMessageStream<ChatUIMessage>({
         generateId,
         execute: ({ writer }) => {
           const canUseTool = approvals.createCanUseTool(
@@ -213,7 +224,10 @@ export const createChatService = (deps: {
           writer.merge(
             result.toUIMessageStream<ChatUIMessage>({
               sendReasoning: true,
-              onError: toUserErrorMessage,
+              onError: (error) => {
+                failed = true;
+                return toUserErrorMessage(error);
+              },
               messageMetadata: ({ part }) => {
                 if (part.type === "start") {
                   return {
@@ -267,9 +281,30 @@ export const createChatService = (deps: {
               sdkUuid: metadata.claudeCode?.lastAssistantUuid ?? null,
             });
           }
+          const answer = responseMessage.parts
+            .flatMap((part) => (part.type === "text" ? [part.text] : []))
+            .join("\n\n");
+          if (
+            !isAborted &&
+            !failed &&
+            params.projectId !== null &&
+            answer.trim() !== ""
+          ) {
+            try {
+              deps.onAnswerComplete?.({
+                chatId: params.chatId,
+                projectId: params.projectId,
+                messageId: responseMessage.id,
+                question: params.question,
+                answer,
+              });
+            } catch {
+              // 用語ページの作成は回答に影響させない
+            }
+          }
         },
-      }),
-    );
+      });
+    });
 
   const send = (input: SendInput): Result.Result<ChatRunner, SendError> =>
     Result.pipe(
@@ -299,6 +334,8 @@ export const createChatService = (deps: {
           effort: (chat.effort as Effort | null) ?? null,
           sessionId: chat.sessionId,
           content: toUserContent(input.message.parts),
+          projectId: chat.projectId,
+          question: textOf(input.message.parts),
           context: contextFor(chat, input.message.parts),
         }),
       ),
@@ -345,6 +382,8 @@ export const createChatService = (deps: {
           // 分岐点が無ければ（最初の発話からやり直すなら）新しいセッションにする
           sessionId: forkPoint === undefined ? null : chat.sessionId,
           content: toUserContent(userMessage.parts),
+          projectId: chat.projectId,
+          question: textOf(userMessage.parts),
           context: contextFor(chat, userMessage.parts),
           ...(forkPoint === undefined
             ? {}

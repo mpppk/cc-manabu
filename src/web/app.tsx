@@ -208,6 +208,11 @@ export const App = ({ api }: { api: ApiClient }) => {
     navigate(pathForProject(null));
   };
 
+  const setAutoTerms = async (id: string, enabled: boolean) => {
+    await api.projects.setAutoTerms({ id, enabled });
+    await refreshProjects();
+  };
+
   const setProject = async (chatId: string, next: string | null) => {
     await api.chats.setProject({ id: chatId, projectId: next });
     // 開いている会話を今の一覧から外したら、一覧ごと移動せずにこのプロジェクトに留まる
@@ -250,6 +255,7 @@ export const App = ({ api }: { api: ApiClient }) => {
         onOpenWiki={() => {
           if (projectId !== null) navigate(pathForWiki(projectId));
         }}
+        onSetAutoTerms={setAutoTerms}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b px-4">
@@ -281,7 +287,9 @@ export const App = ({ api }: { api: ApiClient }) => {
             api={api}
             projectId={project.id}
             projectName={project.name}
+            autoTerms={project.autoTerms}
             pageId={wikiRoute.pageId}
+            onOpenChat={select}
             onNavigate={(pageId) => navigate(pathForWiki(project.id, pageId))}
           />
         ) : current !== undefined && current.chat.id === selectedId ? (
