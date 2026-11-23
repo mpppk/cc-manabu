@@ -45,6 +45,11 @@ export type ClaudeCodeCallOptions = {
   resumeSessionAt?: string;
   /** true なら resume 時に新しいセッションへ分岐する。 */
   forkSession?: boolean;
+  /**
+   * 質問の前に別の text ブロックとして渡す参照資料（Wiki の抜粋など）。
+   * resume でもターンごとに届く（docs/spikes/per-turn-context.md）。
+   */
+  context?: string;
 };
 
 export const PROVIDER_NAME = "claude-code";

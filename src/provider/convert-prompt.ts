@@ -104,13 +104,15 @@ export const extractLatestUserPrompt = (
 };
 
 /**
- * `query()` の prompt にする。画像が無ければ文字列、あれば画像ブロックを含む
- * ユーザーメッセージを 1 つ流す AsyncIterable（docs/spikes/image-input.md）。
+ * `query()` の prompt にする。画像も参照資料も無ければ文字列。あれば
+ * [参照資料, 画像…, 質問] のブロックを持つユーザーメッセージを 1 つ流す AsyncIterable
+ * （docs/spikes/image-input.md, docs/spikes/per-turn-context.md）。
  */
 export const toQueryPrompt = (
-  prompt: Pick<UserPrompt, "text" | "images">,
+  prompt: Pick<UserPrompt, "text" | "images"> & { context?: string },
 ): string | AsyncIterable<SDKUserMessage> => {
-  if (prompt.images.length === 0) {
+  const context = prompt.context?.trim() ?? "";
+  if (prompt.images.length === 0 && context === "") {
     return prompt.text;
   }
   const message: SDKUserMessage = {
@@ -119,6 +121,7 @@ export const toQueryPrompt = (
     message: {
       role: "user",
       content: [
+        ...(context === "" ? [] : [{ type: "text" as const, text: context }]),
         ...prompt.images.map((image) => ({
           type: "image" as const,
           source: {

@@ -5,6 +5,7 @@ import type { ChatDto, ProjectDto } from "../router.ts";
 import { ChatView } from "./components/chat-view.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { Button } from "./components/ui/button.tsx";
+import { WikiView } from "./components/wiki-view.tsx";
 import {
   newlyAwaiting,
   notifyAwaitingApproval,
@@ -15,7 +16,9 @@ import {
   chatIdFromPath,
   pathForChat,
   pathForProject,
+  pathForWiki,
   projectIdFromPath,
+  wikiFromPath,
 } from "./lib/route.ts";
 import { applyTheme, loadTheme, type Theme } from "./lib/theme.ts";
 
@@ -168,7 +171,8 @@ export const App = ({ api }: { api: ApiClient }) => {
   const selectedChat =
     chats.find((chat) => chat.id === selectedId) ??
     (current?.chat.id === selectedId ? current?.chat : undefined);
-  const routeProjectId = projectIdFromPath(path);
+  const wikiRoute = wikiFromPath(path);
+  const routeProjectId = projectIdFromPath(path) ?? wikiRoute?.projectId;
   const projectId =
     selectedId !== undefined
       ? (selectedChat?.projectId ?? null)
@@ -177,6 +181,9 @@ export const App = ({ api }: { api: ApiClient }) => {
             projects.some((project) => project.id === routeProjectId))
         ? routeProjectId
         : null;
+
+  const project = projects?.find((p) => p.id === projectId);
+  const showWiki = wikiRoute !== undefined && project !== undefined;
 
   const newChat = async () => {
     const chat = await api.chats.create({ projectId });
@@ -239,6 +246,10 @@ export const App = ({ api }: { api: ApiClient }) => {
         onRenameProject={renameProject}
         onDeleteProject={deleteProject}
         onSetProject={setProject}
+        view={showWiki ? "wiki" : "threads"}
+        onOpenWiki={() => {
+          if (projectId !== null) navigate(pathForWiki(projectId));
+        }}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b px-4">
@@ -264,7 +275,16 @@ export const App = ({ api }: { api: ApiClient }) => {
             </Button>
           </div>
         </header>
-        {current !== undefined && current.chat.id === selectedId ? (
+        {showWiki ? (
+          <WikiView
+            key={project.id}
+            api={api}
+            projectId={project.id}
+            projectName={project.name}
+            pageId={wikiRoute.pageId}
+            onNavigate={(pageId) => navigate(pathForWiki(project.id, pageId))}
+          />
+        ) : current !== undefined && current.chat.id === selectedId ? (
           <ChatView
             key={current.chat.id}
             api={api}
@@ -274,6 +294,9 @@ export const App = ({ api }: { api: ApiClient }) => {
               status?.claude.state === "ready" ? status.claude.models : []
             }
             onActivity={() => void refreshChats()}
+            onOpenWikiPage={(projectId, pageId) =>
+              navigate(pathForWiki(projectId, pageId))
+            }
           />
         ) : (
           <section className="flex flex-1 items-center justify-center text-muted-foreground">

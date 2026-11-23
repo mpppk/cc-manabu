@@ -12,10 +12,12 @@ import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createProjectRepository } from "../../src/db/project-repository.ts";
+import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import { createClaudeCode } from "../../src/provider/index.ts";
 import { router } from "../../src/router.ts";
 import { startServer } from "../../src/server/server.ts";
 import index from "../../src/web/index.html";
+import { createWikiContextBuilder } from "../../src/wiki/context.ts";
 import { createScriptedQuery } from "./scripted-query.ts";
 
 export const E2E_PORT = Number(process.env.E2E_PORT ?? 45200);
@@ -25,6 +27,7 @@ const opened = openDatabase(":memory:");
 if (Result.isFailure(opened)) throw opened.error;
 const chats = createChatRepository(opened.value.db);
 const projects = createProjectRepository(opened.value.db);
+const wiki = createWikiRepository(opened.value.db);
 const approvals = createApprovalBroker({
   onPendingChange: (chatId, count) =>
     chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
@@ -36,6 +39,7 @@ const chatService = createChatService({
   approvals,
   languageModel: (modelId, { canUseTool }) =>
     createClaudeCode({ cwd: "/e2e", query, canUseTool })(modelId),
+  wikiContext: createWikiContextBuilder(wiki),
 });
 const claude = createClaudeStatus(
   { found: true, path: "/usr/local/bin/claude" },
@@ -63,7 +67,15 @@ const started = startServer({
   token: E2E_TOKEN,
   router,
   index,
-  context: { chats, projects, chatService, approvals, claude, cwd: "/e2e" },
+  context: {
+    chats,
+    projects,
+    wiki,
+    chatService,
+    approvals,
+    claude,
+    cwd: "/e2e",
+  },
 });
 if (Result.isFailure(started)) throw started.error;
 console.log(`e2e server: ${started.value.url}`);

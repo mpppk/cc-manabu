@@ -4,14 +4,16 @@ import { Pencil, RotateCcw } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
 import type { ChatDto } from "../../router.ts";
+import { citedPageIds, linkWikiCitations } from "../../wiki/citations.ts";
 import { OrpcChatTransport } from "../lib/chat-transport.ts";
 import type { ImageAttachment } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { pathForWiki } from "../lib/route.ts";
 import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { ApprovalCard } from "./approval-card.tsx";
 import { Composer } from "./composer.tsx";
-import { Markdown } from "./markdown.tsx";
+import { Markdown, type WikiLinks } from "./markdown.tsx";
 import { imagePartsOf, MessageImages } from "./message-images.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { Reasoning } from "./reasoning.tsx";
@@ -108,6 +110,7 @@ const MessageView = ({
   onRespond,
   onEdit,
   onRegenerate,
+  onOpenWikiPage,
 }: {
   message: ChatUIMessage;
   streaming: boolean;
@@ -121,6 +124,7 @@ const MessageView = ({
   ) => Promise<void>;
   onEdit: (messageId: string, text: string) => void;
   onRegenerate: () => void;
+  onOpenWikiPage?: (projectId: string, pageId: string) => void;
 }) => {
   if (message.role === "user") {
     return (
@@ -132,14 +136,35 @@ const MessageView = ({
     );
   }
   const usage = streaming ? undefined : usageOf(message);
+  // このターンで参照資料として渡した Wiki ページ。引用されたものだけをリンクにする
+  const wiki = message.metadata?.wiki;
+  const wikiIds = new Set(wiki?.pages.map((page) => page.id) ?? []);
+  const wikiLinks: WikiLinks | undefined =
+    wiki === undefined || onOpenWikiPage === undefined
+      ? undefined
+      : {
+          href: (pageId) => pathForWiki(wiki.projectId, pageId),
+          onOpen: (pageId) => onOpenWikiPage(wiki.projectId, pageId),
+        };
+  const cited = citedPageIds(
+    message.parts
+      .map((part) => (part.type === "text" ? part.text : ""))
+      .join("\n"),
+    wikiIds,
+  ).flatMap((id) => wiki?.pages.filter((page) => page.id === id) ?? []);
   return (
     <div className="flex flex-col gap-2">
       {message.parts.map((part, i) => {
         switch (part.type) {
           case "text":
             return (
-              // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
-              <Markdown key={i} text={part.text} streaming={streaming} />
+              <Markdown
+                // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
+                key={i}
+                text={linkWikiCitations(part.text, wikiIds)}
+                streaming={streaming}
+                {...(wikiLinks === undefined ? {} : { wikiLinks })}
+              />
             );
           case "reasoning":
             return (
@@ -166,6 +191,27 @@ const MessageView = ({
             return null;
         }
       })}
+      {!streaming && cited.length > 0 && wikiLinks !== undefined && (
+        <nav
+          aria-label="参照した Wiki"
+          className="flex flex-wrap items-center gap-1.5 text-xs"
+        >
+          <span className="text-muted-foreground">参照した Wiki:</span>
+          {cited.map((page) => (
+            <a
+              key={page.id}
+              href={wikiLinks.href(page.id)}
+              className="rounded-full border px-2 py-0.5 hover:bg-accent"
+              onClick={(event) => {
+                event.preventDefault();
+                wikiLinks.onOpen(page.id);
+              }}
+            >
+              {page.title}
+            </a>
+          ))}
+        </nav>
+      )}
       <div className="flex items-center gap-2">
         {usage !== undefined && (
           <p className="text-muted-foreground text-xs">
@@ -213,6 +259,7 @@ export const ChatView = ({
   initialMessages,
   models,
   onActivity,
+  onOpenWikiPage,
 }: {
   api: ApiClient;
   chat: ChatDto;
@@ -221,6 +268,8 @@ export const ChatView = ({
   models: ModelInfo[];
   /** 送信・完了など、一覧の表示（タイトル・状態）が変わりうるときに呼ぶ。 */
   onActivity?: () => void;
+  /** 回答から引用された Wiki ページを開く。 */
+  onOpenWikiPage?: (projectId: string, pageId: string) => void;
 }) => {
   const [settings, setSettings] = useState<{
     model: string;
@@ -287,6 +336,7 @@ export const ChatView = ({
               onRegenerate={() => {
                 void regenerate().then(() => onActivity?.());
               }}
+              {...(onOpenWikiPage === undefined ? {} : { onOpenWikiPage })}
               onRespond={async (approvalId, behavior, reason) => {
                 await api.approvals.respond({
                   chatId: chat.id,

@@ -9,6 +9,7 @@ import { createChatRepository } from "./db/chat-repository.ts";
 import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
 import { createProjectRepository } from "./db/project-repository.ts";
+import { createWikiRepository } from "./db/wiki-repository.ts";
 import { CliExit } from "./errors/index.ts";
 import { createClaudeCode } from "./provider/index.ts";
 import { router } from "./router.ts";
@@ -16,6 +17,7 @@ import type { RuntimeConfig } from "./runtime-config.ts";
 import { generateToken } from "./server/access-control.ts";
 import { openBrowser, startServer } from "./server/server.ts";
 import index from "./web/index.html";
+import { createWikiContextBuilder } from "./wiki/context.ts";
 
 /** 引数なしで起動したときの処理: DB を開き、サーバを立ち上げてブラウザを開く。 */
 export const serve = async (config: RuntimeConfig): Promise<void> => {
@@ -24,6 +26,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
     Result.andThen(({ db }) => {
       const chats = createChatRepository(db);
       const projects = createProjectRepository(db);
+      const wiki = createWikiRepository(db);
       const claudePath = resolveClaudePath({
         env: process.env,
         which: (command) => Bun.which(command),
@@ -55,6 +58,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         approvals,
         languageModel: (modelId, { canUseTool }) =>
           createClaudeCode({ ...providerSettings, canUseTool })(modelId),
+        wikiContext: createWikiContextBuilder(wiki),
       });
       return startServer({
         port: config.port,
@@ -65,6 +69,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         context: {
           chats,
           projects,
+          wiki,
           chatService,
           approvals,
           claude,

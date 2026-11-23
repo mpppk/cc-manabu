@@ -11,7 +11,13 @@ import type {
   ProjectNotFoundError,
   ProjectRepository,
 } from "./db/project-repository.ts";
-import type { ChatRow, MessageRow, ProjectRow } from "./db/schema.ts";
+import type {
+  ChatRow,
+  MessageRow,
+  ProjectRow,
+  WikiPageRow,
+} from "./db/schema.ts";
+import type { WikiRepository } from "./db/wiki-repository.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
 import { version } from "./version.ts";
 
@@ -19,6 +25,7 @@ import { version } from "./version.ts";
 export type RouterContext = {
   chats: ChatRepository;
   projects: ProjectRepository;
+  wiki: WikiRepository;
   chatService: ChatService;
   approvals: ApprovalBroker;
   claude: ClaudeStatusHolder;
@@ -31,6 +38,7 @@ export const base = os.$context<RouterContext>();
 const ERROR_CODES: OrpcErrorCodeMap = {
   ChatNotFoundError: "NOT_FOUND",
   ProjectNotFoundError: "NOT_FOUND",
+  WikiPageNotFoundError: "NOT_FOUND",
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
   ApprovalNotFoundError: "NOT_FOUND",
@@ -111,6 +119,31 @@ const requireProject = (
         context.projects.getProject(projectId),
         Result.map(() => undefined),
       );
+
+/** クライアントに返す Wiki ページ。 */
+export type WikiPageDto = Pick<
+  WikiPageRow,
+  "id" | "projectId" | "title" | "aliases" | "body" | "updatedAt"
+>;
+
+const toWikiPageDto = (row: WikiPageRow): WikiPageDto => ({
+  id: row.id,
+  projectId: row.projectId,
+  title: row.title,
+  aliases: row.aliases,
+  body: row.body,
+  updatedAt: row.updatedAt,
+});
+
+const wikiPageInput = z.object({
+  title: z.string().trim().min(1).max(200),
+  /** 空・重複を除く。 */
+  aliases: z
+    .array(z.string().trim().max(100))
+    .max(20)
+    .transform((aliases) => [...new Set(aliases.filter((a) => a !== ""))]),
+  body: z.string().max(100_000),
+});
 
 const chatId = z.object({ id: z.string().min(1) });
 const projectName = z.string().trim().min(1).max(100);
@@ -198,6 +231,63 @@ export const router = {
           context.projects.deleteProject(input.id),
           ERROR_CODES,
         );
+        return { id: input.id };
+      }),
+  },
+  wiki: {
+    /** プロジェクトの Wiki ページ（タイトル順）。 */
+    list: base
+      .input(z.object({ projectId: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        (
+          await unwrapForOrpc(
+            Result.pipe(
+              requireProject(context, input.projectId),
+              Result.andThen(() => context.wiki.listPages(input.projectId)),
+            ),
+            ERROR_CODES,
+          )
+        ).map(toWikiPageDto),
+      ),
+    get: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        toWikiPageDto(
+          await unwrapForOrpc(context.wiki.getPage(input.id), ERROR_CODES),
+        ),
+      ),
+    create: base
+      .input(wikiPageInput.extend({ projectId: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        toWikiPageDto(
+          await unwrapForOrpc(
+            Result.pipe(
+              requireProject(context, input.projectId),
+              Result.andThen(() => context.wiki.createPage(input)),
+            ),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    update: base
+      .input(wikiPageInput.extend({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        toWikiPageDto(
+          await unwrapForOrpc(
+            context.wiki.updatePage(input.id, {
+              title: input.title,
+              aliases: input.aliases,
+              body: input.body,
+            }),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** ページを消す。過去の回答の本文はそのまま読める。 */
+    delete: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(context.wiki.deletePage(input.id), ERROR_CODES);
         return { id: input.id };
       }),
   },

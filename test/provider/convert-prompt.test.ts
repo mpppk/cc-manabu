@@ -139,6 +139,27 @@ describe("toQueryPrompt", () => {
     ]);
   });
 
+  test("参照資料があれば、質問の前に別のブロックとして渡す", async () => {
+    const prompt = toQueryPrompt({
+      text: "質問",
+      images: [],
+      context: "参照資料",
+    }) as AsyncIterable<{ message: { content: unknown[] } }>;
+    const contents = [];
+    for await (const message of prompt) {
+      contents.push(message.message.content);
+    }
+    expect(contents).toEqual([
+      [
+        { type: "text", text: "参照資料" },
+        { type: "text", text: "質問" },
+      ],
+    ]);
+    expect(toQueryPrompt({ text: "質問", images: [], context: "  " })).toBe(
+      "質問",
+    );
+  });
+
   test("本文が空なら画像だけ", async () => {
     const prompt = toQueryPrompt({
       text: "",
