@@ -1,13 +1,16 @@
 import { useChat } from "@ai-sdk/react";
+import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import { ArrowUp, Square } from "lucide-react";
-import { type KeyboardEvent, useMemo, useState } from "react";
-import type { ChatUIMessage } from "../../chat/chat-service.ts";
+import { type KeyboardEvent, useMemo, useRef, useState } from "react";
+import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
 import type { ChatDto } from "../../router.ts";
 import { OrpcChatTransport } from "../lib/chat-transport.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { ApprovalCard } from "./approval-card.tsx";
 import { Markdown } from "./markdown.tsx";
+import { ModelPicker } from "./model-picker.tsx";
 import { Reasoning } from "./reasoning.tsx";
 import { ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
@@ -37,6 +40,7 @@ const MessageView = ({
       </div>
     );
   }
+  const usage = streaming ? undefined : usageOf(message);
   return (
     <div className="flex flex-col gap-2">
       {message.parts.map((part, i) => {
@@ -71,7 +75,30 @@ const MessageView = ({
             return null;
         }
       })}
+      {usage !== undefined && (
+        <p className="text-muted-foreground text-xs">
+          {message.metadata?.model !== undefined &&
+            `${message.metadata.model}・`}
+          {formatUsage(usage)}
+          {message.metadata?.aborted === true && "・中断"}
+        </p>
+      )}
     </div>
+  );
+};
+
+const UsageTotal = ({ messages }: { messages: ChatUIMessage[] }) => {
+  const total = totalUsage(messages);
+  if (total.inputTokens + total.outputTokens === 0) {
+    return null;
+  }
+  return (
+    <span
+      className="truncate text-muted-foreground text-xs"
+      title="この会話の合計"
+    >
+      合計 {formatUsage(total)}
+    </span>
   );
 };
 
@@ -80,15 +107,28 @@ export const ChatView = ({
   api,
   chat,
   initialMessages,
+  models,
   onActivity,
 }: {
   api: ApiClient;
   chat: ChatDto;
   initialMessages: ChatUIMessage[];
+  /** 選べるモデル（system.status から）。 */
+  models: ModelInfo[];
   /** 送信・完了など、一覧の表示（タイトル・状態）が変わりうるときに呼ぶ。 */
   onActivity?: () => void;
 }) => {
-  const transport = useMemo(() => new OrpcChatTransport(api), [api]);
+  const [settings, setSettings] = useState<{
+    model: string;
+    effort: Effort | null;
+  }>({ model: chat.model, effort: (chat.effort as Effort | null) ?? null });
+  // transport は作り直さず、送信時に最新の設定を読む
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+  const transport = useMemo(
+    () => new OrpcChatTransport(api, () => settingsRef.current),
+    [api],
+  );
   const { messages, sendMessage, status, stop, error } = useChat<ChatUIMessage>(
     {
       id: chat.id,
@@ -157,6 +197,16 @@ export const ChatView = ({
         </div>
       </div>
       <div className="border-t p-4">
+        <div className="mx-auto mb-2 flex max-w-3xl items-center justify-between gap-2">
+          <ModelPicker
+            models={models}
+            model={settings.model}
+            effort={settings.effort}
+            disabled={busy}
+            onChange={setSettings}
+          />
+          <UsageTotal messages={messages} />
+        </div>
         <div className="mx-auto flex max-w-3xl items-end gap-2">
           <textarea
             className="max-h-48 min-h-11 flex-1 resize-none rounded-xl border bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
