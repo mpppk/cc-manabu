@@ -19,6 +19,18 @@ describe("Markdown", () => {
   test("数式を KaTeX で描画する", () => {
     expect(renderToString(<Markdown text="$$E = mc^2$$" />)).toContain("katex");
   });
+
+  test("Wiki の引用は画面内のリンクに、ほかのリンクは既定の表示にする", () => {
+    const html = renderToString(
+      <Markdown
+        text="[関係タプル](#wiki-p1) と [外部](https://example.com)"
+        wikiLinks={{ href: (id) => `/p/x/wiki/${id}`, onOpen: () => {} }}
+      />,
+    );
+    expect(html).toContain('href="/p/x/wiki/p1"');
+    expect(html).toContain('data-wiki-page="p1"');
+    expect(html).toContain('data-streamdown="link"');
+  });
 });
 
 describe("Reasoning", () => {

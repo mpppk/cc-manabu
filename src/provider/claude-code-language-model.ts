@@ -7,7 +7,7 @@ import type {
 } from "@ai-sdk/provider";
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
-import { collectWarnings } from "./call-options.ts";
+import { collectWarnings, readCallOptions } from "./call-options.ts";
 import { collectStream } from "./collect-stream.ts";
 import {
   buildQueryOptions,
@@ -98,7 +98,10 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
         controller.enqueue({ type: "stream-start", warnings });
         try {
           const messages = this.query({
-            prompt: toQueryPrompt(prompt.value),
+            prompt: toQueryPrompt({
+              ...prompt.value,
+              context: readCallOptions(options).context,
+            }),
             options: queryOptions,
           });
           for await (const message of messages) {
@@ -144,6 +147,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
         body: {
           prompt: prompt.value.text,
           images: prompt.value.images.map((image) => image.mediaType),
+          context: readCallOptions(options).context,
           model: queryOptions.model,
           resume: queryOptions.resume,
           resumeSessionAt: queryOptions.resumeSessionAt,

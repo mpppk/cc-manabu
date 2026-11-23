@@ -1,4 +1,5 @@
 import {
+  BookOpen,
   Check,
   FolderMinus,
   ListPlus,
@@ -175,6 +176,8 @@ export const Sidebar = ({
   onRenameProject,
   onDeleteProject,
   onSetProject,
+  view,
+  onOpenWiki,
 }: {
   /** すべての会話（表示は選択中のプロジェクトで絞る）。 */
   chats: ChatDto[];
@@ -192,6 +195,9 @@ export const Sidebar = ({
   onDeleteProject: (projectId: string) => Promise<void>;
   /** 会話の所属を変える（null で未所属に戻す）。 */
   onSetProject: (chatId: string, projectId: string | null) => Promise<void>;
+  /** メイン画面に出しているもの（プロジェクト選択時のタブの状態）。 */
+  view: "threads" | "wiki";
+  onOpenWiki: () => void;
 }) => {
   const [deleting, setDeleting] = useState<ChatDto>();
   const [adding, setAdding] = useState(false);
@@ -224,6 +230,29 @@ export const Sidebar = ({
         onRename={onRenameProject}
         onDelete={onDeleteProject}
       />
+      {project !== undefined && (
+        <nav className="flex gap-1 px-3 pb-2" aria-label="プロジェクトの表示">
+          <Button
+            variant={view === "threads" ? "secondary" : "ghost"}
+            size="sm"
+            className="flex-1"
+            aria-pressed={view === "threads"}
+            onClick={() => onSelectProject(project.id)}
+          >
+            スレッド
+          </Button>
+          <Button
+            variant={view === "wiki" ? "secondary" : "ghost"}
+            size="sm"
+            className="flex-1"
+            aria-pressed={view === "wiki"}
+            onClick={onOpenWiki}
+          >
+            <BookOpen className="size-3.5" />
+            Wiki
+          </Button>
+        </nav>
+      )}
       {project !== undefined && (
         <div className="px-3 pb-2">
           <Button

@@ -98,7 +98,10 @@ describe("migration 0001_projects", () => {
       `INSERT INTO messages (id, chat_id, seq, role, parts) VALUES ('m1', 'c1', 0, 'user', '[{"type":"text","text":"hi"}]')`,
     );
 
-    expect(runMigrations(sqlite)).toEqual(["0001_projects"]);
+    expect(runMigrations(sqlite)).toEqual(
+      MIGRATIONS.slice(1).map((m) => m.name),
+    );
+    expect(runMigrations(sqlite)).toEqual([]);
     const repo = createChatRepository(drizzle(sqlite, { schema }));
     const { chat, messages } = unwrap(repo.getChat("c1"));
     expect(chat).toMatchObject({

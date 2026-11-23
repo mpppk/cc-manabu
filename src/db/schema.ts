@@ -82,6 +82,34 @@ export const messages = sqliteTable(
   (table) => [uniqueIndex("messages_chat_seq_idx").on(table.chatId, table.seq)],
 );
 
+/** プロジェクトの Wiki ページ（Markdown）。プロジェクトを消すと一緒に消える。 */
+export const wikiPages = sqliteTable(
+  "wiki_pages",
+  {
+    /** 安定したページ ID（回答からのリンクに使う）。 */
+    id: text("id").primaryKey(),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    /** 別名（JSON の文字列配列）。関連ページの照合とリンクに使う。 */
+    aliases: text("aliases", { mode: "json" })
+      .notNull()
+      .$type<string[]>()
+      .default(sql`'[]'`),
+    /** Markdown の本文。 */
+    body: text("body").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+  },
+  (table) => [index("wiki_pages_project_id_idx").on(table.projectId)],
+);
+
 export type ProjectRow = typeof projects.$inferSelect;
+export type WikiPageRow = typeof wikiPages.$inferSelect;
 export type ChatRow = typeof chats.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;

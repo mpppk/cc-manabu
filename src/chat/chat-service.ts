@@ -20,6 +20,7 @@ import {
   type ClaudeCodeProviderMetadata,
   PROVIDER_NAME,
 } from "../provider/index.ts";
+import type { WikiContext, WikiContextBuilder } from "../wiki/context.ts";
 import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
 import { toUserErrorMessage } from "./error-messages.ts";
@@ -66,6 +67,8 @@ export type ChatMessageMetadata = {
     totalTokens: number | undefined;
   };
   aborted?: boolean;
+  /** このターンで参照資料として渡した Wiki ページ（引用をリンクにするのに使う）。 */
+  wiki?: { projectId: string; pages: { id: string; title: string }[] };
 };
 
 export type ChatDataParts = {
@@ -142,8 +145,19 @@ export const createChatService = (deps: {
     modelId: string,
     options: { canUseTool: CanUseTool },
   ) => LanguageModelV4;
+  /** プロジェクトの会話で、質問に関係する Wiki ページを参照資料にする。 */
+  wikiContext?: WikiContextBuilder;
 }) => {
   const { chats, registry, approvals } = deps;
+
+  /** 会話がプロジェクトに属していれば、Wiki の参照資料を作る。 */
+  const contextFor = (
+    chat: ChatRow,
+    parts: ChatUIMessage["parts"],
+  ): WikiContext | undefined =>
+    chat.projectId === null
+      ? undefined
+      : deps.wikiContext?.(chat.projectId, textOf(parts));
 
   const startGeneration = (params: {
     chatId: string;
@@ -151,6 +165,8 @@ export const createChatService = (deps: {
     effort: Effort | null;
     sessionId: string | null;
     content: UserContent;
+    /** 質問とは別に渡す Wiki の参照資料。DB の発話には保存しない。 */
+    context?: WikiContext;
     resumeSessionAt?: string;
     forkSession?: boolean;
   }): Result.Result<
@@ -178,6 +194,9 @@ export const createChatService = (deps: {
                   ? {}
                   : { resumeSessionAt: params.resumeSessionAt }),
                 ...(params.forkSession === true ? { forkSession: true } : {}),
+                ...(params.context === undefined
+                  ? {}
+                  : { context: params.context.text }),
               },
             },
             abortSignal: signal,
@@ -197,7 +216,17 @@ export const createChatService = (deps: {
               onError: toUserErrorMessage,
               messageMetadata: ({ part }) => {
                 if (part.type === "start") {
-                  return { model: params.model };
+                  return {
+                    model: params.model,
+                    ...(params.context === undefined
+                      ? {}
+                      : {
+                          wiki: {
+                            projectId: params.context.projectId,
+                            pages: params.context.pages,
+                          },
+                        }),
+                  };
                 }
                 if (part.type === "finish-step") {
                   return {
@@ -270,6 +299,7 @@ export const createChatService = (deps: {
           effort: (chat.effort as Effort | null) ?? null,
           sessionId: chat.sessionId,
           content: toUserContent(input.message.parts),
+          context: contextFor(chat, input.message.parts),
         }),
       ),
       Result.inspect((runner) => trackStatus(runner)),
@@ -315,6 +345,7 @@ export const createChatService = (deps: {
           // 分岐点が無ければ（最初の発話からやり直すなら）新しいセッションにする
           sessionId: forkPoint === undefined ? null : chat.sessionId,
           content: toUserContent(userMessage.parts),
+          context: contextFor(chat, userMessage.parts),
           ...(forkPoint === undefined
             ? {}
             : { resumeSessionAt: forkPoint, forkSession: true }),

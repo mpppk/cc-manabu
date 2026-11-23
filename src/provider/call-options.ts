@@ -80,5 +80,6 @@ export const readCallOptions = (
     sessionId: pick("sessionId"),
     resumeSessionAt: pick("resumeSessionAt"),
     forkSession: raw.forkSession === true,
+    context: pick("context"),
   };
 };

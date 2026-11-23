@@ -9,6 +9,7 @@ import type { QueryFunction } from "../../src/provider/types.ts";
  *
  * - 「承認」を含む: Bash の承認を求め、許可なら「許可されました」、拒否なら「拒否されました」と返す
  * - 「ゆっくり」を含む: 1〜40 を 1 行ずつ、150ms 間隔で流す（リロード・停止の確認用）
+ * - Wiki の参照資料付き: 「参照: [タイトル](wiki:ID)…」と、渡していないページへの偽の引用を返す
  * - 画像付き: 「画像 <枚数> 枚: <テキスト>」と返す
  * - それ以外: 「了解: <プロンプト>」と返す
  *
@@ -90,15 +91,22 @@ export const createScriptedQuery = (): QueryFunction => {
       // 画像付きの発話は、content ブロックを持つユーザーメッセージで届く
       let text = typeof prompt === "string" ? prompt : "";
       let images = 0;
+      let reference = "";
       if (typeof prompt !== "string") {
         for await (const message of prompt as AsyncIterable<SDKUserMessage>) {
           const { content } = message.message;
           for (const item of typeof content === "string" ? [] : content) {
             if (item.type === "image") images++;
-            if (item.type === "text") text += item.text;
+            if (item.type === "text") {
+              if (item.text.includes("<wiki-page")) reference += item.text;
+              else text += item.text;
+            }
           }
         }
       }
+      const cited = [
+        ...reference.matchAll(/<wiki-page id="([^"]+)" title="([^"]+)"/g),
+      ].map(([, id, title]) => `[${title}](wiki:${id})`);
 
       yield {
         ...base,
@@ -132,6 +140,11 @@ export const createScriptedQuery = (): QueryFunction => {
         yield* textMessage(
           Array.from({ length: 40 }, (_, i) => `${i + 1}\n`),
           150,
+        );
+      } else if (cited.length > 0) {
+        yield* textMessage(
+          [`参照: ${cited.join(" ")} と [偽のページ](wiki:fake)。`, text],
+          0,
         );
       } else if (images > 0) {
         yield* textMessage([`画像 ${images} 枚: `, text], 0);

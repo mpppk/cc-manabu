@@ -100,6 +100,29 @@ describe("doStream", () => {
     ]);
   });
 
+  test("providerOptions の context は質問とは別のブロックで渡す", async () => {
+    const { model, calls } = await setup("text-partial");
+    const result = streamText({
+      model,
+      prompt: "質問",
+      providerOptions: { [PROVIDER_NAME]: { context: "参照資料" } },
+    });
+    await result.consumeStream();
+    const sent = calls[0]?.prompt as AsyncIterable<{
+      message: { content: unknown };
+    }>;
+    const contents: unknown[] = [];
+    for await (const message of sent) {
+      contents.push(message.message.content);
+    }
+    expect(contents).toEqual([
+      [
+        { type: "text", text: "参照資料" },
+        { type: "text", text: "質問" },
+      ],
+    ]);
+  });
+
   test("テキストの応答（text-partial）", async () => {
     const { model } = await setup("text-partial");
     const result = streamText({ model, prompt });

@@ -6,11 +6,13 @@ import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createProjectRepository } from "../../src/db/project-repository.ts";
+import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import {
   createClaudeCode,
   type QueryFunction,
 } from "../../src/provider/index.ts";
 import type { RouterContext } from "../../src/router.ts";
+import { createWikiContextBuilder } from "../../src/wiki/context.ts";
 
 /**
  * インメモリ DB と、差し替えた query() を使うルータのコンテキストを作る。
@@ -25,6 +27,7 @@ export const createTestContext = (
   }
   const chats = createChatRepository(opened.value.db);
   const projects = createProjectRepository(opened.value.db);
+  const wiki = createWikiRepository(opened.value.db);
   const registry = new RunnerRegistry({
     maxConcurrent: options.maxConcurrent,
   });
@@ -43,6 +46,7 @@ export const createTestContext = (
     approvals,
     languageModel: (modelId, { canUseTool }) =>
       createClaudeCode({ cwd: "/work", query, canUseTool })(modelId),
+    wikiContext: createWikiContextBuilder(wiki),
   });
   const claude = createClaudeStatus(
     { found: true, path: "/usr/local/bin/claude" },
@@ -66,6 +70,7 @@ export const createTestContext = (
   const context: RouterContext = {
     chats,
     projects,
+    wiki,
     chatService,
     approvals,
     claude,
@@ -75,6 +80,7 @@ export const createTestContext = (
     context,
     chats,
     projects,
+    wiki,
     registry,
     chatService,
     approvals,

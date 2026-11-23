@@ -335,3 +335,88 @@ test("プロジェクトでスレッドをまとめ、既存のスレッドを�
   await expect(list.getByText("あとで追加する会話")).toBeVisible();
   await expect(list.getByText("家計簿の会話")).toHaveCount(0);
 });
+
+test("Wiki ページを作り、プロジェクトのスレッドの回答から参照・リンクできる", async ({
+  page,
+}) => {
+  await open(page);
+  const list = page.getByRole("navigation", { name: "会話一覧" });
+  await createProject(page, "Wiki の検証");
+  const projectUrl = page.url();
+
+  // Wiki にページを作る
+  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await expect(page).toHaveURL(/\/wiki$/);
+  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page
+    .getByRole("textbox", { name: "ページのタイトル" })
+    .fill("関係タプル");
+  await page
+    .getByRole("textbox", { name: "別名（カンマ区切り）" })
+    .fill("relation tuple");
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("## 定義\n主体・関係・対象の **3 つ組**。");
+  await page.getByRole("button", { name: "保存" }).click();
+  await expect(page).toHaveURL(/\/wiki\/.+/);
+  await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
+  await expect(page.getByText("3 つ組")).toBeVisible();
+  const pageUrl = page.url();
+
+  // 一覧の検索
+  await page.getByRole("button", { name: "一覧" }).click();
+  await page.getByRole("textbox", { name: "Wiki を検索" }).fill("タプル");
+  await expect(
+    page.getByRole("list", { name: "Wiki のページ" }).getByText("関係タプル"),
+  ).toBeVisible();
+  await page.getByRole("textbox", { name: "Wiki を検索" }).fill("存在しない語");
+  await expect(page.getByText("一致するページはありません。")).toBeVisible();
+
+  // スレッドから質問すると、引用したページだけがリンクになる
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await expect(page).toHaveURL(projectUrl.replace(/#.*$/, ""));
+  await newChat(page);
+  await send(page, "関係タプルって何？");
+  await idle(page);
+  const link = page.getByRole("main").locator("a[data-wiki-page]");
+  await expect(link).toHaveText("関係タプル");
+  await expect(page.getByText("偽のページ")).toBeVisible();
+  await expect(page.locator('a[data-wiki-page="fake"]')).toHaveCount(0);
+  await expect(
+    page.getByRole("navigation", { name: "参照した Wiki" }),
+  ).toContainText("関係タプル");
+  await link.click();
+  await expect(page).toHaveURL(pageUrl.replace(/#.*$/, ""));
+  await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
+
+  // 同じプロジェクトの別のスレッドからも参照できる（別名でも一致する）
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await newChat(page);
+  await send(page, "relation tuple の例は？");
+  await idle(page);
+  await expect(page.getByRole("main").locator("a[data-wiki-page]")).toHaveText(
+    "関係タプル",
+  );
+
+  // 未所属のスレッドからは参照しない
+  await page
+    .getByRole("combobox", { name: "プロジェクト" })
+    .selectOption({ label: "未所属のスレッド" });
+  await newChat(page);
+  await send(page, "関係タプルって何？");
+  await expect(page.getByText("了解: 関係タプルって何？")).toBeVisible();
+  await idle(page);
+
+  // ページを消しても過去の回答は読め、リンク先は削除済みと表示する
+  await page.goto(pageUrl.replace(/#.*$/, ""));
+  await page.getByRole("button", { name: "ページを削除" }).click();
+  await page.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(page.getByText("まだページがありません。")).toBeVisible();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await list.getByText("関係タプルって何？").click();
+  await expect(page.getByText(/参照: .*関係タプル/)).toBeVisible();
+  await page.getByRole("main").locator("a[data-wiki-page]").click();
+  await expect(
+    page.getByText("このページは削除されたか、存在しません。"),
+  ).toBeVisible();
+});
