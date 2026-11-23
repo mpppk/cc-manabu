@@ -168,3 +168,23 @@ describe("RunnerRegistry", () => {
     expect(registry.runningChatIds()).toEqual([]);
   });
 });
+
+describe("ChatRunner のバッファ", () => {
+  test("生成元が後からチャンクを書き換えても、バッファの内容は変わらない", async () => {
+    const source = controllableSource();
+    const runner = new ChatRunner("c1", source.start);
+    const chunk = {
+      type: "data-approval",
+      id: "a1",
+      data: { status: "pending" },
+    } as UIMessageChunk;
+    source.push(chunk);
+    await tick();
+    (chunk as { data: { status: string } }).data.status = "allowed";
+    source.close();
+    await runner.done;
+    expect(runner.snapshot()).toEqual([
+      { type: "data-approval", id: "a1", data: { status: "pending" } },
+    ] as UIMessageChunk[]);
+  });
+});

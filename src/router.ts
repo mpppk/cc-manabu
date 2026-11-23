@@ -1,7 +1,8 @@
 import { eventIterator, os } from "@orpc/server";
-import type { UIMessageChunk } from "ai";
+import type { InferUIMessageChunk } from "ai";
 import * as z from "zod";
-import type { ChatService } from "./chat/chat-service.ts";
+import type { ApprovalBroker } from "./chat/approval-broker.ts";
+import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
 import type { ChatRepository } from "./db/chat-repository.ts";
 import type { ChatRow, MessageRow } from "./db/schema.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
@@ -11,6 +12,7 @@ import { version } from "./version.ts";
 export type RouterContext = {
   chats: ChatRepository;
   chatService: ChatService;
+  approvals: ApprovalBroker;
   /** 新しい会話の作業ディレクトリ（起動時のカレントディレクトリ）。 */
   cwd: string;
 };
@@ -21,9 +23,19 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   ChatNotFoundError: "NOT_FOUND",
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
+  ApprovalNotFoundError: "NOT_FOUND",
 };
 
-const chunkIterator = eventIterator(z.custom<UIMessageChunk>());
+/** クライアントに流すチャンク（承認要求の data パーツを含む）。 */
+export type ChatChunk = InferUIMessageChunk<ChatUIMessage>;
+
+const chunkIterator = eventIterator(z.custom<ChatChunk>());
+
+/** ChatRunner は UIMessageChunk を扱う。ChatService が流すのは ChatChunk だけなので型を絞る。 */
+const subscribe = (
+  runner: { subscribe: (signal?: AbortSignal) => AsyncGenerator<unknown> },
+  signal: AbortSignal | undefined,
+) => runner.subscribe(signal) as AsyncGenerator<ChatChunk, void>;
 
 /** クライアントに返す会話。 */
 export type ChatDto = Pick<
@@ -170,7 +182,7 @@ export const router = {
           }),
           ERROR_CODES,
         );
-        return runner.subscribe(signal);
+        return subscribe(runner, signal);
       }),
     /** 生成中なら最初から流し直す。生成中でなければすぐに終わる。 */
     reconnect: base
@@ -179,7 +191,7 @@ export const router = {
       .handler(async function* ({ context, input, signal }) {
         const runner = context.chatService.reconnect(input.chatId);
         if (runner !== undefined) {
-          yield* runner.subscribe(signal);
+          yield* subscribe(runner, signal);
         }
       }),
     /** 生成を止める。 */
@@ -188,6 +200,22 @@ export const router = {
       .handler(({ context, input }) => ({
         stopped: context.chatService.stop(input.chatId),
       })),
+  },
+  approvals: {
+    /** ツール実行の承認要求に答える。 */
+    respond: base
+      .input(
+        z.object({
+          chatId: z.string().min(1),
+          approvalId: z.string().min(1),
+          behavior: z.enum(["allow", "deny"]),
+          message: z.string().max(1000).optional(),
+        }),
+      )
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(context.approvals.respond(input), ERROR_CODES);
+        return { ok: true as const };
+      }),
   },
 };
 

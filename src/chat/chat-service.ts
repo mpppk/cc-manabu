@@ -1,4 +1,5 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
+import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import {
   createUIMessageStream,
@@ -16,6 +17,7 @@ import {
   type ClaudeCodeProviderMetadata,
   PROVIDER_NAME,
 } from "../provider/index.ts";
+import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
 import { toUserErrorMessage } from "./error-messages.ts";
 import type {
@@ -38,7 +40,12 @@ export type ChatMessageMetadata = {
   aborted?: boolean;
 };
 
-export type ChatUIMessage = UIMessage<ChatMessageMetadata>;
+export type ChatDataParts = {
+  /** ツール実行の承認要求（id は approvalId。状態が変わると同じ id で上書きする）。 */
+  approval: ApprovalData;
+};
+
+export type ChatUIMessage = UIMessage<ChatMessageMetadata, ChatDataParts>;
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -78,9 +85,14 @@ const isInitMessage = (
 export const createChatService = (deps: {
   chats: ChatRepository;
   registry: RunnerRegistry;
-  languageModel: (modelId: string) => LanguageModelV4;
+  approvals: ApprovalBroker;
+  /** 会話ごとの canUseTool を差し込んだモデルを返す。 */
+  languageModel: (
+    modelId: string,
+    options: { canUseTool: CanUseTool },
+  ) => LanguageModelV4;
 }) => {
-  const { chats, registry } = deps;
+  const { chats, registry, approvals } = deps;
 
   const startGeneration = (params: {
     chatId: string;
@@ -98,8 +110,12 @@ export const createChatService = (deps: {
       createUIMessageStream<ChatUIMessage>({
         generateId,
         execute: ({ writer }) => {
+          const canUseTool = approvals.createCanUseTool(
+            params.chatId,
+            (chunk) => writer.write(chunk),
+          );
           const result = streamText({
-            model: deps.languageModel(params.model),
+            model: deps.languageModel(params.model, { canUseTool }),
             messages: [{ role: "user", content: params.prompt }],
             ...(params.effort === null ? {} : { reasoning: params.effort }),
             providerOptions: {
@@ -222,7 +238,10 @@ export const createChatService = (deps: {
     trackStatus,
     /** 生成中なら Runner を返す。無ければ undefined。 */
     reconnect: (chatId: string): ChatRunner | undefined => registry.get(chatId),
-    stop: (chatId: string): boolean => registry.stop(chatId),
+    stop: (chatId: string): boolean => {
+      approvals.denyAll(chatId);
+      return registry.stop(chatId);
+    },
   };
 };
 
