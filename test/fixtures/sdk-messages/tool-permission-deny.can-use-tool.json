@@ -1,0 +1,39 @@
+[
+  {
+    "toolName": "Bash",
+    "input": {
+      "command": "touch created.txt",
+      "description": "Create empty file created.txt via touch"
+    },
+    "options": {
+      "suggestions": [
+        {
+          "type": "addRules",
+          "rules": [
+            {
+              "toolName": "Bash",
+              "ruleContent": "touch created.txt"
+            }
+          ],
+          "behavior": "allow",
+          "destination": "localSettings"
+        },
+        {
+          "type": "addDirectories",
+          "directories": ["/tmp/cc-manabu-fixture"],
+          "destination": "session"
+        },
+        {
+          "type": "setMode",
+          "mode": "acceptEdits",
+          "destination": "session"
+        }
+      ],
+      "blockedPath": "/tmp/cc-manabu-fixture/created.txt",
+      "displayName": "Bash",
+      "description": "Create empty file created.txt via touch",
+      "toolUseID": "toolu_012UwV85qLi6n93p89aGa2oW",
+      "requestId": "82ea5bc5-d2b1-4d21-be4d-5099c6bac854"
+    }
+  }
+]
