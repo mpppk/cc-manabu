@@ -11,6 +11,7 @@ import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
+import { createProjectRepository } from "../../src/db/project-repository.ts";
 import { createClaudeCode } from "../../src/provider/index.ts";
 import { router } from "../../src/router.ts";
 import { startServer } from "../../src/server/server.ts";
@@ -23,6 +24,7 @@ export const E2E_TOKEN = "e2e-token";
 const opened = openDatabase(":memory:");
 if (Result.isFailure(opened)) throw opened.error;
 const chats = createChatRepository(opened.value.db);
+const projects = createProjectRepository(opened.value.db);
 const approvals = createApprovalBroker({
   onPendingChange: (chatId, count) =>
     chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
@@ -61,7 +63,7 @@ const started = startServer({
   token: E2E_TOKEN,
   router,
   index,
-  context: { chats, chatService, approvals, claude, cwd: "/e2e" },
+  context: { chats, projects, chatService, approvals, claude, cwd: "/e2e" },
 });
 if (Result.isFailure(started)) throw started.error;
 console.log(`e2e server: ${started.value.url}`);

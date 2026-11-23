@@ -1,18 +1,24 @@
 import { eventIterator, os } from "@orpc/server";
+import { Result } from "@praha/byethrow";
 import type { InferUIMessageChunk } from "ai";
 import * as z from "zod";
 import type { ApprovalBroker } from "./chat/approval-broker.ts";
 import { checkImagePart, MAX_IMAGES_PER_MESSAGE } from "./chat/attachments.ts";
 import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
 import type { ClaudeStatusHolder } from "./claude/status.ts";
-import type { ChatRepository } from "./db/chat-repository.ts";
-import type { ChatRow, MessageRow } from "./db/schema.ts";
+import type { ChatRepository, DatabaseError } from "./db/chat-repository.ts";
+import type {
+  ProjectNotFoundError,
+  ProjectRepository,
+} from "./db/project-repository.ts";
+import type { ChatRow, MessageRow, ProjectRow } from "./db/schema.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
 import { version } from "./version.ts";
 
 /** oRPC ハンドラに渡すコンテキスト。 */
 export type RouterContext = {
   chats: ChatRepository;
+  projects: ProjectRepository;
   chatService: ChatService;
   approvals: ApprovalBroker;
   claude: ClaudeStatusHolder;
@@ -24,6 +30,7 @@ export const base = os.$context<RouterContext>();
 
 const ERROR_CODES: OrpcErrorCodeMap = {
   ChatNotFoundError: "NOT_FOUND",
+  ProjectNotFoundError: "NOT_FOUND",
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
   ApprovalNotFoundError: "NOT_FOUND",
@@ -46,6 +53,7 @@ const subscribe = (
 export type ChatDto = Pick<
   ChatRow,
   | "id"
+  | "projectId"
   | "title"
   | "model"
   | "effort"
@@ -65,6 +73,7 @@ export type MessageDto = {
 
 const toChatDto = (row: ChatRow): ChatDto => ({
   id: row.id,
+  projectId: row.projectId,
   title: row.title,
   model: row.model,
   effort: row.effort,
@@ -82,7 +91,29 @@ const toMessageDto = (row: MessageRow): MessageDto => ({
   metadata: row.metadata ?? undefined,
 });
 
+/** クライアントに返すプロジェクト。 */
+export type ProjectDto = Pick<ProjectRow, "id" | "name" | "createdAt">;
+
+const toProjectDto = (row: ProjectRow): ProjectDto => ({
+  id: row.id,
+  name: row.name,
+  createdAt: row.createdAt,
+});
+
+/** projectId が指定されていれば、そのプロジェクトがあることを確かめる。 */
+const requireProject = (
+  context: RouterContext,
+  projectId: string | null | undefined,
+): Result.Result<void, ProjectNotFoundError | DatabaseError> =>
+  projectId === null || projectId === undefined
+    ? Result.succeed()
+    : Result.pipe(
+        context.projects.getProject(projectId),
+        Result.map(() => undefined),
+      );
+
 const chatId = z.object({ id: z.string().min(1) });
+const projectName = z.string().trim().min(1).max(100);
 
 const userMessage = z.object({
   id: z.string().min(1),
@@ -133,6 +164,43 @@ export const router = {
       claude: context.claude.get(),
     })),
   },
+  projects: {
+    list: base.handler(async ({ context }) =>
+      (await unwrapForOrpc(context.projects.listProjects(), ERROR_CODES)).map(
+        toProjectDto,
+      ),
+    ),
+    create: base
+      .input(z.object({ name: projectName }))
+      .handler(async ({ context, input }) =>
+        toProjectDto(
+          await unwrapForOrpc(
+            context.projects.createProject({ name: input.name }),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    rename: base
+      .input(z.object({ id: z.string().min(1), name: projectName }))
+      .handler(async ({ context, input }) =>
+        toProjectDto(
+          await unwrapForOrpc(
+            context.projects.renameProject(input.id, input.name),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** プロジェクトを消す。所属していた会話は消さず、未所属に戻る。 */
+    delete: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(
+          context.projects.deleteProject(input.id),
+          ERROR_CODES,
+        );
+        return { id: input.id };
+      }),
+  },
   chats: {
     list: base.handler(async ({ context }) =>
       (await unwrapForOrpc(context.chats.listChats(), ERROR_CODES)).map(
@@ -149,6 +217,7 @@ export const router = {
     create: base
       .input(
         z.object({
+          projectId: z.string().min(1).nullable().optional(),
           model: z.string().min(1).optional(),
           effort: z.string().min(1).nullable().optional(),
         }),
@@ -156,11 +225,33 @@ export const router = {
       .handler(async ({ context, input }) =>
         toChatDto(
           await unwrapForOrpc(
-            context.chats.createChat({
-              cwd: context.cwd,
-              model: input.model,
-              effort: input.effort,
-            }),
+            Result.pipe(
+              requireProject(context, input.projectId),
+              Result.andThen(() =>
+                context.chats.createChat({
+                  cwd: context.cwd,
+                  projectId: input.projectId ?? null,
+                  model: input.model,
+                  effort: input.effort,
+                }),
+              ),
+            ),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** 会話の所属プロジェクトを変える（null で未所属に戻す）。過去のメッセージとセッションはそのまま。 */
+    setProject: base
+      .input(chatId.extend({ projectId: z.string().min(1).nullable() }))
+      .handler(async ({ context, input }) =>
+        toChatDto(
+          await unwrapForOrpc(
+            Result.pipe(
+              requireProject(context, input.projectId),
+              Result.andThen(() =>
+                context.chats.setProject(input.id, input.projectId),
+              ),
+            ),
             ERROR_CODES,
           ),
         ),

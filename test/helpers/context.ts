@@ -5,6 +5,7 @@ import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
+import { createProjectRepository } from "../../src/db/project-repository.ts";
 import {
   createClaudeCode,
   type QueryFunction,
@@ -23,6 +24,7 @@ export const createTestContext = (
     throw opened.error;
   }
   const chats = createChatRepository(opened.value.db);
+  const projects = createProjectRepository(opened.value.db);
   const registry = new RunnerRegistry({
     maxConcurrent: options.maxConcurrent,
   });
@@ -63,6 +65,7 @@ export const createTestContext = (
   );
   const context: RouterContext = {
     chats,
+    projects,
     chatService,
     approvals,
     claude,
@@ -71,6 +74,7 @@ export const createTestContext = (
   return {
     context,
     chats,
+    projects,
     registry,
     chatService,
     approvals,

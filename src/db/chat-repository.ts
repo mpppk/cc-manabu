@@ -52,6 +52,7 @@ export const createChatRepository = (db: Db) => {
   return {
     createChat: (input: {
       cwd: string;
+      projectId?: string | null;
       model?: string;
       effort?: string | null;
       title?: string;
@@ -63,6 +64,7 @@ export const createChatRepository = (db: Db) => {
           .insert(chats)
           .values({
             id: input.id ?? crypto.randomUUID(),
+            projectId: input.projectId ?? null,
             cwd: input.cwd,
             model: input.model ?? "default",
             effort: input.effort ?? null,
@@ -117,6 +119,26 @@ export const createChatRepository = (db: Db) => {
           db
             .update(chats)
             .set({ ...update, updatedAt: new Date() })
+            .where(eq(chats.id, chatId))
+            .returning()
+            .get(),
+        ),
+        Result.andThen((row) => requireChat(row, chatId)),
+      ),
+
+    /**
+     * 会話の所属プロジェクトを変える（null で未所属）。
+     * 一覧の並びが変わらないよう updatedAt は動かさない。
+     */
+    setProject: (
+      chatId: string,
+      projectId: string | null,
+    ): Result.Result<ChatRow, ChatNotFoundError | DatabaseError> =>
+      Result.pipe(
+        run(() =>
+          db
+            .update(chats)
+            .set({ projectId })
             .where(eq(chats.id, chatId))
             .returning()
             .get(),
