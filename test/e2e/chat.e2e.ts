@@ -457,7 +457,7 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await expect(page.getByText("一致するページはありません。")).toBeVisible();
 
   // スレッドから質問すると、引用したページだけがリンクになる
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await expect(page).toHaveURL(projectUrl.replace(/#.*$/, ""));
   await newChat(page);
   await send(page, "関係タプルって何？");
@@ -474,7 +474,7 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
 
   // 同じプロジェクトの別のスレッドからも参照できる（別名でも一致する）
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await newChat(page);
   await send(page, "relation tuple の例は？");
   await idle(page);
@@ -496,7 +496,7 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await page.getByRole("button", { name: "ページを削除" }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
   await expect(page.getByText("まだページがありません。")).toBeVisible();
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await list.getByText("関係タプルって何？").click();
   await expect(page.getByText(/参照: .*関係タプル/)).toBeVisible();
   await page.getByRole("main").locator("a[data-wiki-page]").click();
@@ -527,7 +527,6 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await idle(page);
   await openWiki();
   await expectPage("認可モデル");
-  await expect(wikiPages.getByText("自動作成")).toBeVisible();
 
   // 自動作成のページから、元の回答を開ける
   await wikiPages.getByText("認可モデル").click();
@@ -545,7 +544,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
     .fill("利用者が書いた説明");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("利用者が書いた説明")).toBeVisible();
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await page
     .getByRole("navigation", { name: "会話一覧" })
     .getByText("「認可モデル」について")
@@ -568,7 +567,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await toggle.uncheck();
   await expect(toggle).not.toBeChecked();
   await page.getByRole("button", { name: "閉じる" }).click();
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await newChat(page);
   await send(page, "「止めたあとの語」について");
   await idle(page);
@@ -598,7 +597,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(body);
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("heading", { name: title })).toBeVisible();
-    await page.getByRole("button", { name: "概要", exact: true }).click();
+    await page.getByRole("button", { name: "スレッド", exact: true }).click();
   };
   const terms = page.getByRole("main").locator("button[data-wiki-term]");
   const card = page.getByRole("dialog", { name: "用語の説明" });
@@ -682,7 +681,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     .fill("編集後の説明");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("編集後の説明")).toBeVisible();
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await page
     .getByRole("navigation", { name: "会話一覧" })
     .getByText("関係タプル と relation tuple")
@@ -702,7 +701,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     .click();
   await page.getByRole("button", { name: "ページを削除" }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await page
     .getByRole("navigation", { name: "会話一覧" })
     .getByText("関係タプル と relation tuple")
@@ -815,7 +814,7 @@ test("プロジェクトの進捗を記録し、一覧で状態ごとに確認�
   await newChat(page);
   await send(page, "進捗の続き");
   await idle(page);
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await expect(status).toHaveValue("in_progress");
   await expect(progress.getByText(/最終更新:/)).toHaveText(updatedText ?? "");
 
@@ -856,7 +855,7 @@ test("プロジェクトの進捗を記録し、一覧で状態ごとに確認�
   await expect(page.getByText("了解: 進捗の続き")).toBeVisible();
   await page.getByRole("button", { name: "Wiki", exact: true }).click();
   await expect(page).toHaveURL(/\/wiki$/);
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await status.selectOption({ label: "進行中" });
   await expect(projectSelect.locator("option:checked")).toHaveText("進捗A");
 });
@@ -1005,7 +1004,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
     .getByRole("textbox", { name: "本文（Markdown）" })
     .fill("非同期で処理する方式。");
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await page.getByRole("button", { name: "概要", exact: true }).click();
+  await page.getByRole("button", { name: "スレッド", exact: true }).click();
   await newChat(page);
   await send(page, "方式A と 方式B の比較");
   await idle(page);
@@ -1369,8 +1368,12 @@ test("会話をタイトルと本文で検索し、一致した発言へ移動�
   await send(page, "別の話題");
   await idle(page);
 
+  // 検索はアイコンだけで、押すと入力欄が広がる
   const box = page.getByRole("searchbox", { name: "会話を検索" });
   const results = page.getByRole("navigation", { name: "会話の検索結果" });
+  await expect(box).toBeHidden();
+  await page.getByRole("button", { name: "会話を検索" }).click();
+  await expect(box).toBeFocused();
   await box.fill("小器官");
   // ユーザー発言と、それを繰り返す回答
   await expect(results.locator("mark", { hasText: "小器官" })).toHaveCount(2);
@@ -1397,11 +1400,13 @@ test("会話をタイトルと本文で検索し、一致した発言へ移動�
       .first(),
   ).toBeVisible();
 
-  // Escape で一覧に戻る
+  // Escape で一覧に戻り、アイコンに畳む
   await box.press("Escape");
   await expect(
     page.getByRole("navigation", { name: "会話一覧" }),
   ).toBeVisible();
+  await expect(box).toBeHidden();
+  await expect(page.getByRole("button", { name: "会話を検索" })).toBeFocused();
 });
 
 test("回答のあとに、サブスクリプションの利用枠とリセット時刻をヘッダーに出す", async ({

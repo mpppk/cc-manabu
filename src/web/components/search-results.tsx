@@ -1,9 +1,11 @@
 import { Search, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MessageHit, Snippet } from "../../db/search-repository.ts";
 import type { ChatDto } from "../../router.ts";
 import { branchLabel, groupChats } from "../lib/groups.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { cn } from "../lib/utils.ts";
+import { Button } from "./ui/button.tsx";
 
 export type SearchResult = Awaited<ReturnType<ApiClient["search"]["query"]>>;
 
@@ -13,35 +15,92 @@ const DEBOUNCE_MS = 250;
 export const SearchBox = ({
   value,
   onChange,
+  open,
+  onOpenChange,
 }: {
   value: string;
   onChange: (value: string) => void;
-}) => (
-  <div className="relative px-3 pb-2">
-    <Search className="pointer-events-none absolute top-2 left-5 size-4 text-muted-foreground" />
-    <input
-      type="search"
-      className="h-8 w-full rounded-md border bg-background pr-7 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-search-cancel-button]:hidden"
-      placeholder="会話を検索"
-      aria-label="会話を検索"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onChange("");
-      }}
-    />
-    {value !== "" && (
-      <button
-        type="button"
-        className="absolute top-2 right-5 text-muted-foreground hover:text-foreground"
-        aria-label="検索を消す"
-        onClick={() => onChange("")}
-      >
-        <X className="size-4" />
-      </button>
-    )}
-  </div>
-);
+  /** 入力欄を広げているか。閉じているときはアイコンだけを出す。 */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) => {
+  /** 閉じたあと、アイコンにフォーカスを戻すか。 */
+  const refocus = useRef(false);
+  const close = (restoreFocus: boolean) => {
+    onChange("");
+    refocus.current = restoreFocus;
+    onOpenChange(false);
+  };
+
+  return (
+    // 同じ要素の flex-grow を変えて、アイコンから入力欄へ広げる
+    <div
+      className={cn(
+        "relative flex h-8 min-w-8 basis-8 transition-[flex-grow] duration-200 ease-out",
+        open ? "grow" : "grow-0",
+      )}
+    >
+      {open ? (
+        <>
+          <Search className="pointer-events-none absolute top-2 left-2 size-4 text-muted-foreground" />
+          <input
+            type="search"
+            className="h-8 w-full min-w-0 rounded-md border bg-background pr-7 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-search-cancel-button]:hidden"
+            placeholder="会話を検索"
+            aria-label="会話を検索"
+            // biome-ignore lint/a11y/noAutofocus: アイコンを押した直後に入力できるようにする
+            autoFocus
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") close(true);
+            }}
+            onBlur={(event) => {
+              // 何も入れずに離れたら畳む（消すボタンへの移動は除く）
+              const next = event.relatedTarget;
+              if (
+                value === "" &&
+                !(
+                  next instanceof Node &&
+                  event.currentTarget.parentElement?.contains(next)
+                )
+              ) {
+                close(false);
+              }
+            }}
+          />
+          {value !== "" && (
+            <button
+              type="button"
+              className="absolute top-2 right-2 text-muted-foreground hover:text-foreground"
+              aria-label="検索を消す"
+              onClick={() => close(true)}
+            >
+              <X className="size-4" />
+            </button>
+          )}
+        </>
+      ) : (
+        <Button
+          ref={(element) => {
+            if (element !== null && refocus.current) {
+              refocus.current = false;
+              element.focus();
+            }
+          }}
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          aria-label="会話を検索"
+          title="会話を検索"
+          onClick={() => onOpenChange(true)}
+        >
+          <Search className="size-4" />
+        </Button>
+      )}
+    </div>
+  );
+};
 
 /** 入力が止まってから検索する。 */
 export const useSearch = (

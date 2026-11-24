@@ -22,12 +22,6 @@ const parseAliases = (value: string): string[] =>
     .map((alias) => alias.trim())
     .filter((alias) => alias !== "");
 
-const AutoBadge = () => (
-  <span className="rounded bg-sky-500/15 px-1.5 py-0.5 font-normal text-[10px] text-sky-700 dark:text-sky-400">
-    自動作成
-  </span>
-);
-
 /** ページの作成・編集フォーム。 */
 const PageEditor = ({
   initial,
@@ -158,10 +152,7 @@ export const WikiPageList = ({
                   aria-current={p.id === pageId ? "page" : undefined}
                   onClick={() => onNavigate(p.id)}
                 >
-                  <span className="flex w-full items-center gap-2">
-                    <span className="truncate">{p.title}</span>
-                    {p.origin === "auto" && <AutoBadge />}
-                  </span>
+                  <span className="w-full truncate">{p.title}</span>
                   {p.aliases.length > 0 && (
                     <span className="w-full truncate font-normal text-muted-foreground text-xs">
                       別名: {p.aliases.join("、")}
@@ -377,7 +368,6 @@ export const WikiView = ({
         <h2 className="font-bold text-2xl">{page.title}</h2>
         {page.origin === "auto" && (
           <p className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-            <AutoBadge />
             回答から自動で作成したページです（編集しても自動で上書きされることはありません）。
             {page.sourceChatId !== null && (
               <button

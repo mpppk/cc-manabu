@@ -238,6 +238,39 @@ const loadGroupByWiki = (): boolean => {
   }
 };
 
+/** プロジェクトの一覧を参照している Wiki ごとにまとめるか（ブラウザに覚える）。 */
+export const useGroupByWiki = () => {
+  const [groupByWiki, setGroupByWiki] = useState(loadGroupByWiki);
+  const set = (next: boolean) => {
+    setGroupByWiki(next);
+    try {
+      localStorage.setItem(GROUP_KEY, next ? "1" : "0");
+    } catch {
+      // 覚えられなくても表示は切り替える
+    }
+  };
+  return [groupByWiki, set] as const;
+};
+
+/** 「参照している Wiki ごとにまとめる」のチェックボックス。 */
+export const GroupByWikiToggle = ({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) => (
+  <label className="flex items-center gap-1.5 px-3 pb-2 text-muted-foreground text-xs">
+    <input
+      type="checkbox"
+      className="size-3.5"
+      checked={checked}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+    参照している Wiki ごとにまとめる
+  </label>
+);
+
 /** サイドバー上部のプロジェクト選択（作成・名前変更・削除）。 */
 export const ProjectSwitcher = ({
   projects,
@@ -249,8 +282,11 @@ export const ProjectSwitcher = ({
   onSetAutoTerms,
   wikis,
   onRenameWiki,
+  groupByWiki,
 }: {
   projects: ProjectDto[];
+  /** 一覧を参照している Wiki ごとにまとめるか。 */
+  groupByWiki: boolean;
   /** Wiki（複数のプロジェクトで共有できる）。 */
   wikis: WikiDto[];
   onRenameWiki: (wikiId: string, name: string) => Promise<void>;
@@ -269,8 +305,6 @@ export const ProjectSwitcher = ({
   const current = projects.find((p) => p.id === projectId);
   /** 保存中の自動作成の設定（保存が終わるまで表示に使う）。 */
   const [autoTerms, setAutoTerms] = useState<boolean>();
-  /** 一覧を参照している Wiki ごとにまとめるか（ブラウザに覚える）。 */
-  const [groupByWiki, setGroupByWiki] = useState(loadGroupByWiki);
   const currentWiki = wikis.find((wiki) => wiki.id === current?.wikiId);
   /** 今のプロジェクトと同じ Wiki を使う、ほかのプロジェクト。 */
   const sharing = projects.filter(
@@ -353,25 +387,6 @@ export const ProjectSwitcher = ({
           ]}
         />
       </div>
-      {projects.length > 0 && (
-        <label className="flex items-center gap-1.5 text-muted-foreground text-xs">
-          <input
-            type="checkbox"
-            className="size-3.5"
-            checked={groupByWiki}
-            onChange={(event) => {
-              const next = event.target.checked;
-              setGroupByWiki(next);
-              try {
-                localStorage.setItem(GROUP_KEY, next ? "1" : "0");
-              } catch {
-                // 覚えられなくても表示は切り替える
-              }
-            }}
-          />
-          参照している Wiki ごとにまとめる
-        </label>
-      )}
       <CreateProjectDialog
         open={dialog === "create"}
         wikis={wikis}
