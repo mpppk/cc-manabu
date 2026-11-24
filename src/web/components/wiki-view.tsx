@@ -99,6 +99,8 @@ export const WikiView = ({
   api,
   projectId,
   projectName,
+  wikiName,
+  sharedWith = [],
   autoTerms,
   pageId,
   onNavigate,
@@ -112,6 +114,10 @@ export const WikiView = ({
   api: ApiClient;
   projectId: string;
   projectName: string;
+  /** Wiki の名前（無ければプロジェクト名を使う）。 */
+  wikiName?: string | undefined;
+  /** 同じ Wiki を使っている、ほかのプロジェクトの名前。 */
+  sharedWith?: string[];
   /** 回答からの用語ページの自動作成が有効か。 */
   autoTerms: boolean;
   /** 自動作成の元になった会話を開く。 */
@@ -158,8 +164,17 @@ export const WikiView = ({
     <div className="flex items-center justify-between gap-2">
       <div className="flex min-w-0 flex-col">
         <h1 className="truncate font-semibold text-lg">
-          {projectName} の Wiki
+          {wikiName === undefined || wikiName === projectName
+            ? `${projectName} の Wiki`
+            : `Wiki: ${wikiName}`}
         </h1>
+        {sharedWith.length > 0 && (
+          <span className="text-muted-foreground text-xs">
+            {sharedWith.map((name) => `「${name}」`).join("")}
+            と共有している Wiki
+            です。ページの変更はすべてのプロジェクトに反映されます。
+          </span>
+        )}
         <span className="text-muted-foreground text-xs">
           回答からの用語ページの自動作成: {autoTerms ? "オン" : "オフ"}
           （プロジェクトの設定で変更できます）

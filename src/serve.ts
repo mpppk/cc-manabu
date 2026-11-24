@@ -95,7 +95,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         approvals,
         languageModel: (modelId, { canUseTool }) =>
           createClaudeCode({ ...providerSettings, canUseTool })(modelId),
-        wikiContext: createWikiContextBuilder(wiki),
+        wikiContext: createWikiContextBuilder(wiki, projects),
         onAnswerComplete: (event) => void writeTermPages(event),
         onRunnerFinish: (chatId, outcome) =>
           queueDispatcher?.onRunnerFinish(chatId, outcome),

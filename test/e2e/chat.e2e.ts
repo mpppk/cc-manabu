@@ -1171,3 +1171,84 @@ test("回答の選択範囲から Wiki のページを作り、回答に戻れ�
   await page.getByRole("button", { name: "キャンセル" }).click();
   await expect(page).toHaveURL(new RegExp(`${chatPath}$`));
 });
+
+test("既存の Wiki を共有するプロジェクトを作り、一覧を Wiki ごとにまとめられる", async ({
+  page,
+}) => {
+  await open(page);
+  const switcher = page.getByRole("combobox", { name: "プロジェクト" });
+
+  // 1 つ目は新しい Wiki で作り、ページを書く
+  await createProject(page, "共有元");
+  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page
+    .getByRole("textbox", { name: "ページのタイトル" })
+    .fill("共有用語");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "共有用語" })).toBeVisible();
+
+  // 2 つ目は既存の Wiki を選んで作る
+  await page.getByRole("button", { name: "新しいプロジェクト" }).click();
+  await page
+    .getByRole("textbox", { name: "プロジェクトの名前" })
+    .fill("共有先");
+  await page.getByRole("radio", { name: "既存の Wiki を使う" }).check();
+  await page
+    .getByRole("combobox", { name: "使う Wiki" })
+    .selectOption({ label: "共有元（1 件のプロジェクトで使用中）" });
+  await page.getByRole("button", { name: "作成" }).click();
+  await expect(switcher.locator("option:checked")).toHaveText("共有先");
+
+  // 同じページが見え、共有していることが分かる
+  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await expect(
+    page.getByText("「共有元」と共有している Wiki です"),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "共有用語" })).toBeVisible();
+
+  // 3 つ目は別の Wiki
+  await createProject(page, "別の Wiki");
+
+  // Wiki ごとにまとめる
+  await page
+    .getByRole("checkbox", { name: "参照している Wiki ごとにまとめる" })
+    .check();
+  await expect(
+    switcher.locator('optgroup[label="Wiki: 共有元"] option'),
+  ).toHaveText(["共有元", "共有先"]);
+  await expect(
+    switcher.locator('optgroup[label="Wiki: 別の Wiki"] option'),
+  ).toHaveText(["別の Wiki"]);
+  // リロードしても覚えている
+  await page.reload();
+  await expect(switcher.locator('optgroup[label="Wiki: 共有元"]')).toHaveCount(
+    1,
+  );
+
+  // 設定で Wiki の名前を変えると、まとめの見出しにも反映される
+  await switcher.selectOption({ label: "共有先" });
+  await page.getByRole("button", { name: "プロジェクトの設定" }).click();
+  await page.getByRole("textbox", { name: "Wiki の名前" }).fill("共通用語集");
+  await page.getByRole("button", { name: "名前を保存" }).click();
+  await expect(page.getByRole("button", { name: "名前を保存" })).toBeDisabled();
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(
+    switcher.locator('optgroup[label="Wiki: 共通用語集"] option'),
+  ).toHaveText(["共有元", "共有先"]);
+
+  // 共有している Wiki は、プロジェクトを消しても残る
+  await page.getByRole("button", { name: "プロジェクトを削除" }).click();
+  await expect(
+    page.getByText(
+      "Wiki「共通用語集」はほかのプロジェクトでも使っているので残ります。",
+      {
+        exact: false,
+      },
+    ),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "削除", exact: true }).click();
+  await switcher.selectOption({ label: "共有元" });
+  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await expect(page.getByRole("button", { name: "共有用語" })).toBeVisible();
+});

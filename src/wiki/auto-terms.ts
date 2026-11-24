@@ -1,5 +1,5 @@
 import { Result } from "@praha/byethrow";
-import type { ProjectRepository } from "../db/project-repository.ts";
+import { type ProjectRepository, wikiIdOf } from "../db/project-repository.ts";
 import type { WikiPageRow } from "../db/schema.ts";
 import type { WikiRepository } from "../db/wiki-repository.ts";
 import { buildTermExtractionPrompt, parseTermCandidates } from "./terms.ts";
@@ -40,7 +40,7 @@ export const createTermPageWriter =
       if (!project.value.autoTerms || event.answer.trim() === "") {
         return [];
       }
-      const pages = deps.wiki.listPages(event.projectId);
+      const pages = deps.wiki.listPages(wikiIdOf(project.value));
       if (Result.isFailure(pages)) {
         onError(pages.error);
         return [];
@@ -63,10 +63,14 @@ export const createTermPageWriter =
       if (candidates.length === 0) {
         return [];
       }
-      const created = deps.wiki.createTermPages(event.projectId, candidates, {
-        chatId: event.chatId,
-        messageId: event.messageId,
-      });
+      const created = deps.wiki.createTermPages(
+        wikiIdOf(project.value),
+        candidates,
+        {
+          chatId: event.chatId,
+          messageId: event.messageId,
+        },
+      );
       if (Result.isFailure(created)) {
         onError(created.error);
         return [];

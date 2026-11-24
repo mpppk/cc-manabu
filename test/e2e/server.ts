@@ -73,7 +73,7 @@ const chatService = createChatService({
   approvals,
   languageModel: (modelId, { canUseTool }) =>
     createClaudeCode({ cwd: "/e2e", query, canUseTool, onRateLimit })(modelId),
-  wikiContext: createWikiContextBuilder(wiki),
+  wikiContext: createWikiContextBuilder(wiki, projects),
   onRunnerFinish: (chatId, outcome) =>
     queueDispatcher?.onRunnerFinish(chatId, outcome),
   onAnswerComplete: (event) => void writeTermPages(event),
