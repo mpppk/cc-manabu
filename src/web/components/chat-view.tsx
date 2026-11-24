@@ -25,6 +25,7 @@ import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { pathForWiki } from "../lib/route.ts";
 import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
+import { cn } from "../lib/utils.ts";
 import { ApprovalCard } from "./approval-card.tsx";
 import { Composer } from "./composer.tsx";
 import { Markdown, type WikiLinks } from "./markdown.tsx";
@@ -520,7 +521,10 @@ export const ChatView = ({
   onOpenWikiPage,
   branches = [],
   onSelectBranch,
+  focusMessageId,
 }: {
+  /** 検索結果から開いたときに移動する発言（#115）。 */
+  focusMessageId?: string;
   api: ApiClient;
   chat: ChatDto;
   /** 同じ会話の分岐（#76）。2 つ以上あれば切り替えメニューを出す。 */
@@ -633,6 +637,19 @@ export const ChatView = ({
       : messages.findIndex((message) => message.id === branchFrom);
   const shown = branchIndex < 0 ? messages : messages.slice(0, branchIndex + 1);
 
+  // 検索結果から開いた発言へ移動し、しばらく強調する
+  const [highlighted, setHighlighted] = useState<string>();
+  const focusFound = messages.some((m) => m.id === focusMessageId);
+  useEffect(() => {
+    if (focusMessageId === undefined || !focusFound) return;
+    document
+      .querySelector(`[data-message-id="${CSS.escape(focusMessageId)}"]`)
+      ?.scrollIntoView({ block: "center" });
+    setHighlighted(focusMessageId);
+    const timer = setTimeout(() => setHighlighted(undefined), 2500);
+    return () => clearTimeout(timer);
+  }, [focusMessageId, focusFound]);
+
   const createBranch = async (
     parentMessageId: string,
     parts: ChatUIMessage["parts"],
@@ -742,56 +759,68 @@ export const ChatView = ({
                     parent={branches.find((b) => b.id === chat.parentId)}
                   />
                 )}
-                <MessageView
-                  message={message}
-                  streaming={busy && index === messages.length - 1}
-                  canAct={!busy && branchFrom === undefined}
-                  isLast={index === messages.length - 1}
-                  {...(message.role === "assistant" &&
-                  message.metadata?.claudeCode?.lastAssistantUuid !== undefined
-                    ? {
-                        onBranch: () => {
-                          setBranchError(undefined);
-                          setQuote(undefined);
-                          setBranchFrom(message.id);
-                        },
-                        ...(selection?.messageId === message.id
-                          ? {
-                              onAskSelection: () => {
-                                setBranchError(undefined);
-                                setQuote({
-                                  text: selection.text,
-                                  sourceMessageId: message.id,
-                                });
-                                setBranchFrom(message.id);
-                                window.getSelection()?.removeAllRanges();
-                              },
-                            }
-                          : {}),
-                      }
-                    : {})}
-                  onEdit={(messageId, text) => {
-                    // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
-                    const files = imagePartsOf(message);
-                    void sendMessage({ text, files, messageId }).then(() =>
-                      onActivity?.(),
-                    );
-                  }}
-                  onRegenerate={() => {
-                    void regenerate().then(() => onActivity?.());
-                  }}
-                  {...(onOpenWikiPage === undefined ? {} : { onOpenWikiPage })}
-                  {...(termMatcher === undefined ? {} : { termMatcher })}
-                  onRespond={async (approvalId, behavior, reason) => {
-                    await api.approvals.respond({
-                      chatId: chat.id,
-                      approvalId,
-                      behavior,
-                      ...(reason === undefined ? {} : { message: reason }),
-                    });
-                    onActivity?.();
-                  }}
-                />
+                <div
+                  data-message-id={message.id}
+                  className={cn(
+                    "rounded-lg transition-shadow",
+                    highlighted === message.id &&
+                      "ring-2 ring-amber-400 ring-offset-4 ring-offset-background",
+                  )}
+                >
+                  <MessageView
+                    message={message}
+                    streaming={busy && index === messages.length - 1}
+                    canAct={!busy && branchFrom === undefined}
+                    isLast={index === messages.length - 1}
+                    {...(message.role === "assistant" &&
+                    message.metadata?.claudeCode?.lastAssistantUuid !==
+                      undefined
+                      ? {
+                          onBranch: () => {
+                            setBranchError(undefined);
+                            setQuote(undefined);
+                            setBranchFrom(message.id);
+                          },
+                          ...(selection?.messageId === message.id
+                            ? {
+                                onAskSelection: () => {
+                                  setBranchError(undefined);
+                                  setQuote({
+                                    text: selection.text,
+                                    sourceMessageId: message.id,
+                                  });
+                                  setBranchFrom(message.id);
+                                  window.getSelection()?.removeAllRanges();
+                                },
+                              }
+                            : {}),
+                        }
+                      : {})}
+                    onEdit={(messageId, text) => {
+                      // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
+                      const files = imagePartsOf(message);
+                      void sendMessage({ text, files, messageId }).then(() =>
+                        onActivity?.(),
+                      );
+                    }}
+                    onRegenerate={() => {
+                      void regenerate().then(() => onActivity?.());
+                    }}
+                    {...(onOpenWikiPage === undefined
+                      ? {}
+                      : { onOpenWikiPage })}
+                    {...(termMatcher === undefined ? {} : { termMatcher })}
+                    onRespond={async (approvalId, behavior, reason) => {
+                      await api.approvals.respond({
+                        chatId: chat.id,
+                        approvalId,
+                        behavior,
+                        ...(reason === undefined ? {} : { message: reason }),
+                      });
+                      onActivity?.();
+                    }}
+                  />
+                </div>
               </Fragment>
             ))}
             {branchFrom !== undefined && (

@@ -15,6 +15,7 @@ import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
 import { createProjectRepository } from "./db/project-repository.ts";
 import { createQueueRepository } from "./db/queue-repository.ts";
+import { createSearchRepository } from "./db/search-repository.ts";
 import { createWikiRepository } from "./db/wiki-repository.ts";
 import { CliExit } from "./errors/index.ts";
 import { createClaudeCode } from "./provider/index.ts";
@@ -108,6 +109,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           wiki,
           queue,
           queueDispatcher,
+          search: createSearchRepository(db),
           chatService,
           approvals,
           claude,
