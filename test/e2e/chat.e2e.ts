@@ -1,5 +1,5 @@
 import path from "node:path";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 
 const TOKEN = "e2e-token";
 
@@ -15,7 +15,7 @@ const newChat = async (page: Page) => {
 };
 
 const send = async (page: Page, text: string) => {
-  const box = page.getByRole("textbox", { name: "メッセージ" });
+  const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
   await box.fill(text);
   await box.press("Enter");
 };
@@ -938,24 +938,30 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
 });
 
 /** 最後の回答の最初の段落を選択する（マウス・タッチ・キーボードでの選択の代わり）。 */
+const selectAnswerParagraph = (answer: Locator) =>
+  answer
+    .locator("p")
+    .first()
+    .evaluate((paragraph) => {
+      const range = document.createRange();
+      range.selectNodeContents(paragraph);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+
 const selectLastAnswerParagraph = (page: Page) =>
-  page.evaluate(() => {
-    const answers = document.querySelectorAll("[data-assistant-message]");
-    const paragraph = answers[answers.length - 1]?.querySelector("p");
-    if (paragraph === null || paragraph === undefined)
-      throw new Error("no answer");
-    const range = document.createRange();
-    range.selectNodeContents(paragraph);
-    const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-  });
+  selectAnswerParagraph(page.locator("[data-assistant-message]").last());
 
 test("回答の選択範囲を引用して質問すると、引用付きの分岐ができる", async ({
   page,
 }) => {
   await open(page);
-  const main = page.getByRole("main");
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const sideInput = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
   const popup = main.getByRole("toolbar", { name: "選択範囲の操作" });
   const ask = popup.getByRole("button", { name: "質問", exact: true });
 
@@ -972,6 +978,17 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   await newChat(page);
   await send(page, "方式A と 方式B の比較");
   await idle(page);
+  const chatUrl = page.url();
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  await mainInput.fill("メインの続き");
+  // 末尾を現在地にしても、次の送信先はこの分岐のまま。
+  await main.getByRole("button", { name: "ここから分岐" }).click();
+  await expect(
+    main.getByText("この応答の続きとして分岐を作ります。"),
+  ).toHaveCount(0);
   await expect(ask).toHaveCount(0);
 
   // 用語はクリックで説明が開く（選択しても説明は開かない）
@@ -980,7 +997,9 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   await expect(page.getByRole("dialog", { name: "用語の説明" })).toContainText(
     "非同期で処理する方式。",
   );
-  await page.keyboard.press("Escape");
+  await term.press("Escape");
+  await mainInput.hover();
+  await expect(page.getByRole("dialog", { name: "用語の説明" })).toHaveCount(0);
 
   // 選択すると、選択範囲のすぐ近くにポップアップが出る
   await selectLastAnswerParagraph(page);
@@ -1004,48 +1023,133 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
     expect(gap).toBeLessThan(24);
   }
 
-  // 「質問」を押し、取り消すと分岐はできない
+  // 初回送信前に閉じると分岐はできない。メインの入力も残る。
   await ask.click();
   await expect(popup).toHaveCount(0);
-  const draft = main
-    .getByRole("status")
-    .filter({ hasText: "選んだ部分について質問" });
-  await expect(draft.locator("blockquote")).toContainText(
+  await expect(side.locator("blockquote")).toContainText(
     "方式A と 方式B の比較",
   );
-  await main.getByRole("button", { name: "取り消す" }).click();
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await expect(mainInput).toHaveValue("メインの続き");
   await expect(page.getByRole("combobox", { name: "分岐" })).toHaveCount(0);
 
   // 送ると、引用付きの分岐ができ、モデルには引用と質問が区別して届く
   await selectLastAnswerParagraph(page);
   await ask.click();
-  await send(page, "失敗時はどう復旧する？");
+  await sideInput.fill("失敗時はどう復旧する？");
+  await sideInput.press("Enter");
   await expect(
-    main.getByText(/了解: 以下は、直前までの回答から利用者が選んだ引用です/),
+    side.getByText(/了解: 以下は、直前までの回答から利用者が選んだ引用です/),
   ).toBeVisible();
-  await idle(page);
-  // モックは受け取ったテキストをそのまま返す。引用のあとに質問が届いている
   await expect(
-    main.getByText(
+    side.getByText(
       /利用者が選んだ引用です[\s\S]*方式A と 方式B の比較[\s\S]*失敗時はどう復旧する？/,
     ),
   ).toBeVisible();
+  await expect(page).toHaveURL(chatUrl);
+  await expect(mainInput).toHaveValue("メインの続き");
+  await mainInput.press("Enter");
+  await expect(main.getByText("了解: メインの続き")).toBeVisible();
+  await expect(page).toHaveURL(chatUrl);
+
+  // 2 ターン目と承認操作もサイドの分岐へ届く。
+  await side.getByRole("button", { name: "送信", exact: true }).waitFor();
+  await sideInput.fill("承認が必要な操作をして");
+  await sideInput.press("Enter");
+  await side
+    .getByRole("region", { name: "ツール実行の承認" })
+    .getByRole("button", { name: "許可" })
+    .click();
+  await expect(side.getByText("許可されました", { exact: true })).toBeVisible();
+  await expect(main.getByText("許可されました", { exact: true })).toHaveCount(
+    0,
+  );
   await expect(page.getByRole("combobox", { name: "分岐" })).toBeVisible();
-  const quote = main.locator("blockquote").first();
-  await expect(quote).toContainText("方式A と 方式B の比較");
+  await expect(
+    page.getByRole("combobox", { name: "分岐" }).locator("option"),
+  ).toHaveCount(2);
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await expect(side).toHaveCount(0);
 
   // リロードしても引用と質問が残り、元の会話もそのまま
   await page.reload();
+  const branches = page.getByRole("combobox", { name: "分岐" });
+  await expect(branches.locator("option:checked")).toHaveText("元の会話");
+  await branches.selectOption({
+    label: "失敗時はどう復旧する？（元の会話 から分岐）",
+  });
   await expect(main.locator("blockquote").first()).toContainText(
     "方式A と 方式B の比較",
   );
   await expect(
     main.getByText("失敗時はどう復旧する？", { exact: true }).first(),
   ).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "分岐" })
-    .selectOption({ label: "元の会話" });
+  await branches.selectOption({ label: "元の会話" });
   await expect(main.locator("blockquote")).toHaveCount(0);
+});
+
+test("過去の回答をサイドで質問し、狭い画面でもメインの現在地と下書きを保つ", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  await send(page, "回答の起点 A");
+  await expect(main.getByText("了解: 回答の起点 A")).toBeVisible();
+  await idle(page);
+  await send(page, "メインの続き B");
+  await expect(main.getByText("了解: メインの続き B")).toBeVisible();
+  await idle(page);
+  await mainInput.fill("B からの続き C");
+
+  await main.getByRole("button", { name: "回答を開く" }).click();
+  await selectAnswerParagraph(main.locator("[data-assistant-message]").first());
+  await main.getByRole("button", { name: "質問", exact: true }).click();
+  await expect(side.locator("blockquote")).toContainText("回答の起点 A");
+  await expect(main.getByText("了解: メインの続き B")).toBeVisible();
+  await page.setViewportSize({ width: 700, height: 740 });
+  await expect(side).toBeVisible();
+  await expect(main).toBeHidden();
+  expect((await side.boundingBox())?.width).toBe(700);
+  const input = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  await input.fill("A からの脇道");
+  await input.press("Enter");
+  await expect(side.getByText(/了解: .*A からの脇道/s)).toBeVisible();
+  await expect(side.getByText("メインの続き B", { exact: true })).toHaveCount(
+    0,
+  );
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await expect(mainInput).toHaveValue("B からの続き C");
+  await mainInput.press("Enter");
+  await expect(main.getByText("了解: B からの続き C")).toBeVisible();
+  await expect(main.getByText("メインの続き B", { exact: true })).toBeVisible();
+  await expect(main.getByText("A からの脇道", { exact: true })).toHaveCount(0);
+
+  // メインとサイドが同じ過去の現在地から分岐しても、パネルは切り替わらない。
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await idle(page);
+  const rootUrl = page.url();
+  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await selectAnswerParagraph(main.locator("[data-assistant-message]").first());
+  await main.getByRole("button", { name: "質問", exact: true }).click();
+  await input.fill("A の別の脇道");
+  await input.press("Enter");
+  const sideAnswer = side.getByText(/了解: .*A の別の脇道/s);
+  await expect(sideAnswer).toBeVisible();
+  await expect(
+    main.getByText("この応答の続きとして分岐を作ります。"),
+  ).toBeVisible();
+  await send(page, "A からメインで分岐");
+  await expect(main.getByText("了解: A からメインで分岐")).toBeVisible();
+  expect(page.url()).not.toBe(rootUrl);
+  await expect(sideAnswer).toBeVisible();
 });
 
 test("生成中に予約したメッセージは回答のあとに順に送られ、停止すると一時停止する", async ({
@@ -1201,8 +1305,19 @@ test("回答の選択範囲から Wiki のページを作り、回答に戻れ�
   await createProject(page, "ページ作成の検証");
   await newChat(page);
   await send(page, "冪等性キー");
+  await expect(main.getByText("了解: 冪等性キー")).toBeVisible();
+  await idle(page);
+  await send(page, "重複の検知");
+  await expect(main.getByText("了解: 重複の検知")).toBeVisible();
   await idle(page);
   const chatPath = new URL(page.url()).pathname;
+  await main.getByRole("button", { name: "回答を開く" }).click();
+  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  const messageInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  await messageInput.fill("まだ送っていない質問");
 
   // 1 行の短い選択はタイトルに入る
   await selectLastAnswerParagraph(page);
@@ -1223,6 +1338,10 @@ test("回答の選択範囲から Wiki のページを作り、回答に戻れ�
   await page.getByRole("button", { name: /回答に戻る/ }).click();
   await expect(page).toHaveURL(new RegExp(`${chatPath}$`));
   await expect(main.getByText("了解: 冪等性キー")).toBeVisible();
+  await expect(
+    main.getByText("この応答の続きとして分岐を作ります。"),
+  ).toBeVisible();
+  await expect(messageInput).toHaveValue("まだ送っていない質問");
 
   // 取り消すと、ページを作らずに回答に戻る
   await selectLastAnswerParagraph(page);

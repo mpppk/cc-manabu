@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import {
   Fragment,
+  type RefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -26,9 +27,9 @@ import {
   type TermEntry,
   type TermMatch,
 } from "../../wiki/term-matcher.ts";
-import { OrpcChatTransport } from "../lib/chat-transport.ts";
+import { OrpcChatTransport, type SendSettings } from "../lib/chat-transport.ts";
 import { branchLabel } from "../lib/groups.ts";
-import type { ImageAttachment } from "../lib/image.ts";
+import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { type PageDraft, pageDraftFromSelection } from "../lib/page-draft.ts";
@@ -355,7 +356,7 @@ const UsageTotal = ({ messages }: { messages: ChatUIMessage[] }) => {
 };
 
 /** 質問の対象として引用した回答の一部。 */
-const QuoteBlock = ({ text }: { text: string }) => (
+export const QuoteBlock = ({ text }: { text: string }) => (
   <blockquote className="max-h-40 w-full overflow-y-auto whitespace-pre-wrap border-l-4 border-sky-500/60 bg-muted/50 px-3 py-2 text-left text-muted-foreground text-sm">
     {text}
   </blockquote>
@@ -372,7 +373,10 @@ type AnswerSelection = {
  * 回答の中の選択範囲。1 つの完了した回答の中だけを対象にする（#91）。
  * 選択が無い・複数の回答にまたがるときは undefined。スクロールしたら位置を取り直す。
  */
-const useAnswerSelection = (enabled: boolean) => {
+const useAnswerSelection = (
+  transcript: RefObject<HTMLDivElement | null>,
+  enabled: boolean,
+) => {
   const [selection, setSelection] = useState<AnswerSelection>();
   useEffect(() => {
     if (!enabled) {
@@ -402,6 +406,7 @@ const useAnswerSelection = (enabled: boolean) => {
         anchor === undefined ||
         anchor === null ||
         anchor !== focus ||
+        !transcript.current?.contains(anchor) ||
         messageId === null ||
         messageId === undefined
       ) {
@@ -425,7 +430,7 @@ const useAnswerSelection = (enabled: boolean) => {
       window.removeEventListener("scroll", update, true);
       window.removeEventListener("resize", update);
     };
-  }, [enabled]);
+  }, [enabled, transcript]);
   return selection;
 };
 
@@ -476,7 +481,7 @@ const SelectionPopup = ({
         title={
           onAsk === undefined
             ? "この回答からは分岐できません"
-            : "選んだ部分を引用して質問します（分岐ができます）"
+            : "選んだ部分を引用してサイドチャットで質問します"
         }
         onClick={onAsk}
       >
@@ -650,19 +655,7 @@ const useQueue = (
   return { state, refresh, forget };
 };
 
-/** 1 つの会話の画面。useChat に oRPC の ChatTransport を渡す。 */
-export const ChatView = ({
-  api,
-  chat,
-  initialMessages,
-  models,
-  onActivity,
-  onOpenWikiPage,
-  branches = [],
-  onSelectBranch,
-  focusMessage,
-  onCreateWikiPage,
-}: {
+export type ChatViewProps = {
   /** 選択範囲から Wiki のページを作る（プロジェクトの会話だけ、#121）。 */
   onCreateWikiPage?: (projectId: string, draft: PageDraft) => void;
   /** 検索結果から開いたときに移動する発言（#115）。 */
@@ -680,7 +673,25 @@ export const ChatView = ({
   onActivity?: () => void;
   /** 回答から引用された Wiki ページを開く。 */
   onOpenWikiPage?: (projectId: string, pageId: string) => void;
-}) => {
+  side?: boolean;
+  onAskSelection?: (quote: QuoteData, settings: SendSettings) => void;
+};
+
+/** 1 つの分岐を表示し、その分岐 ID で送信・再接続する。 */
+export const ChatView = ({
+  api,
+  chat,
+  initialMessages,
+  models,
+  onActivity,
+  onOpenWikiPage,
+  branches = [],
+  onSelectBranch,
+  focusMessage,
+  onCreateWikiPage,
+  side = false,
+  onAskSelection,
+}: ChatViewProps) => {
   const [settings, setSettings] = useState<{
     model: string;
     effort: Effort | null;
@@ -771,32 +782,40 @@ export const ChatView = ({
 
   /** 「ここから分岐」で選んだ応答。送信すると分岐を作る。取り消すと元に戻る。 */
   const [branchFrom, setBranchFrom] = useState<string>();
-  /** 選択範囲について質問するときの引用（#91）。 */
-  const [quote, setQuote] = useState<QuoteData>();
+  const [creatingBranch, setCreatingBranch] = useState(false);
   const [branchError, setBranchError] = useState<string>();
-  const selection = useAnswerSelection(!busy && branchFrom === undefined);
+  const transcript = useRef<HTMLDivElement>(null);
+  const selection = useAnswerSelection(
+    transcript,
+    onAskSelection !== undefined || onCreateWikiPage !== undefined,
+  );
   const cancelBranch = () => {
     setBranchFrom(undefined);
-    setQuote(undefined);
     setBranchError(undefined);
   };
-  const selectedTurn = turns.find((turn) =>
-    turn.answers.some((m) => m.id === selection?.messageId),
-  );
+  const selectedTurn =
+    selection === undefined
+      ? undefined
+      : turns.find((turn) =>
+          turn.answers.some((m) => m.id === selection.messageId),
+        );
   const selectedAnswer =
-    selectedTurn?.question === undefined || isOpen(selectedTurn.question.id)
+    (!busy || selection?.messageId !== messages.at(-1)?.id) &&
+    (selectedTurn?.question === undefined || isOpen(selectedTurn.question.id))
       ? selectedTurn?.answers.find((m) => m.id === selection?.messageId)
       : undefined;
   const askSelection =
     selection !== undefined &&
+    onAskSelection !== undefined &&
     selectedAnswer?.metadata?.claudeCode?.lastAssistantUuid !== undefined
       ? () => {
-          setBranchError(undefined);
-          setQuote({
-            text: selection.text,
-            sourceMessageId: selection.messageId,
-          });
-          setBranchFrom(selection.messageId);
+          onAskSelection(
+            {
+              text: selection.text,
+              sourceMessageId: selection.messageId,
+            },
+            settingsRef.current,
+          );
           window.getSelection()?.removeAllRanges();
         }
       : undefined;
@@ -815,6 +834,7 @@ export const ChatView = ({
       ? -1
       : messages.findIndex((message) => message.id === branchFrom);
   const visibleCount = branchIndex < 0 ? messages.length : branchIndex + 1;
+  const firstVisible = side ? chat.inheritedCount : 0;
 
   // 検索結果から開いた発言へ移動し、しばらく強調する
   const [highlighted, setHighlighted] = useState<typeof focusMessage>();
@@ -845,6 +865,7 @@ export const ChatView = ({
     parentMessageId: string,
     parts: ChatUIMessage["parts"],
   ) => {
+    setCreatingBranch(true);
     setBranchError(undefined);
     const branchId = crypto.randomUUID();
     try {
@@ -860,20 +881,16 @@ export const ChatView = ({
       cancelBranch();
       onActivity?.();
       onSelectBranch?.(branchId);
+      return true;
     } catch (error) {
       setBranchError(
         error instanceof Error ? error.message : "分岐を作れませんでした。",
       );
+      return false;
+    } finally {
+      setCreatingBranch(false);
     }
   };
-
-  const filePartsOf = (images: ImageAttachment[]) =>
-    images.map(({ mediaType, filename, url }) => ({
-      type: "file" as const,
-      mediaType,
-      filename,
-      url,
-    }));
 
   const [queueError, setQueueError] = useState<string>();
   const queueAction = async (action: () => Promise<unknown>) => {
@@ -891,7 +908,7 @@ export const ChatView = ({
   const enqueue = (text: string, images: ImageAttachment[]) => {
     requestNotificationPermission();
     const parts = [
-      ...filePartsOf(images),
+      ...imageFileParts(images),
       ...(text === "" ? [] : [{ type: "text" as const, text }]),
     ];
     void queueAction(() =>
@@ -903,18 +920,14 @@ export const ChatView = ({
   };
 
   const submit = (text: string, images: ImageAttachment[]) => {
-    if (busy) return;
+    if (busy || creatingBranch) return;
     requestNotificationPermission();
-    const files = filePartsOf(images);
+    const files = imageFileParts(images);
     if (branchFrom !== undefined) {
-      void createBranch(branchFrom, [
-        ...(quote === undefined
-          ? []
-          : [{ type: "data-quote" as const, data: quote }]),
+      return createBranch(branchFrom, [
         ...files,
         ...(text === "" ? [] : [{ type: "text" as const, text }]),
       ]);
-      return;
     }
     void sendMessage(text === "" ? { files } : { text, files }).then(() =>
       onActivity?.(),
@@ -946,7 +959,7 @@ export const ChatView = ({
 
   const renderMessage = (message: ChatUIMessage, index: number) => (
     <Fragment key={message.id}>
-      {chat.inheritedCount > 0 && index === chat.inheritedCount && (
+      {!side && chat.inheritedCount > 0 && index === chat.inheritedCount && (
         <InheritedDivider
           parent={branches.find((b) => b.id === chat.parentId)}
         />
@@ -964,13 +977,15 @@ export const ChatView = ({
           streaming={busy && index === messages.length - 1}
           canAct={!busy && branchFrom === undefined}
           isLast={index === messages.length - 1}
-          {...(message.role === "assistant" &&
+          {...(!side &&
+          message.role === "assistant" &&
           message.metadata?.claudeCode?.lastAssistantUuid !== undefined
             ? {
                 onBranch: () => {
                   setBranchError(undefined);
-                  setQuote(undefined);
-                  setBranchFrom(message.id);
+                  setBranchFrom(
+                    message.id === messages.at(-1)?.id ? undefined : message.id,
+                  );
                 },
               }
             : {})}
@@ -1002,10 +1017,10 @@ export const ChatView = ({
           onCreatePage={createPageFromSelection}
         />
       )}
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex-1 overflow-y-auto">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div ref={transcript} className="flex-1 overflow-y-auto">
           <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
-            {branches.length > 1 && (
+            {!side && branches.length > 1 && (
               <BranchSwitcher
                 current={chat}
                 branches={branches}
@@ -1014,7 +1029,9 @@ export const ChatView = ({
               />
             )}
             {turns
-              .filter(({ start }) => start < visibleCount)
+              .filter(
+                ({ start }) => start >= firstVisible && start < visibleCount,
+              )
               .map((turn) => {
                 const { question, start } = turn;
                 const answerStart = question === undefined ? start : start + 1;
@@ -1034,32 +1051,44 @@ export const ChatView = ({
                 const answerId = `answer-${question?.id ?? answers[0]?.id}`;
                 const hasAnswer =
                   answers.length > 0 || (busy && turn === latestTurn);
+                const current =
+                  !side && answerStart + answers.length === visibleCount;
                 return (
                   <div
                     key={question?.id ?? answers[0]?.id}
                     className="flex flex-col gap-3"
                   >
                     {question !== undefined && renderMessage(question, start)}
-                    {question !== undefined && hasAnswer && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="self-end text-muted-foreground"
-                        aria-expanded={open}
-                        aria-controls={answerId}
-                        onClick={() => setOpen(question.id, !open)}
-                      >
-                        <ChevronRight
-                          aria-hidden
-                          className={cn(
-                            "transition-transform",
-                            open && "rotate-90",
-                          )}
-                        />
-                        {open ? "回答を閉じる" : "回答を開く"}
-                      </Button>
-                    )}
+                    <div className="flex items-center justify-end gap-2 empty:hidden">
+                      {current && (
+                        <span
+                          className="rounded-md bg-muted px-2 py-1 text-muted-foreground text-xs"
+                          title="メインの次のメッセージの起点"
+                        >
+                          現在地
+                        </span>
+                      )}
+                      {question !== undefined && hasAnswer && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="self-end text-muted-foreground"
+                          aria-expanded={open}
+                          aria-controls={answerId}
+                          onClick={() => setOpen(question.id, !open)}
+                        >
+                          <ChevronRight
+                            aria-hidden
+                            className={cn(
+                              "transition-transform",
+                              open && "rotate-90",
+                            )}
+                          />
+                          {open ? "回答を閉じる" : "回答を開く"}
+                        </Button>
+                      )}
+                    </div>
                     {hasAnswer && (
                       <div id={answerId} hidden={!open}>
                         <div className="flex flex-col gap-4">
@@ -1086,16 +1115,16 @@ export const ChatView = ({
                 role="status"
                 className="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2 text-sm"
               >
-                <span className="flex flex-1 flex-col gap-2">
-                  <span className="flex items-center gap-2">
-                    <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-                    {quote === undefined
-                      ? "この応答の続きとして分岐を作ります。最初のメッセージを送ると分岐ができます（元の会話はそのまま残ります）。"
-                      : "選んだ部分について質問します。送ると、この応答の続きとして分岐ができます（元の会話はそのまま残ります）。"}
-                  </span>
-                  {quote !== undefined && <QuoteBlock text={quote.text} />}
+                <span className="flex items-center gap-2">
+                  <GitBranch className="size-4 shrink-0 text-muted-foreground" />
+                  この応答の続きとして分岐を作ります。メインの入力欄から送信すると分岐ができます。
                 </span>
-                <Button variant="ghost" size="sm" onClick={cancelBranch}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={creatingBranch}
+                  onClick={cancelBranch}
+                >
                   <X className="size-3.5" />
                   取り消す
                 </Button>
@@ -1157,6 +1186,8 @@ export const ChatView = ({
           </div>
           <Composer
             busy={busy}
+            pending={creatingBranch}
+            messageLabel={side ? "サイドチャットのメッセージ" : "メッセージ"}
             queueing={queueing && branchFrom === undefined}
             onSubmit={submit}
             onQueue={enqueue}

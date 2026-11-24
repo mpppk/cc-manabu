@@ -2,7 +2,7 @@ import { Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
 import type { ChatDto, ProjectDto, WikiDto } from "../router.ts";
-import { ChatView } from "./components/chat-view.tsx";
+import { ChatWorkspace } from "./components/chat-workspace.tsx";
 import { ProjectList } from "./components/project-list.tsx";
 import { ProjectOverview } from "./components/project-overview.tsx";
 import { RateLimitBadge } from "./components/rate-limit-badge.tsx";
@@ -72,6 +72,17 @@ export const App = ({ api }: { api: ApiClient }) => {
   const [projects, setProjects] = useState<ProjectDto[]>();
   const [path, setPath] = useState(() => window.location.pathname);
   const selectedId = chatIdFromPath(path);
+  const wikiRoute = wikiFromPath(path);
+  const wikiState = window.history.state as {
+    returnTo?: string;
+    draft?: PageDraft;
+  } | null;
+  // 回答から Wiki を開いている間も、元のチャットの現在地と入力を保つ。
+  const chatViewId =
+    selectedId ??
+    (wikiRoute === undefined
+      ? undefined
+      : chatIdFromPath(wikiState?.returnTo ?? ""));
   const [current, setCurrent] = useState<{
     chat: ChatDto;
     messages: ChatUIMessage[];
@@ -188,13 +199,13 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   useEffect(() => {
     setLoadError(undefined);
-    if (selectedId === undefined) {
+    if (chatViewId === undefined) {
       setCurrent(undefined);
       return;
     }
     let cancelled = false;
     api.chats
-      .get({ id: selectedId })
+      .get({ id: chatViewId })
       .then(({ chat, messages }) => {
         if (!cancelled) {
           setCurrent({ chat, messages: messages as ChatUIMessage[] });
@@ -209,13 +220,12 @@ export const App = ({ api }: { api: ApiClient }) => {
     return () => {
       cancelled = true;
     };
-  }, [api, selectedId]);
+  }, [api, chatViewId]);
 
   // 一覧に出すプロジェクト。会話を開いていればその所属先、そうでなければ URL のプロジェクト
   const selectedChat =
     chats.find((chat) => chat.id === selectedId) ??
     (current?.chat.id === selectedId ? current?.chat : undefined);
-  const wikiRoute = wikiFromPath(path);
   const routeProjectId = projectIdFromPath(path) ?? wikiRoute?.projectId;
   const projectId =
     selectedId !== undefined
@@ -228,10 +238,10 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   const project = projects?.find((p) => p.id === projectId);
   const showWiki = wikiRoute !== undefined && project !== undefined;
-  const wikiState = window.history.state as {
-    returnTo?: string;
-    draft?: PageDraft;
-  } | null;
+  const workspace = chatViewId === undefined ? undefined : current;
+  const workspaceGroup =
+    chats.find((chat) => chat.id === chatViewId)?.groupId ??
+    workspace?.chat.groupId;
 
   const newChat = async () => {
     const chat = await api.chats.create({ projectId });
@@ -352,6 +362,34 @@ export const App = ({ api }: { api: ApiClient }) => {
             </Button>
           </div>
         </header>
+        {workspace !== undefined && (
+          <div className={showWiki ? "hidden" : "flex min-h-0 flex-1"}>
+            <ChatWorkspace
+              key={workspaceGroup || workspace.chat.id}
+              api={api}
+              chat={workspace.chat}
+              initialMessages={workspace.messages}
+              loading={workspace.chat.id !== chatViewId}
+              models={
+                status?.claude.state === "ready" ? status.claude.models : []
+              }
+              onActivity={() => void refreshChats()}
+              branches={chats.filter(
+                (chat) => chat.groupId === workspace.chat.groupId,
+              )}
+              onSelectBranch={select}
+              onCreateWikiPage={(projectId, draft) =>
+                navigate(pathForWiki(projectId), { returnTo: path, draft })
+              }
+              {...(focus?.chatId === workspace.chat.id
+                ? { focusMessage: focus }
+                : {})}
+              onOpenWikiPage={(projectId, pageId) =>
+                navigate(pathForWiki(projectId, pageId), { returnTo: path })
+              }
+            />
+          </div>
+        )}
         {isProjectListPath(path) ? (
           <ProjectList
             projects={projects ?? []}
@@ -383,32 +421,7 @@ export const App = ({ api }: { api: ApiClient }) => {
               )
             }
           />
-        ) : current !== undefined && current.chat.id === selectedId ? (
-          <ChatView
-            key={current.chat.id}
-            api={api}
-            chat={current.chat}
-            initialMessages={current.messages}
-            models={
-              status?.claude.state === "ready" ? status.claude.models : []
-            }
-            onActivity={() => void refreshChats()}
-            branches={chats.filter(
-              (chat) => chat.groupId === current.chat.groupId,
-            )}
-            onSelectBranch={select}
-            onCreateWikiPage={(projectId, draft) =>
-              navigate(pathForWiki(projectId), { returnTo: path, draft })
-            }
-            {...(focus?.chatId === current.chat.id
-              ? { focusMessage: focus }
-              : {})}
-            onOpenWikiPage={(projectId, pageId) =>
-              // Wiki から元の回答に戻れるようにする
-              navigate(pathForWiki(projectId, pageId), { returnTo: path })
-            }
-          />
-        ) : selectedId === undefined &&
+        ) : workspace !== undefined ? null : selectedId === undefined &&
           wikiRoute === undefined &&
           project !== undefined ? (
           <ProjectOverview

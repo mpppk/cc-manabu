@@ -786,6 +786,7 @@ export const router = {
           messageId: z.string().min(1),
           branchId: z.string().uuid(),
           message: userMessage,
+          selectBranch: z.boolean().default(true),
           model: z.string().min(1).optional(),
           effort: z
             .enum(["low", "medium", "high", "xhigh", "max"])
@@ -799,6 +800,7 @@ export const router = {
             parentId: input.parentId,
             messageId: input.messageId,
             branchId: input.branchId,
+            selectBranch: input.selectBranch,
             message: input.message as Parameters<
               ChatService["send"]
             >[0]["message"],

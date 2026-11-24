@@ -24,17 +24,24 @@ const hasFiles = (event: DragEvent) =>
  */
 export const Composer = ({
   busy,
+  pending = false,
+  messageLabel = "メッセージ",
   queueing = false,
   onSubmit,
   onQueue,
   onStop,
 }: {
   busy: boolean;
+  pending?: boolean;
+  messageLabel?: string;
   /** 送る代わりに予約するか（生成中・送信待ちの予約があるとき）。 */
   queueing?: boolean;
-  onSubmit: (text: string, images: ImageAttachment[]) => void;
+  onSubmit: (
+    text: string,
+    images: ImageAttachment[],
+  ) => undefined | Promise<boolean>;
   onQueue?: (text: string, images: ImageAttachment[]) => void;
-  onStop: () => void;
+  onStop?: () => void;
 }) => {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -67,16 +74,18 @@ export const Composer = ({
 
   const queue = queueing && onQueue !== undefined;
   const canSend =
+    !pending &&
     (!busy || queue) &&
     loading === 0 &&
     (input.trim() !== "" || images.length > 0);
 
-  const submit = () => {
+  const submit = async () => {
     if (!canSend) return;
     if (queue) {
       onQueue(input.trim(), images);
     } else {
-      onSubmit(input.trim(), images);
+      const sent = onSubmit(input.trim(), images);
+      if (sent !== undefined && !(await sent)) return;
     }
     setInput("");
     setImages([]);
@@ -90,7 +99,7 @@ export const Composer = ({
       !event.nativeEvent.isComposing
     ) {
       event.preventDefault();
-      submit();
+      void submit();
     }
   };
 
@@ -191,7 +200,7 @@ export const Composer = ({
               ? "メッセージを予約（今の回答が終わったあとに順に送ります）"
               : "メッセージを入力（Enter で送信、Shift+Enter で改行。画像は貼り付けできます）"
           }
-          aria-label="メッセージ"
+          aria-label={messageLabel}
           rows={1}
           value={input}
           onChange={(event) => setInput(event.target.value)}

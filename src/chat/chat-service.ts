@@ -405,6 +405,8 @@ export const createChatService = (deps: {
     message: SendInput["message"];
     model?: string;
     effort?: Effort | null;
+    /** サイドチャットはメインで最後に開いた分岐を変更しない。 */
+    selectBranch?: boolean;
   }): Result.Result<
     ChatRunner,
     SendError | MessageNotFoundError | NotBranchableError
@@ -438,6 +440,7 @@ export const createChatService = (deps: {
           model: input.model ?? chat.model,
           effort:
             input.effort === undefined ? chat.effort : (input.effort ?? null),
+          selectBranch: input.selectBranch ?? true,
         });
       }),
       Result.andThen((created) =>
