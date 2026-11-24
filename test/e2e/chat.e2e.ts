@@ -1503,17 +1503,17 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
     page.getByText("管理者に確認する。", { exact: true }),
   ).toBeVisible();
   await send("要約して");
-  await expect(side.locator("a[data-wiki-page]")).toHaveText(title);
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
   await expect(page).toHaveURL(url);
   await close.click();
   await expect(ask).toBeFocused();
 
   await page.reload();
   await ask.click();
-  await expect(side.locator("a[data-wiki-page]")).toHaveText(title);
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
   await send("具体的には？");
   await expect(side.getByText("具体的には？", { exact: true })).toBeVisible();
-  await expect(side.locator("a[data-wiki-page]")).toHaveText(title);
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
   await expect(side.getByRole("button", { name: "回答を開く" })).toBeVisible();
 
   await page.getByRole("button", { name: "ページを削除" }).click();
