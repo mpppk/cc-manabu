@@ -28,7 +28,10 @@ import { generateToken } from "./server/access-control.ts";
 import { openBrowser, startServer } from "./server/server.ts";
 import index from "./web/index.html";
 import { createTermPageWriter } from "./wiki/auto-terms.ts";
-import { createWikiContextBuilder } from "./wiki/context.ts";
+import {
+  createWikiContextBuilder,
+  createWikiPageReader,
+} from "./wiki/context.ts";
 import {
   TERM_EXTRACTION_MODEL,
   TERM_EXTRACTION_SETTINGS,
@@ -96,6 +99,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         languageModel: (modelId, { canUseTool }) =>
           createClaudeCode({ ...providerSettings, canUseTool })(modelId),
         wikiContext: createWikiContextBuilder(wiki, projects),
+        readWikiPage: createWikiPageReader(wiki, projects),
         onAnswerComplete: (event) => void writeTermPages(event),
         onRunnerFinish: (chatId, outcome) =>
           queueDispatcher?.onRunnerFinish(chatId, outcome),
