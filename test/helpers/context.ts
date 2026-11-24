@@ -23,7 +23,10 @@ import {
 } from "../../src/provider/index.ts";
 import type { RouterContext } from "../../src/router.ts";
 import { createTermPageWriter } from "../../src/wiki/auto-terms.ts";
-import { createWikiContextBuilder } from "../../src/wiki/context.ts";
+import {
+  createWikiContextBuilder,
+  createWikiPageReader,
+} from "../../src/wiki/context.ts";
 
 /**
  * インメモリ DB と、差し替えた query() を使うルータのコンテキストを作る。
@@ -85,6 +88,7 @@ export const createTestContext = (
         modelId,
       ),
     wikiContext: createWikiContextBuilder(wiki, projects),
+    readWikiPage: createWikiPageReader(wiki, projects),
     onRunnerFinish: (chatId, outcome) =>
       queueDispatcher?.onRunnerFinish(chatId, outcome),
     ...(writeTermPages === undefined

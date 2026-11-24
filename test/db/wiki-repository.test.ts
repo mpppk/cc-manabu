@@ -153,7 +153,10 @@ test("移行: 既存のプロジェクトはそれぞれ同じ ID・名前の Wi
     "INSERT INTO wiki_pages (id, project_id, title, origin, source_chat_id) VALUES ('w1', 'p1', '関係タプル', 'auto', 'c1')",
   );
 
-  expect(runMigrations(sqlite)).toEqual(["0009_shared_wikis"]);
+  expect(runMigrations(sqlite)).toEqual([
+    "0009_shared_wikis",
+    "0010_wiki_page_chats",
+  ]);
   const db = drizzle(sqlite, { schema });
   const repoProjects = createProjectRepository(db);
   const repoWiki = createWikiRepository(db);
@@ -166,6 +169,8 @@ test("移行: 既存のプロジェクトはそれぞれ同じ ID・名前の Wi
     { id: "w1", title: "関係タプル", origin: "auto", sourceChatId: "c1" },
   ]);
   expect(
-    sqlite.query("SELECT project_id FROM chats WHERE id = 'c1'").get(),
-  ).toEqual({ project_id: "p1" });
+    sqlite
+      .query("SELECT project_id, wiki_page_id FROM chats WHERE id = 'c1'")
+      .get(),
+  ).toEqual({ project_id: "p1", wiki_page_id: null });
 });

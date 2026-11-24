@@ -1494,6 +1494,69 @@ test("回答の選択範囲から Wiki のページを作り、回答に戻れ�
   await expect(page).toHaveURL(new RegExp(`${chatPath}$`));
 });
 
+test("Wiki の個別ページで質問し、リロードやページ削除のあとも履歴を開ける", async ({
+  page,
+}) => {
+  await open(page);
+  await createProject(page, "ページ質問の検証");
+  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await page.getByRole("button", { name: "新しいページ" }).click();
+  const title = "委譲手順";
+  await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("管理者に確認する。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  const url = page.url();
+
+  const ask = page.getByRole("button", { name: "このページについて質問" });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const composer = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  const close = side.getByRole("button", { name: "サイドチャットを閉じる" });
+  const send = async (text: string) => {
+    await composer.fill(text);
+    await composer.press("Enter");
+  };
+  await ask.click();
+  await expect(side.getByText(title, { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("管理者に確認する。", { exact: true }),
+  ).toBeVisible();
+  await send("要約して");
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
+  await expect(page).toHaveURL(url);
+  await close.click();
+  await expect(ask).toBeFocused();
+
+  await page.reload();
+  await ask.click();
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
+  await send("具体的には？");
+  await expect(side.getByText("具体的には？", { exact: true })).toBeVisible();
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
+  await expect(side.getByRole("button", { name: "回答を開く" })).toBeVisible();
+
+  await page.getByRole("button", { name: "ページを削除" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "削除", exact: true })
+    .click();
+  await expect(
+    page.getByText("このページは削除されたか、存在しません。"),
+  ).toBeVisible();
+  await close.click();
+  await page.reload();
+  await page.getByRole("button", { name: "質問の履歴を開く" }).click();
+  await expect(side.getByText("具体的には？", { exact: true })).toBeVisible();
+  await send("削除後の質問");
+  await expect(side.getByRole("alert")).toContainText(
+    "この Wiki ページを参照できません",
+  );
+});
+
 test("既存の Wiki を共有するプロジェクトを作り、一覧を Wiki ごとにまとめられる", async ({
   page,
 }) => {

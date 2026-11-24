@@ -16,6 +16,10 @@ import sharedWikis from "./migrations/0009_shared_wikis.sql" with {
   type: "text",
 };
 
+import wikiPageChats from "./migrations/0010_wiki_page_chats.sql" with {
+  type: "text",
+};
+
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
  * SQL はバイナリに埋め込む（実行時に drizzle-kit は使わない）。
@@ -31,6 +35,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0007_queue", sql: queue },
   { name: "0008_app_state", sql: appState },
   { name: "0009_shared_wikis", sql: sharedWikis },
+  { name: "0010_wiki_page_chats", sql: wikiPageChats },
 ];
 
 /** 未適用のマイグレーションを順に適用する。 */

@@ -34,7 +34,10 @@ import { router } from "../../src/router.ts";
 import { startServer } from "../../src/server/server.ts";
 import index from "../../src/web/index.html";
 import { createTermPageWriter } from "../../src/wiki/auto-terms.ts";
-import { createWikiContextBuilder } from "../../src/wiki/context.ts";
+import {
+  createWikiContextBuilder,
+  createWikiPageReader,
+} from "../../src/wiki/context.ts";
 import {
   TERM_EXTRACTION_MODEL,
   TERM_EXTRACTION_SETTINGS,
@@ -89,6 +92,7 @@ const chatService = createChatService({
   languageModel: (modelId, { canUseTool }) =>
     createClaudeCode({ cwd: "/e2e", query, canUseTool, onRateLimit })(modelId),
   wikiContext: createWikiContextBuilder(wiki, projects),
+  readWikiPage: createWikiPageReader(wiki, projects),
   onRunnerFinish: (chatId, outcome) =>
     queueDispatcher?.onRunnerFinish(chatId, outcome),
   onAnswerComplete: (event) => void writeTermPages(event),

@@ -277,7 +277,7 @@ export const Sidebar = ({
               onSelect={() => onSelect(primary.id)}
               onRename={(title) => onRename(primary.id, title)}
               onDelete={() => setDeleting(primary)}
-              {...(project === undefined
+              {...(project === undefined || primary.wikiPageId !== null
                 ? {}
                 : {
                     onRemoveFromProject: () =>
@@ -414,7 +414,11 @@ export const Sidebar = ({
         open={adding}
         projectName={project?.name ?? ""}
         candidates={groups
-          .filter((group) => group.primary.projectId === null)
+          .filter(
+            (group) =>
+              group.primary.projectId === null &&
+              group.primary.wikiPageId === null,
+          )
           .map((group) => group.primary)}
         onAdd={async (chatId) => {
           if (project !== undefined) await onSetProject(chatId, project.id);
