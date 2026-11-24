@@ -13,6 +13,7 @@ import type {
   ProjectRepository,
 } from "./db/project-repository.ts";
 import type { QueueRepository } from "./db/queue-repository.ts";
+import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
 import {
   type ChatRow,
   type MessageRow,
@@ -33,6 +34,7 @@ export type RouterContext = {
   queue: QueueRepository;
   queueDispatcher: QueueDispatcher;
   search: SearchRepository;
+  rateLimits: RateLimitRepository;
   wiki: WikiRepository;
   chatService: ChatService;
   approvals: ApprovalBroker;
@@ -583,6 +585,12 @@ export const router = {
       await unwrapForOrpc(context.chats.markSelected(input.id), ERROR_CODES);
       return { id: input.id };
     }),
+  },
+  limits: {
+    /** 最後に観測したサブスクリプションの利用枠（#116）。まだ無ければ null。 */
+    get: base.handler(async ({ context }) =>
+      unwrapForOrpc(context.rateLimits.latest(), ERROR_CODES),
+    ),
   },
   search: {
     /** 会話タイトルと発言の本文を部分一致で探す（#115）。 */

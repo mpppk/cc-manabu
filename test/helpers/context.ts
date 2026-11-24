@@ -1,3 +1,4 @@
+import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
@@ -5,12 +6,14 @@ import {
   createQueueDispatcher,
   type QueueDispatcher,
 } from "../../src/chat/queue-dispatcher.ts";
+import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createProjectRepository } from "../../src/db/project-repository.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
+import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts";
 import { createSearchRepository } from "../../src/db/search-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import {
@@ -41,6 +44,10 @@ export const createTestContext = (
   const projects = createProjectRepository(opened.value.db);
   const wiki = createWikiRepository(opened.value.db);
   const queue = createQueueRepository(opened.value.db);
+  const rateLimits = createRateLimitRepository(opened.value.db);
+  const onRateLimit = (info: SDKRateLimitInfo) => {
+    rateLimits.save(normalizeRateLimit(info, Date.now()));
+  };
   let queueDispatcher: QueueDispatcher | undefined;
   const registry = new RunnerRegistry({
     maxConcurrent: options.maxConcurrent,
@@ -65,7 +72,9 @@ export const createTestContext = (
     registry,
     approvals,
     languageModel: (modelId, { canUseTool }) =>
-      createClaudeCode({ cwd: "/work", query, canUseTool })(modelId),
+      createClaudeCode({ cwd: "/work", query, canUseTool, onRateLimit })(
+        modelId,
+      ),
     wikiContext: createWikiContextBuilder(wiki),
     onRunnerFinish: (chatId, outcome) =>
       queueDispatcher?.onRunnerFinish(chatId, outcome),
@@ -104,6 +113,7 @@ export const createTestContext = (
     queue,
     queueDispatcher,
     search: createSearchRepository(opened.value.db),
+    rateLimits,
     chatService,
     approvals,
     claude,
@@ -115,6 +125,7 @@ export const createTestContext = (
     projects,
     wiki,
     queue,
+    rateLimits,
     termJobs,
     registry,
     chatService,

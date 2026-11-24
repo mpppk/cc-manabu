@@ -5,6 +5,7 @@ import type { ChatDto, ProjectDto } from "../router.ts";
 import { ChatView } from "./components/chat-view.tsx";
 import { ProjectList } from "./components/project-list.tsx";
 import { ProjectOverview } from "./components/project-overview.tsx";
+import { RateLimitBadge } from "./components/rate-limit-badge.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { WikiView } from "./components/wiki-view.tsx";
@@ -300,6 +301,15 @@ export const App = ({ api }: { api: ApiClient }) => {
             {status?.cwd ?? ""}
           </span>
           <div className="flex shrink-0 items-center gap-3">
+            <RateLimitBadge
+              api={api}
+              activity={chats
+                .map(
+                  (chat) =>
+                    `${chat.id}:${chat.status}:${String(chat.updatedAt)}`,
+                )
+                .join(",")}
+            />
             <ClaudeStatusBadge status={status} />
             <Button
               variant="ghost"

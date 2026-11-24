@@ -1,9 +1,11 @@
 #!/usr/bin/env bun
+
 /**
  * E2E テスト用のサーバ。インメモリ DB と台本どおりに応答するモック query() で、本物の UI を配信する。
  *
  *   bun test/e2e/server.ts   （playwright.config.ts の webServer から起動される）
  */
+import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
@@ -12,12 +14,14 @@ import {
   createQueueDispatcher,
   type QueueDispatcher,
 } from "../../src/chat/queue-dispatcher.ts";
+import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createProjectRepository } from "../../src/db/project-repository.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
+import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts";
 import { createSearchRepository } from "../../src/db/search-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import { createClaudeCode } from "../../src/provider/index.ts";
@@ -41,6 +45,10 @@ const chats = createChatRepository(opened.value.db);
 const projects = createProjectRepository(opened.value.db);
 const wiki = createWikiRepository(opened.value.db);
 const queue = createQueueRepository(opened.value.db);
+const rateLimits = createRateLimitRepository(opened.value.db);
+const onRateLimit = (info: SDKRateLimitInfo) => {
+  rateLimits.save(normalizeRateLimit(info, Date.now()));
+};
 let queueDispatcher: QueueDispatcher | undefined;
 const approvals = createApprovalBroker({
   onPendingChange: (chatId, count) =>
@@ -64,7 +72,7 @@ const chatService = createChatService({
   registry,
   approvals,
   languageModel: (modelId, { canUseTool }) =>
-    createClaudeCode({ cwd: "/e2e", query, canUseTool })(modelId),
+    createClaudeCode({ cwd: "/e2e", query, canUseTool, onRateLimit })(modelId),
   wikiContext: createWikiContextBuilder(wiki),
   onRunnerFinish: (chatId, outcome) =>
     queueDispatcher?.onRunnerFinish(chatId, outcome),
@@ -104,6 +112,7 @@ const started = startServer({
     queue,
     queueDispatcher,
     search: createSearchRepository(opened.value.db),
+    rateLimits,
     chatService,
     approvals,
     claude,

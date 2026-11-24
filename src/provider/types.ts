@@ -4,6 +4,7 @@ import type {
   PermissionMode,
   Query,
   SDKMessage,
+  SDKRateLimitInfo,
   SDKUserMessage,
   SettingSource,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -41,6 +42,8 @@ export type ClaudeCodeProviderSettings = {
   permissionMode?: PermissionMode;
   /** Claude Code に渡す環境変数。省略時は process.env。 */
   env?: Record<string, string | undefined>;
+  /** サブスクリプションの利用枠の情報が届いたとき（rate_limit_event、#116）。 */
+  onRateLimit?: (info: SDKRateLimitInfo) => void;
   /** Agent SDK の query() の差し替え（テスト用）。 */
   query?: QueryFunction;
 };
