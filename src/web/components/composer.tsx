@@ -178,7 +178,7 @@ export const Composer = ({
         </p>
       )}
       <textarea
-        className="max-h-48 min-h-10 w-full resize-none bg-transparent px-2 py-1.5 outline-none placeholder:text-muted-foreground"
+        className="max-h-48 min-h-10 w-full resize-none bg-transparent px-2 py-1.5 outline-none"
         placeholder={
           queue
             ? "メッセージを予約（今の回答が終わったあとに順に送ります）"
