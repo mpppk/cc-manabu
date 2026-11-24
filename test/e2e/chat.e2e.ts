@@ -1053,6 +1053,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
     "方式A と 方式B の比較",
   );
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await expect(mainInput).toBeFocused();
   await expect(mainInput).toHaveValue("メインの続き");
   await expect(page.getByRole("combobox", { name: "分岐" })).toHaveCount(0);
 
