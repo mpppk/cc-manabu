@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, type Browser } from "@playwright/test";
+import { chromium, type Browser, type BrowserContext } from "@playwright/test";
 
 const profile = mkdtempSync(join(tmpdir(), "cc-manabu-chrome-probe-"));
 const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
@@ -39,6 +39,7 @@ const start = (args: string[]) => Bun.spawn([
 ], { stdout: "ignore", stderr: "ignore" });
 let process: ReturnType<typeof start> | undefined;
 let browser: Browser | undefined;
+let warmContext: BrowserContext | undefined;
 const poll = async <T>(get: () => Promise<T | undefined>): Promise<T> => {
   for (let i = 0; i < 80; i++) {
     const value = await get().catch(() => undefined);
@@ -67,7 +68,7 @@ const quit = async () => {
 };
 const waitApp = async (value: string) => {
   const result = await poll(async () => {
-    for (const page of browser?.contexts().flatMap((c) => c.pages()) ?? []) {
+    for (const page of warmContext?.pages() ?? browser?.contexts().flatMap((c) => c.pages()) ?? []) {
       if (!page.url().startsWith(url)) continue;
       const app = await page.evaluate(() => ({
         standalone: matchMedia("(display-mode: standalone)").matches,
@@ -81,10 +82,15 @@ const waitApp = async (value: string) => {
   return result;
 };
 try {
-  process = start(["about:blank"]);
-  const warm = await connect();
-  browser = warm.result;
-  await warm.cdp.send("PWA.install", { manifestId: url, installUrlOrBundleUrl: url });
+  console.log(Bun.spawnSync([chrome, "--version"]).stdout.toString().trim());
+  warmContext = await chromium.launchPersistentContext(profile, {
+    executablePath: chrome, headless: false, args: ["--profile-directory=Default"],
+  });
+  const tab = warmContext.pages()[0] ?? await warmContext.newPage();
+  await tab.goto(url);
+  const cdp = await warmContext.newCDPSession(tab);
+  await cdp.send("PWA.install", { manifestId: url, installUrlOrBundleUrl: url });
+  await cdp.send("PWA.changeAppUserSettings", { manifestId: url, displayMode: "standalone" });
   await poll(async () => existsSync(join(profile, "Default", "Web Applications", "Manifest Resources", id)) ? true : undefined);
   console.log("PASS installation: verified the generated app ID and profile directory");
   const warmLaunch = Bun.spawn([chrome, ...profileArgs, ...launchArgs("chrome-already-running")], { stdout: "ignore", stderr: "ignore" });
@@ -93,12 +99,14 @@ try {
   const repeat = Bun.spawn([chrome, ...profileArgs, ...launchArgs("app-already-open")], { stdout: "ignore", stderr: "ignore" });
   const relaunched = await waitApp("app-already-open");
   console.log(`PWA window reused: ${relaunched === app}; launcher exit code: ${await repeat.exited}`);
-  await quit();
+  await warmContext.close();
+  warmContext = undefined;
   process = start(launchArgs("cold-chrome"));
   browser = (await connect()).result;
   await waitApp("cold-chrome");
   await quit();
 } finally {
+  await warmContext?.close().catch(() => {});
   process?.kill();
   server.stop(true);
   rmSync(profile, { recursive: true, force: true });
