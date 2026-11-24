@@ -175,14 +175,18 @@ test("会話の切り替え・名前変更・削除", async ({ page }) => {
   await open(page);
   await newChat(page);
   await send(page, "一つ目の会話");
+  const firstAnswer = page.getByText("了解: 一つ目の会話");
+  await expect(firstAnswer).toBeVisible();
   await idle(page);
   await newChat(page);
+  await expect(firstAnswer).toHaveCount(0);
   await send(page, "二つ目の会話");
+  await expect(page.getByText("了解: 二つ目の会話")).toBeVisible();
   await idle(page);
 
   const list = page.getByRole("navigation", { name: "会話一覧" });
   await list.getByText("一つ目の会話").click();
-  await expect(page.getByText("了解: 一つ目の会話")).toBeVisible();
+  await expect(firstAnswer).toBeVisible();
 
   const item = list.locator("li").filter({ hasText: "一つ目の会話" });
   await item.hover();

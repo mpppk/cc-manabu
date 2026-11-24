@@ -300,10 +300,7 @@ export const App = ({ api }: { api: ApiClient }) => {
         projectId={projectId}
         selectedId={selectedId}
         onNew={() => void newChat()}
-        onSelect={(id) => {
-          setFocus(undefined);
-          select(id);
-        }}
+        onSelect={select}
         onRename={rename}
         onDelete={remove}
         onSelectProject={(id) => navigate(pathForProject(id))}
