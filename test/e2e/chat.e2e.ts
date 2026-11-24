@@ -443,12 +443,16 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await expect(page.getByText("3 つ組")).toBeVisible();
   const pageUrl = page.url();
 
-  // 一覧の検索
-  await page.getByRole("button", { name: "一覧", exact: true }).click();
-  await page.getByRole("textbox", { name: "Wiki を検索" }).fill("タプル");
+  // ページの一覧は会話一覧の場所に出て、開いているページが分かる
+  const wikiPages = page.getByRole("list", { name: "Wiki のページ" });
+  await expect(page.getByRole("navigation", { name: "会話一覧" })).toBeHidden();
   await expect(
-    page.getByRole("list", { name: "Wiki のページ" }).getByText("関係タプル"),
-  ).toBeVisible();
+    wikiPages.getByRole("button", { name: /関係タプル/ }),
+  ).toHaveAttribute("aria-current", "page");
+
+  // 一覧の検索
+  await page.getByRole("textbox", { name: "Wiki を検索" }).fill("タプル");
+  await expect(wikiPages.getByText("関係タプル")).toBeVisible();
   await page.getByRole("textbox", { name: "Wiki を検索" }).fill("存在しない語");
   await expect(page.getByText("一致するページはありません。")).toBeVisible();
 

@@ -11,7 +11,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import type { ChatDto, ProjectDto, WikiDto } from "../../router.ts";
 import { groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
@@ -201,6 +201,7 @@ export const Sidebar = ({
   onSetProject,
   view,
   onOpenWiki,
+  wikiPanel,
   onSetAutoTerms,
   onOpenProjectList,
   onSearch,
@@ -229,6 +230,8 @@ export const Sidebar = ({
   /** メイン画面に出しているもの（プロジェクト選択時のタブの状態）。 */
   view: "threads" | "wiki";
   onOpenWiki: () => void;
+  /** Wiki を表示しているとき、会話一覧の代わりに出すページ一覧。 */
+  wikiPanel?: ReactNode;
   onSetAutoTerms: (projectId: string, enabled: boolean) => Promise<void>;
   onOpenProjectList: () => void;
   /** 会話を検索する（#115）。 */
@@ -329,7 +332,8 @@ export const Sidebar = ({
             </Button>
           </nav>
         )}
-        {project !== undefined && (
+        {project !== undefined && view === "wiki" && wikiPanel}
+        {project !== undefined && view !== "wiki" && (
           <div className="px-3 pb-2">
             <Button
               variant="outline"
@@ -342,7 +346,13 @@ export const Sidebar = ({
             </Button>
           </div>
         )}
-        <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
+        <nav
+          className={cn(
+            "flex-1 overflow-y-auto px-2 pb-2",
+            project !== undefined && view === "wiki" && "hidden",
+          )}
+          aria-label="会話一覧"
+        >
           {visible.length === 0 ? (
             <p className="px-2 py-4 text-muted-foreground text-sm">
               {project === undefined
