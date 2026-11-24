@@ -1127,9 +1127,17 @@ test("保存済みの分岐をサイドで開き直し、メインの現在地�
     name: "サイドチャットのメッセージ",
   });
   const sideAnswers = side.locator("[data-assistant-message]");
-  const closeSide = side.getByRole("button", {
+  const closeSideButton = side.getByRole("button", {
     name: "サイドチャットを閉じる",
   });
+  // 閉じるとメインの入力欄にフォーカスが戻る（次の描画で）。戻るのを待たずに次の操作をすると、
+  // キー入力がメインの入力欄に入ってしまう
+  const closeSide = {
+    click: async () => {
+      await closeSideButton.click();
+      await expect(mainInput).toBeFocused();
+    },
+  };
   const branchSelect = main.getByRole("combobox", { name: "分岐" });
   const openSavedBranch = async () => {
     await main.getByText("サイドで開く", { exact: true }).press("Enter");
