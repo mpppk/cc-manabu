@@ -763,8 +763,11 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   // キーボード: フォーカスで要約、Tab で要約の「Wiki で開く」へ移って Wiki 画面を開く
   await terms.nth(1).focus();
   await expect(card).toBeVisible();
+  // 要約は読み込んでから出るので、「Wiki で開く」が出てから Tab で移る
+  const openInWiki = card.getByRole("button", { name: "Wiki で開く" });
+  await expect(openInWiki).toBeVisible();
   await page.keyboard.press("Tab");
-  await expect(card.getByRole("button", { name: "Wiki で開く" })).toBeFocused();
+  await expect(openInWiki).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/wiki\/.+/);
   await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
