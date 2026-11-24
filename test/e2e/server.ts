@@ -8,6 +8,11 @@
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
+import {
+  ANSWER_SUMMARY_MODEL,
+  ANSWER_SUMMARY_SETTINGS,
+  createAnswerSummarizer,
+} from "../../src/chat/answer-summary.ts";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
 import {
@@ -71,6 +76,16 @@ const writeTermPages = createTermPageWriter({
   extract: async (prompt) =>
     (await generateText({ model: termModel, prompt })).text,
 });
+const summaryModel = createClaudeCode({
+  cwd: "/e2e",
+  query,
+  ...ANSWER_SUMMARY_SETTINGS,
+})(ANSWER_SUMMARY_MODEL);
+const summarizeAnswer = createAnswerSummarizer({
+  chats,
+  summarize: async (prompt) =>
+    (await generateText({ model: summaryModel, prompt })).text,
+});
 const registry = new RunnerRegistry();
 const chatService = createChatService({
   chats,
@@ -83,6 +98,7 @@ const chatService = createChatService({
   onRunnerFinish: (chatId, outcome) =>
     queueDispatcher?.onRunnerFinish(chatId, outcome),
   onAnswerComplete: (event) => void writeTermPages(event),
+  onAnswerFinish: (event) => void summarizeAnswer(event),
 });
 queueDispatcher = createQueueDispatcher({ queue, registry, chatService });
 const claude = createClaudeStatus(

@@ -1,8 +1,15 @@
-import { FolderPlus, Pencil, Settings, Trash2 } from "lucide-react";
+import {
+  FolderPlus,
+  Pencil,
+  Settings,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
 import { type FormEvent, useState } from "react";
 import type { ProjectDto, WikiDto } from "../../router.ts";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
+import { DropdownMenu } from "./ui/dropdown-menu.tsx";
 
 /** 未所属の会話を表す select の値。 */
 const UNASSIGNED = "";
@@ -231,6 +238,39 @@ const loadGroupByWiki = (): boolean => {
   }
 };
 
+/** プロジェクトの一覧を参照している Wiki ごとにまとめるか（ブラウザに覚える）。 */
+export const useGroupByWiki = () => {
+  const [groupByWiki, setGroupByWiki] = useState(loadGroupByWiki);
+  const set = (next: boolean) => {
+    setGroupByWiki(next);
+    try {
+      localStorage.setItem(GROUP_KEY, next ? "1" : "0");
+    } catch {
+      // 覚えられなくても表示は切り替える
+    }
+  };
+  return [groupByWiki, set] as const;
+};
+
+/** 「参照している Wiki ごとにまとめる」のチェックボックス。 */
+export const GroupByWikiToggle = ({
+  checked,
+  onChange,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) => (
+  <label className="flex items-center gap-1.5 px-3 pb-2 text-muted-foreground text-xs">
+    <input
+      type="checkbox"
+      className="size-3.5"
+      checked={checked}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+    参照している Wiki ごとにまとめる
+  </label>
+);
+
 /** サイドバー上部のプロジェクト選択（作成・名前変更・削除）。 */
 export const ProjectSwitcher = ({
   projects,
@@ -242,8 +282,11 @@ export const ProjectSwitcher = ({
   onSetAutoTerms,
   wikis,
   onRenameWiki,
+  groupByWiki,
 }: {
   projects: ProjectDto[];
+  /** 一覧を参照している Wiki ごとにまとめるか。 */
+  groupByWiki: boolean;
   /** Wiki（複数のプロジェクトで共有できる）。 */
   wikis: WikiDto[];
   onRenameWiki: (wikiId: string, name: string) => Promise<void>;
@@ -262,8 +305,6 @@ export const ProjectSwitcher = ({
   const current = projects.find((p) => p.id === projectId);
   /** 保存中の自動作成の設定（保存が終わるまで表示に使う）。 */
   const [autoTerms, setAutoTerms] = useState<boolean>();
-  /** 一覧を参照している Wiki ごとにまとめるか（ブラウザに覚える）。 */
-  const [groupByWiki, setGroupByWiki] = useState(loadGroupByWiki);
   const currentWiki = wikis.find((wiki) => wiki.id === current?.wikiId);
   /** 今のプロジェクトと同じ Wiki を使う、ほかのプロジェクト。 */
   const sharing = projects.filter(
@@ -313,70 +354,39 @@ export const ProjectSwitcher = ({
             projects.map(optionOf)
           )}
         </select>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          aria-label="新しいプロジェクト"
-          title="新しいプロジェクト"
-          onClick={() => setDialog("create")}
-        >
-          <FolderPlus className="size-4" />
-        </Button>
-        {current !== undefined && (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label="プロジェクトの設定"
-              title="プロジェクトの設定"
-              onClick={() => setDialog("settings")}
-            >
-              <Settings className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label="プロジェクトの名前を変える"
-              title="プロジェクトの名前を変える"
-              onClick={() => setDialog("rename")}
-            >
-              <Pencil className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label="プロジェクトを削除"
-              title="プロジェクトを削除"
-              onClick={() => setDialog("delete")}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          </>
-        )}
+        <DropdownMenu
+          label="プロジェクトのメニュー"
+          icon={<Settings className="size-3.5" />}
+          items={[
+            {
+              label: "新しいプロジェクト",
+              icon: <FolderPlus />,
+              onSelect: () => setDialog("create"),
+            },
+            ...(current === undefined
+              ? []
+              : [
+                  {
+                    label: "プロジェクトの設定",
+                    icon: <SlidersHorizontal />,
+                    onSelect: () => setDialog("settings"),
+                    separatorBefore: true,
+                  },
+                  {
+                    label: "プロジェクトの名前を変える",
+                    icon: <Pencil />,
+                    onSelect: () => setDialog("rename"),
+                  },
+                  {
+                    label: "プロジェクトを削除",
+                    icon: <Trash2 />,
+                    onSelect: () => setDialog("delete"),
+                    variant: "destructive" as const,
+                  },
+                ]),
+          ]}
+        />
       </div>
-      {projects.length > 0 && (
-        <label className="flex items-center gap-1.5 text-muted-foreground text-xs">
-          <input
-            type="checkbox"
-            className="size-3.5"
-            checked={groupByWiki}
-            onChange={(event) => {
-              const next = event.target.checked;
-              setGroupByWiki(next);
-              try {
-                localStorage.setItem(GROUP_KEY, next ? "1" : "0");
-              } catch {
-                // 覚えられなくても表示は切り替える
-              }
-            }}
-          />
-          参照している Wiki ごとにまとめる
-        </label>
-      )}
       <CreateProjectDialog
         open={dialog === "create"}
         wikis={wikis}

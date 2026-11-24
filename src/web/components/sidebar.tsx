@@ -11,11 +11,16 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import type { ChatDto, ProjectDto, WikiDto } from "../../router.ts";
 import { groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
-import { AddThreadsDialog, ProjectSwitcher } from "./project-switcher.tsx";
+import {
+  AddThreadsDialog,
+  GroupByWikiToggle,
+  ProjectSwitcher,
+  useGroupByWiki,
+} from "./project-switcher.tsx";
 import {
   SearchBox,
   type SearchResult,
@@ -201,6 +206,7 @@ export const Sidebar = ({
   onSetProject,
   view,
   onOpenWiki,
+  wikiPanel,
   onSetAutoTerms,
   onOpenProjectList,
   onSearch,
@@ -229,6 +235,8 @@ export const Sidebar = ({
   /** メイン画面に出しているもの（プロジェクト選択時のタブの状態）。 */
   view: "threads" | "wiki";
   onOpenWiki: () => void;
+  /** Wiki を表示しているとき、会話一覧の代わりに出すページ一覧。 */
+  wikiPanel?: ReactNode;
   onSetAutoTerms: (projectId: string, enabled: boolean) => Promise<void>;
   onOpenProjectList: () => void;
   /** 会話を検索する（#115）。 */
@@ -247,6 +255,39 @@ export const Sidebar = ({
     (group) => group.primary.projectId === projectId,
   );
   const project = projects.find((p) => p.id === projectId);
+  const showWikiPanel = project !== undefined && view === "wiki";
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [groupByWiki, setGroupByWiki] = useGroupByWiki();
+
+  const threadList =
+    visible.length === 0 ? (
+      <p className="px-2 py-4 text-muted-foreground text-sm">
+        {project === undefined
+          ? "未所属の会話はありません。"
+          : "このプロジェクトにはまだ会話がありません。"}
+      </p>
+    ) : (
+      <ul className="flex flex-col gap-0.5">
+        {visible.map(({ groupId, primary, branches, status }) => (
+          <li key={groupId}>
+            <ChatItem
+              chat={{ ...primary, status }}
+              branchCount={branches.length}
+              selected={branches.some((chat) => chat.id === selectedId)}
+              onSelect={() => onSelect(primary.id)}
+              onRename={(title) => onRename(primary.id, title)}
+              onDelete={() => setDeleting(primary)}
+              {...(project === undefined || primary.wikiPageId !== null
+                ? {}
+                : {
+                    onRemoveFromProject: () =>
+                      void onSetProject(primary.id, null),
+                  })}
+            />
+          </li>
+        ))}
+      </ul>
+    );
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
@@ -277,24 +318,7 @@ export const Sidebar = ({
           </Button>
         </div>
       </div>
-      <SearchBox value={query} onChange={setQuery} />
-      {searching && (
-        <nav
-          className="flex-1 overflow-y-auto px-2 pb-2"
-          aria-label="会話の検索結果"
-        >
-          <SearchResults
-            chats={chats}
-            query={query}
-            result={search.result}
-            error={search.error}
-            onOpen={onOpenSearchHit}
-          />
-        </nav>
-      )}
-      <div
-        className={cn("flex min-h-0 flex-1 flex-col", searching && "hidden")}
-      >
+      <div className="flex min-h-0 flex-1 flex-col">
         <ProjectSwitcher
           projects={projects}
           projectId={projectId}
@@ -305,6 +329,7 @@ export const Sidebar = ({
           onRename={onRenameProject}
           onDelete={onDeleteProject}
           onSetAutoTerms={onSetAutoTerms}
+          groupByWiki={groupByWiki}
         />
         {project !== undefined && (
           <nav className="flex gap-1 px-3 pb-2" aria-label="プロジェクトの表示">
@@ -315,7 +340,7 @@ export const Sidebar = ({
               aria-pressed={view === "threads"}
               onClick={() => onSelectProject(project.id)}
             >
-              概要
+              スレッド
             </Button>
             <Button
               variant={view === "wiki" ? "secondary" : "ghost"}
@@ -329,49 +354,61 @@ export const Sidebar = ({
             </Button>
           </nav>
         )}
-        {project !== undefined && (
-          <div className="px-3 pb-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-full"
-              onClick={() => setAdding(true)}
-            >
-              <ListPlus className="size-3.5" />
-              既存のスレッドを追加
-            </Button>
-          </div>
-        )}
-        <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
-          {visible.length === 0 ? (
-            <p className="px-2 py-4 text-muted-foreground text-sm">
-              {project === undefined
-                ? "未所属の会話はありません。"
-                : "このプロジェクトにはまだ会話がありません。"}
-            </p>
-          ) : (
-            <ul className="flex flex-col gap-0.5">
-              {visible.map(({ groupId, primary, branches, status }) => (
-                <li key={groupId}>
-                  <ChatItem
-                    chat={{ ...primary, status }}
-                    branchCount={branches.length}
-                    selected={branches.some((chat) => chat.id === selectedId)}
-                    onSelect={() => onSelect(primary.id)}
-                    onRename={(title) => onRename(primary.id, title)}
-                    onDelete={() => setDeleting(primary)}
-                    {...(project === undefined || primary.wikiPageId !== null
-                      ? {}
-                      : {
-                          onRemoveFromProject: () =>
-                            void onSetProject(primary.id, null),
-                        })}
+        {showWikiPanel ? (
+          wikiPanel
+        ) : (
+          <>
+            <div className="flex items-center gap-1 px-3 pb-2">
+              <SearchBox
+                value={query}
+                onChange={setQuery}
+                open={searchOpen}
+                onOpenChange={setSearchOpen}
+              />
+              {project !== undefined && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="ml-auto size-8"
+                  aria-label="既存のスレッドを追加"
+                  title="既存のスレッドを追加"
+                  onClick={() => setAdding(true)}
+                >
+                  <ListPlus className="size-4" />
+                </Button>
+              )}
+            </div>
+            {searching ? (
+              <nav
+                className="flex-1 overflow-y-auto px-2 pb-2"
+                aria-label="会話の検索結果"
+              >
+                <SearchResults
+                  chats={chats}
+                  query={query}
+                  result={search.result}
+                  error={search.error}
+                  onOpen={onOpenSearchHit}
+                />
+              </nav>
+            ) : (
+              <>
+                {projects.length > 0 && (
+                  <GroupByWikiToggle
+                    checked={groupByWiki}
+                    onChange={setGroupByWiki}
                   />
-                </li>
-              ))}
-            </ul>
-          )}
-        </nav>
+                )}
+                <nav
+                  className="flex-1 overflow-y-auto px-2 pb-2"
+                  aria-label="会話一覧"
+                >
+                  {threadList}
+                </nav>
+              </>
+            )}
+          </>
+        )}
       </div>
       <AddThreadsDialog
         open={adding}

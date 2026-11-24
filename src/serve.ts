@@ -2,6 +2,11 @@ import { existsSync } from "node:fs";
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
+import {
+  ANSWER_SUMMARY_MODEL,
+  ANSWER_SUMMARY_SETTINGS,
+  createAnswerSummarizer,
+} from "./chat/answer-summary.ts";
 import { createApprovalBroker } from "./chat/approval-broker.ts";
 import { createChatService } from "./chat/chat-service.ts";
 import {
@@ -90,6 +95,22 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           (await generateText({ model: termModel, prompt, reasoning: "none" }))
             .text,
       });
+      // 回答の要約も同じく軽い呼び出し（閉じた回答に出す）
+      const summaryModel = createClaudeCode({
+        ...providerSettings,
+        ...ANSWER_SUMMARY_SETTINGS,
+      })(ANSWER_SUMMARY_MODEL);
+      const summarizeAnswer = createAnswerSummarizer({
+        chats,
+        summarize: async (prompt) =>
+          (
+            await generateText({
+              model: summaryModel,
+              prompt,
+              reasoning: "none",
+            })
+          ).text,
+      });
       const registry = new RunnerRegistry();
       let queueDispatcher: QueueDispatcher | undefined;
       const chatService = createChatService({
@@ -101,6 +122,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         wikiContext: createWikiContextBuilder(wiki, projects),
         readWikiPage: createWikiPageReader(wiki, projects),
         onAnswerComplete: (event) => void writeTermPages(event),
+        onAnswerFinish: (event) => void summarizeAnswer(event),
         onRunnerFinish: (chatId, outcome) =>
           queueDispatcher?.onRunnerFinish(chatId, outcome),
       });

@@ -590,6 +590,15 @@ export const router = {
       );
       return { chat: toChatDto(chat), messages: messages.map(toMessageDto) };
     }),
+    /** 会話の回答の要約（メッセージ id → 要約）。回答のあとに作られるので取り直して使う。 */
+    summaries: base
+      .input(chatId)
+      .handler(async ({ context, input }) =>
+        unwrapForOrpc(
+          context.chats.listMessageSummaries(input.id),
+          ERROR_CODES,
+        ),
+      ),
     create: base
       .input(
         z.object({

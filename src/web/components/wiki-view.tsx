@@ -7,16 +7,11 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import {
-  type FormEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { WikiPageDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { cn } from "../lib/utils.ts";
 import { SideChat } from "./chat-workspace.tsx";
 import { Markdown } from "./markdown.tsx";
 import { Button } from "./ui/button.tsx";
@@ -35,12 +30,6 @@ const parseAliases = (value: string): string[] =>
     .split(/[,、]/)
     .map((alias) => alias.trim())
     .filter((alias) => alias !== "");
-
-const AutoBadge = () => (
-  <span className="rounded bg-sky-500/15 px-1.5 py-0.5 font-normal text-[10px] text-sky-700 dark:text-sky-400">
-    自動作成
-  </span>
-);
 
 /** ページの作成・編集フォーム。 */
 const PageEditor = ({
@@ -103,9 +92,97 @@ const PageEditor = ({
   );
 };
 
-/** プロジェクトの Wiki（一覧・検索・閲覧・作成・編集・削除）。 */
+/** サイドバーに出す Wiki のページ一覧（検索つき）。 */
+export const WikiPageList = ({
+  pages,
+  loadError,
+  pageId,
+  onNavigate,
+}: {
+  /** undefined は読み込み中。 */
+  pages: WikiPageDto[] | undefined;
+  loadError: string | undefined;
+  /** 開いているページ。 */
+  pageId: string | undefined;
+  onNavigate: (pageId: string) => void;
+}) => {
+  const [query, setQuery] = useState("");
+  const found = pages === undefined ? [] : searchPages(pages, query);
+  const message =
+    loadError ??
+    (pages === undefined
+      ? "読み込み中…"
+      : pages.length === 0
+        ? "まだページがありません。「新しいページ」から作れます。"
+        : found.length === 0
+          ? "一致するページはありません。"
+          : undefined);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="px-3 pb-2">
+        <label className="flex items-center gap-2 rounded-md border bg-background px-2 py-1">
+          <Search className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+            aria-label="Wiki を検索"
+            placeholder="タイトル・別名・本文で絞り込む"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+      </div>
+      <nav
+        className="flex-1 overflow-y-auto px-2 pb-2"
+        aria-label="Wiki のページ一覧"
+      >
+        {message !== undefined ? (
+          <p
+            className={cn(
+              "px-2 py-4 text-sm",
+              loadError === undefined
+                ? "text-muted-foreground"
+                : "text-destructive",
+            )}
+            role={loadError === undefined ? undefined : "alert"}
+          >
+            {message}
+          </p>
+        ) : (
+          <ul aria-label="Wiki のページ" className="flex flex-col gap-0.5">
+            {found.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className={cn(
+                    "flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent",
+                    p.id === pageId && "bg-sidebar-accent font-medium",
+                  )}
+                  aria-current={p.id === pageId ? "page" : undefined}
+                  onClick={() => onNavigate(p.id)}
+                >
+                  <span className="w-full truncate">{p.title}</span>
+                  {p.aliases.length > 0 && (
+                    <span className="w-full truncate font-normal text-muted-foreground text-xs">
+                      別名: {p.aliases.join("、")}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </nav>
+    </div>
+  );
+};
+
+/** プロジェクトの Wiki（閲覧・作成・編集・削除）。ページの一覧はサイドバーに出す。 */
 export const WikiView = ({
   api,
+  pages,
+  loadError,
+  refresh,
   projectId,
   projectName,
   wikiName,
@@ -121,6 +198,11 @@ export const WikiView = ({
   onReturn,
   initialDraft,
 }: {
+  /** ページの一覧（サイドバーと共有する）。undefined は読み込み中。 */
+  pages: WikiPageDto[] | undefined;
+  loadError: string | undefined;
+  /** ページを変えたあとに一覧を読み直す。 */
+  refresh: () => Promise<void>;
   /** 回答の選択範囲から作るときの下書き（#121）。あれば作成画面で開く。 */
   initialDraft?: { title: string; body: string } | undefined;
   api: ApiClient;
@@ -144,9 +226,6 @@ export const WikiView = ({
   onChatActivity: () => void;
   onNavigate: (pageId: string | undefined) => void;
 }) => {
-  const [pages, setPages] = useState<WikiPageDto[]>();
-  const [loadError, setLoadError] = useState<string>();
-  const [query, setQuery] = useState("");
   const [mode, setMode] = useState<"view" | "new" | "edit">(
     initialDraft === undefined ? "view" : "new",
   );
@@ -157,19 +236,6 @@ export const WikiView = ({
     setAskingPageId(undefined);
     requestAnimationFrame(() => askButton.current?.focus());
   };
-
-  const refresh = useCallback(async () => {
-    try {
-      setPages(await api.wiki.list({ projectId }));
-      setLoadError(undefined);
-    } catch {
-      setLoadError("Wiki を読み込めませんでした。");
-    }
-  }, [api, projectId]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
 
   // ページを移ったら閲覧に戻す（開いたときは下書きの作成画面のまま）
   const openedPageId = useRef(pageId);
@@ -264,49 +330,12 @@ export const WikiView = ({
       );
     }
     if (pageId === undefined) {
-      const found = searchPages(pages, query);
       return (
-        <div className="flex flex-col gap-3">
-          <label className="flex items-center gap-2 rounded-md border bg-background px-3 py-1.5">
-            <Search className="size-4 text-muted-foreground" />
-            <input
-              className="flex-1 bg-transparent text-sm outline-none"
-              aria-label="Wiki を検索"
-              placeholder="タイトル・別名・本文で検索"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
-          {found.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              {pages.length === 0
-                ? "まだページがありません。「新しいページ」から作れます。"
-                : "一致するページはありません。"}
-            </p>
-          ) : (
-            <ul aria-label="Wiki のページ" className="flex flex-col gap-1">
-              {found.map((p) => (
-                <li key={p.id}>
-                  <button
-                    type="button"
-                    className="flex w-full flex-col items-start rounded-md px-3 py-2 text-left hover:bg-accent"
-                    onClick={() => onNavigate(p.id)}
-                  >
-                    <span className="flex items-center gap-2 font-medium">
-                      {p.title}
-                      {p.origin === "auto" && <AutoBadge />}
-                    </span>
-                    {p.aliases.length > 0 && (
-                      <span className="text-muted-foreground text-xs">
-                        別名: {p.aliases.join("、")}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        <p className="text-muted-foreground text-sm">
+          {pages.length === 0
+            ? "「新しいページ」から最初のページを作りましょう。"
+            : `${pages.length} 件のページがあります。左の一覧からページを選んでください。`}
+        </p>
       );
     }
     if (page === undefined) {
@@ -348,14 +377,6 @@ export const WikiView = ({
     return (
       <article className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onNavigate(undefined)}
-          >
-            <ArrowLeft className="size-4" />
-            一覧
-          </Button>
           {returnTo !== undefined && (
             <Button
               variant="ghost"
@@ -384,7 +405,6 @@ export const WikiView = ({
         <h2 className="font-bold text-2xl">{page.title}</h2>
         {page.origin === "auto" && (
           <p className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-            <AutoBadge />
             回答から自動で作成したページです（編集しても自動で上書きされることはありません）。
             {page.sourceChatId !== null && (
               <button

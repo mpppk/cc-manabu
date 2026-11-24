@@ -8,7 +8,7 @@ import { ProjectOverview } from "./components/project-overview.tsx";
 import { RateLimitBadge } from "./components/rate-limit-badge.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { Button } from "./components/ui/button.tsx";
-import { WikiView } from "./components/wiki-view.tsx";
+import { WikiPageList, WikiView } from "./components/wiki-view.tsx";
 import { groupChats } from "./lib/groups.ts";
 import {
   newlyAwaiting,
@@ -28,6 +28,7 @@ import {
   wikiFromPath,
 } from "./lib/route.ts";
 import { applyTheme, loadTheme, type Theme } from "./lib/theme.ts";
+import { useWikiPages } from "./lib/use-wiki-pages.ts";
 
 type Status = Awaited<ReturnType<ApiClient["system"]["status"]>>;
 
@@ -238,6 +239,18 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   const project = projects?.find((p) => p.id === projectId);
   const showWiki = wikiRoute !== undefined && project !== undefined;
+  // Wiki のページ一覧（サイドバーの一覧とメインのページ表示で共有する）
+  const wiki = useWikiPages(api, showWiki ? project.id : undefined);
+  const navigateWiki = (pageId: string | undefined) => {
+    if (project === undefined) return;
+    // 回答から開いたときは、ページを移っても回答に戻れるようにする
+    navigate(
+      pathForWiki(project.id, pageId),
+      wikiState?.returnTo === undefined
+        ? undefined
+        : { returnTo: wikiState.returnTo },
+    );
+  };
   const models = status?.claude.state === "ready" ? status.claude.models : [];
   const workspace = chatViewId === undefined ? undefined : current;
   const workspaceGroup =
@@ -325,6 +338,15 @@ export const App = ({ api }: { api: ApiClient }) => {
         onOpenWiki={() => {
           if (projectId !== null) navigate(pathForWiki(projectId));
         }}
+        wikiPanel={
+          <WikiPageList
+            key={project?.id}
+            pages={wiki.pages}
+            loadError={wiki.loadError}
+            pageId={wikiRoute?.pageId}
+            onNavigate={navigateWiki}
+          />
+        }
         onSetAutoTerms={setAutoTerms}
         onOpenProjectList={() => navigate(PROJECT_LIST_PATH)}
         onSearch={searchChats}
@@ -398,6 +420,9 @@ export const App = ({ api }: { api: ApiClient }) => {
           <WikiView
             key={project.id}
             api={api}
+            pages={wiki.pages}
+            loadError={wiki.loadError}
+            refresh={wiki.refresh}
             projectId={project.id}
             projectName={project.name}
             wikiName={wikis.find((wiki) => wiki.id === project.wikiId)?.name}
@@ -418,15 +443,7 @@ export const App = ({ api }: { api: ApiClient }) => {
             returnTo={wikiState?.returnTo}
             initialDraft={wikiState?.draft}
             onReturn={(to) => navigate(to)}
-            onNavigate={(pageId) =>
-              // 回答から開いたときは、ページを移っても回答に戻れるようにする
-              navigate(
-                pathForWiki(project.id, pageId),
-                wikiState?.returnTo === undefined
-                  ? undefined
-                  : { returnTo: wikiState.returnTo },
-              )
-            }
+            onNavigate={navigateWiki}
           />
         ) : workspace !== undefined ? null : selectedId === undefined &&
           wikiRoute === undefined &&
