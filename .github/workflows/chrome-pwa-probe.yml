@@ -1,0 +1,19 @@
+name: Chrome PWA probe
+on:
+  push:
+    branches: [claude/issue-140-chrome-probe]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: macos-15
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun .github/chrome-pwa-probe.ts
