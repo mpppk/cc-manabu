@@ -153,6 +153,20 @@ export const App = ({ api }: { api: ApiClient }) => {
     [navigate, api, refreshChats],
   );
 
+  /** 検索結果から開いた発言（#115）。開いた会話でその発言へ移動する。 */
+  const [focus, setFocus] = useState<{ chatId: string; messageId: string }>();
+  const searchChats = useCallback(
+    (q: string) => api.search.query({ q }),
+    [api],
+  );
+  const openSearchHit = useCallback(
+    (chatId: string, messageId?: string) => {
+      setFocus(messageId === undefined ? undefined : { chatId, messageId });
+      select(chatId);
+    },
+    [select],
+  );
+
   useEffect(() => {
     const onPopState = () => setPath(window.location.pathname);
     window.addEventListener("popstate", onPopState);
@@ -260,7 +274,10 @@ export const App = ({ api }: { api: ApiClient }) => {
         projectId={projectId}
         selectedId={selectedId}
         onNew={() => void newChat()}
-        onSelect={select}
+        onSelect={(id) => {
+          setFocus(undefined);
+          select(id);
+        }}
         onRename={rename}
         onDelete={remove}
         onSelectProject={(id) => navigate(pathForProject(id))}
@@ -274,6 +291,8 @@ export const App = ({ api }: { api: ApiClient }) => {
         }}
         onSetAutoTerms={setAutoTerms}
         onOpenProjectList={() => navigate(PROJECT_LIST_PATH)}
+        onSearch={searchChats}
+        onOpenSearchHit={openSearchHit}
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b px-4">
@@ -333,6 +352,9 @@ export const App = ({ api }: { api: ApiClient }) => {
               (chat) => chat.groupId === current.chat.groupId,
             )}
             onSelectBranch={select}
+            {...(focus?.chatId === current.chat.id
+              ? { focusMessageId: focus.messageId }
+              : {})}
             onOpenWikiPage={(projectId, pageId) =>
               // Wiki から元の回答に戻れるようにする
               navigate(pathForWiki(projectId, pageId), { returnTo: path })

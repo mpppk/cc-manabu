@@ -1041,3 +1041,49 @@ test("プロンプトキャッシュの推定残り時間を表示し、モデ�
   await page.getByRole("combobox", { name: "モデル" }).selectOption("haiku");
   await expect(cache).toHaveText("キャッシュ 不明");
 });
+
+test("会話をタイトルと本文で検索し、一致した発言へ移動できる", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  await send(page, "ミトコンドリアについて教えて");
+  await idle(page);
+  await send(page, "細胞小器官の一覧も");
+  await idle(page);
+  await newChat(page);
+  await send(page, "別の話題");
+  await idle(page);
+
+  const box = page.getByRole("searchbox", { name: "会話を検索" });
+  const results = page.getByRole("navigation", { name: "会話の検索結果" });
+  await box.fill("小器官");
+  // ユーザー発言と、それを繰り返す回答
+  await expect(results.locator("mark", { hasText: "小器官" })).toHaveCount(2);
+  await expect(page.getByRole("navigation", { name: "会話一覧" })).toBeHidden();
+  await results
+    .getByRole("button", { name: /回答.*了解: 細胞小器官の一覧も/ })
+    .click();
+  await expect(page.getByText("了解: 細胞小器官の一覧も")).toBeVisible();
+  await expect(
+    page
+      .locator("[data-message-id]")
+      .filter({ hasText: "了解: 細胞小器官の一覧も" }),
+  ).toHaveClass(/ring-2/);
+
+  // タイトルも対象。ひらがなとカタカナは区別する
+  await box.fill("みとこんどりあ");
+  await expect(results).toContainText("見つかりませんでした。");
+  await box.fill("ミトコンドリア");
+  await expect(
+    results
+      .getByRole("button", { name: "ミトコンドリアについて教えて" })
+      .first(),
+  ).toBeVisible();
+
+  // Escape で一覧に戻る
+  await box.press("Escape");
+  await expect(
+    page.getByRole("navigation", { name: "会話一覧" }),
+  ).toBeVisible();
+});

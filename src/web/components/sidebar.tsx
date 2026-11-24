@@ -16,6 +16,12 @@ import type { ChatDto, ProjectDto } from "../../router.ts";
 import { groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
 import { AddThreadsDialog, ProjectSwitcher } from "./project-switcher.tsx";
+import {
+  SearchBox,
+  type SearchResult,
+  SearchResults,
+  useSearch,
+} from "./search-results.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 
@@ -195,6 +201,8 @@ export const Sidebar = ({
   onOpenWiki,
   onSetAutoTerms,
   onOpenProjectList,
+  onSearch,
+  onOpenSearchHit,
 }: {
   /** すべての会話（表示は選択中のプロジェクトで絞る）。 */
   chats: ChatDto[];
@@ -217,8 +225,15 @@ export const Sidebar = ({
   onOpenWiki: () => void;
   onSetAutoTerms: (projectId: string, enabled: boolean) => Promise<void>;
   onOpenProjectList: () => void;
+  /** 会話を検索する（#115）。 */
+  onSearch: (q: string) => Promise<SearchResult>;
+  /** 検索結果を開く。messageId があればその発言へ移動する。 */
+  onOpenSearchHit: (chatId: string, messageId?: string) => void;
 }) => {
   const [deleting, setDeleting] = useState<ChatDto>();
+  const [query, setQuery] = useState("");
+  const searching = query.trim() !== "";
+  const search = useSearch(query, onSearch);
   const [adding, setAdding] = useState(false);
   // 分岐は会話ごとに 1 行にまとめる（#76）
   const groups = groupChats(chats);
@@ -256,81 +271,100 @@ export const Sidebar = ({
           </Button>
         </div>
       </div>
-      <ProjectSwitcher
-        projects={projects}
-        projectId={projectId}
-        onSelect={onSelectProject}
-        onCreate={onCreateProject}
-        onRename={onRenameProject}
-        onDelete={onDeleteProject}
-        onSetAutoTerms={onSetAutoTerms}
-      />
-      {project !== undefined && (
-        <nav className="flex gap-1 px-3 pb-2" aria-label="プロジェクトの表示">
-          <Button
-            variant={view === "threads" ? "secondary" : "ghost"}
-            size="sm"
-            className="flex-1"
-            aria-pressed={view === "threads"}
-            onClick={() => onSelectProject(project.id)}
-          >
-            概要
-          </Button>
-          <Button
-            variant={view === "wiki" ? "secondary" : "ghost"}
-            size="sm"
-            className="flex-1"
-            aria-pressed={view === "wiki"}
-            onClick={onOpenWiki}
-          >
-            <BookOpen className="size-3.5" />
-            Wiki
-          </Button>
+      <SearchBox value={query} onChange={setQuery} />
+      {searching && (
+        <nav
+          className="flex-1 overflow-y-auto px-2 pb-2"
+          aria-label="会話の検索結果"
+        >
+          <SearchResults
+            chats={chats}
+            query={query}
+            result={search.result}
+            error={search.error}
+            onOpen={onOpenSearchHit}
+          />
         </nav>
       )}
-      {project !== undefined && (
-        <div className="px-3 pb-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={() => setAdding(true)}
-          >
-            <ListPlus className="size-3.5" />
-            既存のスレッドを追加
-          </Button>
-        </div>
-      )}
-      <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
-        {visible.length === 0 ? (
-          <p className="px-2 py-4 text-muted-foreground text-sm">
-            {project === undefined
-              ? "未所属の会話はありません。"
-              : "このプロジェクトにはまだ会話がありません。"}
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-0.5">
-            {visible.map(({ groupId, primary, branches, status }) => (
-              <li key={groupId}>
-                <ChatItem
-                  chat={{ ...primary, status }}
-                  branchCount={branches.length}
-                  selected={branches.some((chat) => chat.id === selectedId)}
-                  onSelect={() => onSelect(primary.id)}
-                  onRename={(title) => onRename(primary.id, title)}
-                  onDelete={() => setDeleting(primary)}
-                  {...(project === undefined
-                    ? {}
-                    : {
-                        onRemoveFromProject: () =>
-                          void onSetProject(primary.id, null),
-                      })}
-                />
-              </li>
-            ))}
-          </ul>
+      <div
+        className={cn("flex min-h-0 flex-1 flex-col", searching && "hidden")}
+      >
+        <ProjectSwitcher
+          projects={projects}
+          projectId={projectId}
+          onSelect={onSelectProject}
+          onCreate={onCreateProject}
+          onRename={onRenameProject}
+          onDelete={onDeleteProject}
+          onSetAutoTerms={onSetAutoTerms}
+        />
+        {project !== undefined && (
+          <nav className="flex gap-1 px-3 pb-2" aria-label="プロジェクトの表示">
+            <Button
+              variant={view === "threads" ? "secondary" : "ghost"}
+              size="sm"
+              className="flex-1"
+              aria-pressed={view === "threads"}
+              onClick={() => onSelectProject(project.id)}
+            >
+              概要
+            </Button>
+            <Button
+              variant={view === "wiki" ? "secondary" : "ghost"}
+              size="sm"
+              className="flex-1"
+              aria-pressed={view === "wiki"}
+              onClick={onOpenWiki}
+            >
+              <BookOpen className="size-3.5" />
+              Wiki
+            </Button>
+          </nav>
         )}
-      </nav>
+        {project !== undefined && (
+          <div className="px-3 pb-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={() => setAdding(true)}
+            >
+              <ListPlus className="size-3.5" />
+              既存のスレッドを追加
+            </Button>
+          </div>
+        )}
+        <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
+          {visible.length === 0 ? (
+            <p className="px-2 py-4 text-muted-foreground text-sm">
+              {project === undefined
+                ? "未所属の会話はありません。"
+                : "このプロジェクトにはまだ会話がありません。"}
+            </p>
+          ) : (
+            <ul className="flex flex-col gap-0.5">
+              {visible.map(({ groupId, primary, branches, status }) => (
+                <li key={groupId}>
+                  <ChatItem
+                    chat={{ ...primary, status }}
+                    branchCount={branches.length}
+                    selected={branches.some((chat) => chat.id === selectedId)}
+                    onSelect={() => onSelect(primary.id)}
+                    onRename={(title) => onRename(primary.id, title)}
+                    onDelete={() => setDeleting(primary)}
+                    {...(project === undefined
+                      ? {}
+                      : {
+                          onRemoveFromProject: () =>
+                            void onSetProject(primary.id, null),
+                        })}
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+        </nav>
+      </div>
       <AddThreadsDialog
         open={adding}
         projectName={project?.name ?? ""}

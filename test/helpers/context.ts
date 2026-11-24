@@ -11,6 +11,7 @@ import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createProjectRepository } from "../../src/db/project-repository.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
+import { createSearchRepository } from "../../src/db/search-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import {
   createClaudeCode,
@@ -102,6 +103,7 @@ export const createTestContext = (
     wiki,
     queue,
     queueDispatcher,
+    search: createSearchRepository(opened.value.db),
     chatService,
     approvals,
     claude,

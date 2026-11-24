@@ -21,6 +21,7 @@ import {
   type ProjectRow,
   type WikiPageRow,
 } from "./db/schema.ts";
+import type { SearchRepository } from "./db/search-repository.ts";
 import type { WikiRepository } from "./db/wiki-repository.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
 import { version } from "./version.ts";
@@ -31,6 +32,7 @@ export type RouterContext = {
   projects: ProjectRepository;
   queue: QueueRepository;
   queueDispatcher: QueueDispatcher;
+  search: SearchRepository;
   wiki: WikiRepository;
   chatService: ChatService;
   approvals: ApprovalBroker;
@@ -581,6 +583,14 @@ export const router = {
       await unwrapForOrpc(context.chats.markSelected(input.id), ERROR_CODES);
       return { id: input.id };
     }),
+  },
+  search: {
+    /** 会話タイトルと発言の本文を部分一致で探す（#115）。 */
+    query: base
+      .input(z.object({ q: z.string().trim().min(1).max(200) }))
+      .handler(async ({ context, input }) =>
+        unwrapForOrpc(context.search.search(input.q), ERROR_CODES),
+      ),
   },
   queue: {
     /** 分岐の予約（送る順）と、送信を止めているか。 */
