@@ -757,8 +757,13 @@ export type ChatViewProps = {
   models: ModelInfo[];
   /** 送信・完了など、一覧の表示（タイトル・状態）が変わりうるときに呼ぶ。 */
   onActivity?: () => void;
-  /** 回答から引用された Wiki ページを開く。 */
+  /** 回答から引用された Wiki ページを開く（Wiki 画面へ移る）。 */
   onOpenWikiPage?: (taskId: string, pageId: string) => void;
+  /**
+   * 回答中の用語・引用した Wiki ページを、会話の右側のペインで開く。
+   * あれば、用語や引用リンクのクリックは Wiki 画面へ移らずにこちらを使う。
+   */
+  onOpenWikiPane?: (taskId: string, pageId: string) => void;
   side?: boolean;
   onAskSelection?: (quote: QuoteData, settings: SendSettings) => void;
 };
@@ -771,6 +776,7 @@ export const ChatView = ({
   models,
   onActivity,
   onOpenWikiPage,
+  onOpenWikiPane,
   branches = [],
   onSelectBranch,
   onOpenSideBranch,
@@ -787,6 +793,8 @@ export const ChatView = ({
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const { termMatcher, refreshTerms } = useTaskTerms(api, chat.taskId);
+  // 引用リンクは、ペインがあればペインで開く
+  const openWikiPage = onOpenWikiPane ?? onOpenWikiPage;
   const wikiTerms = useMemo<WikiTermsContextValue | undefined>(
     () =>
       chat.taskId === null || onOpenWikiPage === undefined
@@ -796,8 +804,13 @@ export const ChatView = ({
               api.wiki.get({ id: pageId }).catch(() => undefined),
             open: (pageId) =>
               chat.taskId !== null && onOpenWikiPage(chat.taskId, pageId),
+            openPane:
+              onOpenWikiPane === undefined
+                ? undefined
+                : (pageId) =>
+                    chat.taskId !== null && onOpenWikiPane(chat.taskId, pageId),
           },
-    [api, chat.taskId, onOpenWikiPage],
+    [api, chat.taskId, onOpenWikiPage, onOpenWikiPane],
   );
   const { summaryOf, waitFor: waitForSummary } = useAnswerSummaries(
     api,
@@ -1093,7 +1106,9 @@ export const ChatView = ({
           onRegenerate={() => {
             void regenerate().then(() => onActivity?.());
           }}
-          {...(onOpenWikiPage === undefined ? {} : { onOpenWikiPage })}
+          {...(openWikiPage === undefined
+            ? {}
+            : { onOpenWikiPage: openWikiPage })}
           {...(termMatcher === undefined ? {} : { termMatcher })}
           onRespond={respond}
         />
