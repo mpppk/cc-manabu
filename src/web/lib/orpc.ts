@@ -5,11 +5,15 @@ import type { Router } from "../../router.ts";
 
 export type ApiClient = RouterClient<Router>;
 
-/** 起動時トークンを Authorization ヘッダに付けて oRPC を呼ぶクライアント。 */
-export const createApiClient = (token: string): ApiClient =>
+/**
+ * oRPC を呼ぶクライアント。起動時トークンを Authorization ヘッダに付ける。
+ * token が undefined なのは、サーバがトークンを要求しない（CC_MANABU_NO_AUTH=1）ときだけ。
+ */
+export const createApiClient = (token: string | undefined): ApiClient =>
   createORPCClient(
     new RPCLink({
       url: `${window.location.origin}/orpc`,
-      headers: () => ({ authorization: `Bearer ${token}` }),
+      headers: (): Record<string, string> =>
+        token === undefined ? {} : { authorization: `Bearer ${token}` },
     }),
   );

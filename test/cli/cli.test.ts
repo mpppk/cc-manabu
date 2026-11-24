@@ -55,13 +55,31 @@ describe("loadRuntimeConfig", () => {
       hostname: "127.0.0.1",
       port: 0,
       openBrowser: true,
+      requireToken: true,
     });
   });
 
   test("環境変数でポートとブラウザ起動を変えられる", () => {
     expect(
       loadRuntimeConfig({ CC_MANABU_PORT: "4123", CC_MANABU_NO_OPEN: "1" }),
-    ).toEqual({ hostname: "127.0.0.1", port: 4123, openBrowser: false });
+    ).toEqual({
+      hostname: "127.0.0.1",
+      port: 4123,
+      openBrowser: false,
+      requireToken: true,
+    });
+  });
+
+  test("CC_MANABU_NO_AUTH=1 のときだけトークンを要求しない", () => {
+    expect(loadRuntimeConfig({ CC_MANABU_NO_AUTH: "1" }).requireToken).toBe(
+      false,
+    );
+    expect(loadRuntimeConfig({ CC_MANABU_NO_AUTH: "0" }).requireToken).toBe(
+      true,
+    );
+    expect(loadRuntimeConfig({ CC_MANABU_NO_AUTH: "" }).requireToken).toBe(
+      true,
+    );
   });
 
   test("不正なポートは既定値にする", () => {

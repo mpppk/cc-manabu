@@ -111,7 +111,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       });
       return startServer({
         port: config.port,
-        token: generateToken(),
+        token: config.requireToken ? generateToken() : null,
         router,
         index,
         development: process.env.NODE_ENV !== "production",
@@ -136,6 +136,11 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
     throw new CliExit({ code: 1 });
   }
   const server = result.value;
+  if (!config.requireToken) {
+    console.warn(
+      "警告: CC_MANABU_NO_AUTH=1 のため、アクセストークンなしで API を呼べます（デバッグ用）。このマシンの他のプロセスやユーザーからも、Claude にファイル編集やコマンド実行をさせられます。",
+    );
+  }
   console.log(`cc-manabu を起動しました: ${server.url}`);
   console.log("終了するには Ctrl+C を押してください。");
   if (config.openBrowser) {

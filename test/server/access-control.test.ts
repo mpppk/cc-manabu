@@ -83,3 +83,31 @@ describe("checkApiRequest", () => {
     ).toBe("InvalidTokenError");
   });
 });
+
+describe("checkApiRequest（CC_MANABU_NO_AUTH=1: token が null）", () => {
+  const noAuth = (headers: Record<string, string>) => {
+    const result = checkApiRequest(request(headers), {
+      port: PORT,
+      token: null,
+    });
+    return Result.isFailure(result) ? result.error.name : "ok";
+  };
+  const local = {
+    host: `127.0.0.1:${PORT}`,
+    origin: `http://127.0.0.1:${PORT}`,
+  };
+
+  test("トークンが無くても通す", () => {
+    expect(noAuth(local)).toBe("ok");
+    expect(noAuth({ ...local, authorization: "Bearer anything" })).toBe("ok");
+  });
+
+  test("Host と Origin は検証する", () => {
+    expect(noAuth({ ...local, host: "evil.example.com" })).toBe(
+      "ForbiddenHostError",
+    );
+    expect(noAuth({ ...local, origin: "https://evil.example.com" })).toBe(
+      "ForbiddenOriginError",
+    );
+  });
+});

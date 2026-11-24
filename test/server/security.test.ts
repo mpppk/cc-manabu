@@ -74,6 +74,11 @@ describe("トークン", () => {
     expect(response.status).toBe(401);
   });
 
+  test("Web UI にはトークンが要ると答える", async () => {
+    const response = await fetch(`${base}/auth-mode`);
+    expect(await response.json()).toEqual({ tokenRequired: true });
+  });
+
   test("ブラウザで開く URL では、トークンをサーバに送られない fragment に入れる", () => {
     const url = new URL(server.url);
     expect(url.search).toBe("");
@@ -117,6 +122,61 @@ describe("Host（DNS rebinding）", () => {
     const response = await call("chats/list", {
       ...auth,
       host: `evil.example.com:${server.port}`,
+    });
+    expect(response.status).toBe(403);
+  });
+});
+
+describe("トークンを要求しないモード（CC_MANABU_NO_AUTH=1）", () => {
+  let open: RunningServer;
+  let openBase: string;
+
+  beforeAll(() => {
+    const started = startServer({
+      port: 0,
+      token: null,
+      router,
+      context: createTestContext().context,
+    });
+    if (Result.isFailure(started)) throw started.error;
+    open = started.value;
+    openBase = `http://127.0.0.1:${open.port}`;
+  });
+
+  afterAll(async () => {
+    await open.stop();
+  });
+
+  const callOpen = (headers: Record<string, string>) =>
+    fetch(`${openBase}/orpc/chats/list`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify({ json: {} }),
+    });
+
+  test("トークンなしで API を呼べる", async () => {
+    expect((await callOpen({})).status).toBe(200);
+    expect((await callOpen({ origin: openBase })).status).toBe(200);
+  });
+
+  test("Origin と Host は検証する", async () => {
+    expect(
+      (await callOpen({ origin: "https://evil.example.com" })).status,
+    ).toBe(403);
+    expect(
+      (await callOpen({ host: `evil.example.com:${open.port}` })).status,
+    ).toBe(403);
+  });
+
+  test("Web UI にはトークンが要らないと答え、URL にトークンを付けない", async () => {
+    const response = await fetch(`${openBase}/auth-mode`);
+    expect(await response.json()).toEqual({ tokenRequired: false });
+    expect(new URL(open.url).hash).toBe("");
+  });
+
+  test("問い合わせでも Host を検証する", async () => {
+    const response = await fetch(`${openBase}/auth-mode`, {
+      headers: { host: `evil.example.com:${open.port}` },
     });
     expect(response.status).toBe(403);
   });
