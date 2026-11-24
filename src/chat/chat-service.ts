@@ -22,6 +22,7 @@ import {
 } from "../provider/index.ts";
 import type { AnswerCompleted } from "../wiki/auto-terms.ts";
 import type { WikiContext, WikiContextBuilder } from "../wiki/context.ts";
+import type { AnswerFinished } from "./answer-summary.ts";
 import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
 import { toUserErrorMessage } from "./error-messages.ts";
@@ -78,6 +79,8 @@ export type ChatMessageMetadata = {
   aborted?: boolean;
   /** このターンで参照資料として渡した Wiki ページ（引用をリンクにするのに使う）。 */
   wiki?: { projectId: string; pages: { id: string; title: string }[] };
+  /** 回答の要約（閉じた回答に出す）。回答のあとに作るので、後から付く。 */
+  summary?: string;
 };
 
 export type ChatDataParts = {
@@ -188,6 +191,11 @@ export const createChatService = (deps: {
    * 用語ページの自動作成（#80）に使う。回答の保存のあとに呼び、結果は待たない。
    */
   onAnswerComplete?: (event: AnswerCompleted) => void;
+  /**
+   * 回答が最後まで終わったとき（中断・エラーを除く。プロジェクトに属さない会話も含む）に呼ぶ。
+   * 回答の要約に使う。回答の保存のあとに呼び、結果は待たない。
+   */
+  onAnswerFinish?: (event: AnswerFinished) => void;
   /** 分岐の生成が終わったとき（予約したメッセージの送信に使う。#102）。 */
   onRunnerFinish?: (
     chatId: string,
@@ -324,6 +332,18 @@ export const createChatService = (deps: {
           const answer = responseMessage.parts
             .flatMap((part) => (part.type === "text" ? [part.text] : []))
             .join("\n\n");
+          if (!isAborted && !failed && answer.trim() !== "") {
+            try {
+              deps.onAnswerFinish?.({
+                chatId: params.chatId,
+                messageId: responseMessage.id,
+                question: params.question,
+                answer,
+              });
+            } catch {
+              // 要約は回答に影響させない
+            }
+          }
           if (
             !isAborted &&
             !failed &&

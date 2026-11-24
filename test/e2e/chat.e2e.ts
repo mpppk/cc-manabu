@@ -92,7 +92,8 @@ test("回答を質問ごとに開閉でき、生成中の開閉状態を保つ",
   await open(page);
   await newChat(page);
   const main = page.getByRole("main");
-  const toggles = main.getByRole("button", { name: /^回答を(開く|閉じる)$/ });
+  // 閉じた回答は要約を出すので、名前は「回答を開く: <要約>」になる
+  const toggles = main.getByRole("button", { name: /^回答を(開く|閉じる)/ });
   const firstAnswer = main.getByText("了解: 最初の質問");
   await send(page, "最初の質問");
   await idle(page);
@@ -103,6 +104,10 @@ test("回答を質問ごとに開閉でき、生成中の開閉状態を保つ",
   await expect(streaming).toContainText("3");
   await expect(toggles.first()).toHaveAttribute("aria-expanded", "false");
   await expect(firstAnswer).toBeHidden();
+  // 閉じた回答には、「回答を開く」の代わりに回答のあとに作られた要約を出す
+  await expect(toggles.first()).toHaveAccessibleName(
+    "回答を開く: 要約（9 文字の回答）",
+  );
   await expect(main.getByText("最初の質問", { exact: true })).toBeVisible();
   await expect(toggles.last()).toHaveAttribute("aria-expanded", "true");
   await toggles.last().press("Space");
@@ -127,7 +132,12 @@ test("回答を質問ごとに開閉でき、生成中の開閉状態を保つ",
   await expect(streaming).toBeHidden();
   await page.reload();
   await expect(toggles.first()).toHaveAttribute("aria-expanded", "false");
+  // 保存した要約は、読み込み直しても出る
+  await expect(toggles.first()).toHaveAccessibleName(
+    "回答を開く: 要約（9 文字の回答）",
+  );
   await expect(toggles.last()).toHaveAttribute("aria-expanded", "true");
+  await expect(toggles.last()).toHaveText("回答を閉じる");
   await expect(firstAnswer).toBeHidden();
   await expect(streaming).toBeVisible();
 });

@@ -1,5 +1,6 @@
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
+import { createAnswerSummarizer } from "../../src/chat/answer-summary.ts";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
 import {
@@ -34,6 +35,8 @@ export const createTestContext = (
     maxConcurrent?: number;
     /** 用語抽出のモデル呼び出し。指定すると回答後に用語ページを作る（#80）。 */
     extract?: (prompt: string) => Promise<string>;
+    /** 回答の要約のモデル呼び出し。指定すると回答後に要約を作る。 */
+    summarize?: (prompt: string) => Promise<string>;
   } = {},
 ) => {
   const opened = openDatabase(":memory:");
@@ -67,6 +70,12 @@ export const createTestContext = (
     options.extract === undefined
       ? undefined
       : createTermPageWriter({ projects, wiki, extract: options.extract });
+  /** 回答後に走った要約（テストで完了を待つ）。 */
+  const summaryJobs: Promise<unknown>[] = [];
+  const summarizeAnswer =
+    options.summarize === undefined
+      ? undefined
+      : createAnswerSummarizer({ chats, summarize: options.summarize });
   const chatService = createChatService({
     chats,
     registry,
@@ -83,6 +92,13 @@ export const createTestContext = (
       : {
           onAnswerComplete: (event) => {
             termJobs.push(writeTermPages(event));
+          },
+        }),
+    ...(summarizeAnswer === undefined
+      ? {}
+      : {
+          onAnswerFinish: (event) => {
+            summaryJobs.push(summarizeAnswer(event));
           },
         }),
   });
@@ -127,6 +143,7 @@ export const createTestContext = (
     queue,
     rateLimits,
     termJobs,
+    summaryJobs,
     registry,
     chatService,
     approvals,

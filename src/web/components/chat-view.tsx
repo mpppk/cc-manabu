@@ -644,6 +644,45 @@ const useProjectTerms = (api: ApiClient, projectId: string | null) => {
   return { termMatcher, refreshTerms };
 };
 
+/** 回答の要約を取り直す間隔と回数（要約は回答のあとにサーバが作る）。 */
+const SUMMARY_POLL_MS = 1500;
+const SUMMARY_POLL_TRIES = 10;
+
+/**
+ * 回答の要約（メッセージ id → 要約）。読み込んだメッセージの metadata にあればそれを使い、
+ * 回答が終わったら、その回答の要約が届くまで少しのあいだ取り直す。
+ */
+const useAnswerSummaries = (api: ApiClient, chatId: string) => {
+  const [summaries, setSummaries] = useState<Record<string, string>>({});
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const waitFor = useCallback(
+    (messageId: string) => {
+      clearTimeout(timer.current);
+      let tries = 0;
+      const poll = () => {
+        tries += 1;
+        const retry = () => {
+          if (tries < SUMMARY_POLL_TRIES) {
+            timer.current = setTimeout(poll, SUMMARY_POLL_MS);
+          }
+        };
+        api.chats.summaries({ id: chatId }).then((next) => {
+          setSummaries((current) => ({ ...current, ...next }));
+          if (next[messageId] === undefined) retry();
+        }, retry);
+      };
+      timer.current = setTimeout(poll, SUMMARY_POLL_MS);
+    },
+    [api, chatId],
+  );
+  const summaryOf = (answers: ChatUIMessage[]): string | undefined =>
+    answers
+      .map((message) => summaries[message.id] ?? message.metadata?.summary)
+      .findLast((summary) => summary !== undefined);
+  return { summaryOf, waitFor };
+};
+
 /** 予約（#102）を取り直す間隔。 */
 const QUEUE_POLL_MS = 1000;
 
@@ -753,6 +792,10 @@ export const ChatView = ({
           },
     [api, chat.projectId, onOpenWikiPage],
   );
+  const { summaryOf, waitFor: waitForSummary } = useAnswerSummaries(
+    api,
+    chat.id,
+  );
   const transport = useMemo(
     () => new OrpcChatTransport(api, () => settingsRef.current),
     [api],
@@ -772,8 +815,12 @@ export const ChatView = ({
     transport,
     // リロード時に生成中なら、途中から表示する
     resume: true,
-    onFinish: () => {
+    onFinish: ({ message, isAbort, isError }) => {
       onActivity?.();
+      // 回答のあとに要約が作られるので、届くまで取り直す
+      if (!isAbort && !isError && message.role === "assistant") {
+        waitForSummary(message.id);
+      }
       // 予約があれば、サーバが次を送る
       setTimeout(() => void queue.refresh(), 200);
       // 回答のあとに用語ページが自動で作られるので、少し待ってから取り直す
@@ -1095,6 +1142,8 @@ export const ChatView = ({
                 const answerId = `answer-${question?.id ?? answers[0]?.id}`;
                 const hasAnswer =
                   answers.length > 0 || (busy && turn === latestTurn);
+                // 閉じている回答は、「回答を開く」の代わりに要約を出す
+                const summary = open ? undefined : summaryOf(answers);
                 const current =
                   !side && answerStart + answers.length === visibleCount;
                 return (
@@ -1117,7 +1166,11 @@ export const ChatView = ({
                           type="button"
                           variant="ghost"
                           size="sm"
-                          className="self-end text-muted-foreground"
+                          className={cn(
+                            "self-end text-muted-foreground",
+                            summary !== undefined &&
+                              "h-auto min-w-0 flex-1 justify-start whitespace-normal py-1.5 text-left font-normal",
+                          )}
                           aria-expanded={open}
                           aria-controls={answerId}
                           onClick={() => setOpen(question.id, !open)}
@@ -1129,7 +1182,18 @@ export const ChatView = ({
                               open && "rotate-90",
                             )}
                           />
-                          {open ? "回答を閉じる" : "回答を開く"}
+                          {summary !== undefined ? (
+                            <>
+                              <span className="sr-only">回答を開く: </span>
+                              <span className="line-clamp-2 break-words">
+                                {summary}
+                              </span>
+                            </>
+                          ) : open ? (
+                            "回答を閉じる"
+                          ) : (
+                            "回答を開く"
+                          )}
                         </Button>
                       )}
                     </div>
