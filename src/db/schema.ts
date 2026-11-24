@@ -76,6 +76,8 @@ export const chats = sqliteTable(
     taskId: text("project_id").references(() => tasks.id, {
       onDelete: "set null",
     }),
+    /** ページを削除した後も履歴を開けるよう、外部キーにはしない。 */
+    wikiPageId: text("wiki_page_id"),
     title: text("title").notNull().default(""),
     /** resume する Claude Code のセッション ID。最初の送信まではない。 */
     sessionId: text("session_id"),
@@ -119,6 +121,11 @@ export const chats = sqliteTable(
     index("chats_updated_at_idx").on(table.updatedAt),
     index("chats_project_id_idx").on(table.taskId),
     index("chats_group_id_idx").on(table.groupId),
+    uniqueIndex("chats_project_wiki_page_idx")
+      .on(table.taskId, table.wikiPageId)
+      .where(
+        sql`${table.parentId} IS NULL AND ${table.wikiPageId} IS NOT NULL`,
+      ),
   ],
 );
 

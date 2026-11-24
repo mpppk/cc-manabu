@@ -21,7 +21,13 @@ import {
   PROVIDER_NAME,
 } from "../provider/index.ts";
 import type { AnswerCompleted } from "../wiki/auto-terms.ts";
-import type { WikiContext, WikiContextBuilder } from "../wiki/context.ts";
+import {
+  type WikiContext,
+  type WikiContextBuilder,
+  type WikiPageReader,
+  WikiPageUnavailableError,
+  wikiPageContext,
+} from "../wiki/context.ts";
 import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
 import { toUserErrorMessage } from "./error-messages.ts";
@@ -77,11 +83,10 @@ export type ChatMessageMetadata = {
   };
   aborted?: boolean;
   /** このターンで参照資料として渡した Wiki ページ（引用をリンクにするのに使う）。 */
-  wiki?: {
+  wiki?: Omit<WikiContext, "text" | "taskId"> & {
     taskId?: string;
     /** 「プロジェクト」を「タスク」に改名する前に保存した回答の taskId。 */
     projectId?: string;
-    pages: { id: string; title: string }[];
   };
 };
 
@@ -107,6 +112,7 @@ export type SendInput = {
 export type SendError =
   | ChatNotFoundError
   | DatabaseError
+  | WikiPageUnavailableError
   | ChatAlreadyRunningError
   | TooManyRunnersError;
 
@@ -188,6 +194,7 @@ export const createChatService = (deps: {
   ) => LanguageModelV4;
   /** タスクの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
+  readWikiPage?: WikiPageReader;
   /**
    * タスクの会話で回答が最後まで終わったとき（中断・エラーを除く）に呼ぶ。
    * 用語ページの自動作成（#80）に使う。回答の保存のあとに呼び、結果は待たない。
@@ -201,14 +208,25 @@ export const createChatService = (deps: {
 }) => {
   const { chats, registry, approvals } = deps;
 
-  /** 会話がタスクに属していれば、Wiki の参照資料を作る。 */
-  const contextFor = (
-    chat: ChatRow,
-    parts: ChatUIMessage["parts"],
-  ): WikiContext | undefined =>
-    chat.taskId === null
-      ? undefined
-      : deps.wikiContext?.(chat.taskId, textOf(parts));
+  const readWikiPage: WikiPageReader = (taskId, pageId) =>
+    deps.readWikiPage?.(taskId, pageId) ??
+    Result.fail(new WikiPageUnavailableError());
+
+  /** ページにひも付く会話は、ページを参照できない場合に生成を始めない。 */
+  const contextFor = (chat: ChatRow, parts: ChatUIMessage["parts"]) => {
+    const { taskId, wikiPageId } = chat;
+    const question = textOf(parts);
+    if (wikiPageId === null) {
+      return Result.succeed(
+        taskId === null ? undefined : deps.wikiContext?.(taskId, question),
+      );
+    }
+    if (taskId === null) return Result.fail(new WikiPageUnavailableError());
+    return Result.pipe(
+      readWikiPage(taskId, wikiPageId),
+      Result.map((page) => wikiPageContext(taskId, page, question)),
+    );
+  };
 
   const startGeneration = (params: {
     chatId: string;
@@ -283,6 +301,9 @@ export const createChatService = (deps: {
                           wiki: {
                             taskId: params.context.taskId,
                             pages: params.context.pages,
+                            ...(params.context.excerpted
+                              ? { excerpted: true }
+                              : {}),
                           },
                         }),
                   };
@@ -351,19 +372,18 @@ export const createChatService = (deps: {
       });
     });
 
-  const send = (input: SendInput): Result.Result<ChatRunner, SendError> => {
-    let titled = false;
+  const sendToChat = (
+    chat: ChatRow,
+    input: Omit<SendInput, "chatId">,
+    context: WikiContext | undefined,
+  ): Result.Result<ChatRunner, SendError> => {
+    const titled = chat.title === "";
     return Result.pipe(
-      registry.canStart(input.chatId),
-      Result.andThen(() => chats.getChat(input.chatId)),
-      Result.andThen(({ chat }) => {
-        titled = chat.title === "";
-        return chats.updateChat(chat.id, {
-          ...(input.model === undefined ? {} : { model: input.model }),
-          ...(input.effort === undefined ? {} : { effort: input.effort }),
-          // 最初の発話でタイトルを付ける（名前を変えていればそのまま）
-          ...(chat.title === "" ? { title: titleOf(input.message.parts) } : {}),
-        });
+      chats.updateChat(chat.id, {
+        ...(input.model === undefined ? {} : { model: input.model }),
+        ...(input.effort === undefined ? {} : { effort: input.effort }),
+        // 最初の発話でタイトルを付ける（名前を変えていればそのまま）
+        ...(titled ? { title: titleOf(input.message.parts) } : {}),
       }),
       Result.andThen((chat) =>
         Result.pipe(
@@ -390,10 +410,63 @@ export const createChatService = (deps: {
           content: toUserContent(input.message.parts),
           taskId: chat.taskId,
           question: textOf(input.message.parts),
-          context: contextFor(chat, input.message.parts),
+          context,
         }),
       ),
       Result.inspect((runner) => trackStatus(runner)),
+    );
+  };
+
+  const send = (input: SendInput): Result.Result<ChatRunner, SendError> =>
+    Result.pipe(
+      registry.canStart(input.chatId),
+      Result.andThen(() => chats.getChat(input.chatId)),
+      Result.andThen(({ chat }) =>
+        Result.pipe(
+          contextFor(chat, input.message.parts),
+          Result.andThen((context) => sendToChat(chat, input, context)),
+        ),
+      ),
+    );
+
+  const sendToWikiPage = (
+    input: Omit<SendInput, "chatId"> & {
+      taskId: string;
+      pageId: string;
+      cwd: string;
+    },
+  ): Result.Result<ChatRunner, SendError> => {
+    const id = crypto.randomUUID();
+    return Result.pipe(
+      registry.canStart(id),
+      Result.andThen(() => readWikiPage(input.taskId, input.pageId)),
+      Result.andThen((page) =>
+        Result.pipe(
+          chats.getOrCreateWikiChat({
+            id,
+            taskId: input.taskId,
+            wikiPageId: page.id,
+            title: page.title,
+            cwd: input.cwd,
+          }),
+          Result.andThen((chat) =>
+            Result.pipe(
+              registry.canStart(chat.id),
+              Result.andThen(() =>
+                sendToChat(
+                  chat,
+                  input,
+                  wikiPageContext(
+                    input.taskId,
+                    page,
+                    textOf(input.message.parts),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   };
 
@@ -429,46 +502,56 @@ export const createChatService = (deps: {
           );
         }
         const forkSessionId = chat.sessionId ?? chat.forkSessionId;
-        if (fork.sdkUuid === null || forkSessionId === null) {
+        const forkFromUuid = fork.sdkUuid;
+        if (forkFromUuid === null || forkSessionId === null) {
           return Result.fail(
             new NotBranchableError({ messageId: input.messageId }),
           );
         }
-        return chats.createBranch({
-          id: input.branchId,
-          parent: chat,
-          forkMessageId: fork.id,
-          upToSeq: fork.seq,
-          branchTitle: makeTitle(textOf(input.message.parts)),
-          forkSessionId,
-          forkFromUuid: fork.sdkUuid,
-          model: input.model ?? chat.model,
-          effort:
-            input.effort === undefined ? chat.effort : (input.effort ?? null),
-          selectBranch: input.selectBranch ?? true,
-        });
+        return Result.pipe(
+          contextFor(chat, input.message.parts),
+          Result.andThen((context) =>
+            Result.pipe(
+              chats.createBranch({
+                id: input.branchId,
+                parent: chat,
+                forkMessageId: fork.id,
+                upToSeq: fork.seq,
+                branchTitle: makeTitle(textOf(input.message.parts)),
+                forkSessionId,
+                forkFromUuid,
+                model: input.model ?? chat.model,
+                effort:
+                  input.effort === undefined
+                    ? chat.effort
+                    : (input.effort ?? null),
+                selectBranch: input.selectBranch ?? true,
+              }),
+              Result.map((created) => ({ created, context })),
+            ),
+          ),
+        );
       }),
-      Result.andThen((created) =>
+      Result.andThen(({ created, context }) =>
         Result.pipe(
           chats.saveMessage(created.id, {
             id: input.message.id,
             role: "user",
             parts: input.message.parts,
           }),
-          Result.map(() => created),
+          Result.andThen(() =>
+            startGeneration({
+              chatId: created.id,
+              model: created.model,
+              effort: (created.effort as Effort | null) ?? null,
+              ...resumeOf(created),
+              content: toUserContent(input.message.parts),
+              taskId: created.taskId,
+              question: textOf(input.message.parts),
+              context,
+            }),
+          ),
         ),
-      ),
-      Result.andThen((created) =>
-        startGeneration({
-          chatId: created.id,
-          model: created.model,
-          effort: (created.effort as Effort | null) ?? null,
-          ...resumeOf(created),
-          content: toUserContent(input.message.parts),
-          taskId: created.taskId,
-          question: textOf(input.message.parts),
-          context: contextFor(created, input.message.parts),
-        }),
       ),
       Result.inspect((runner) => trackStatus(runner)),
     );
@@ -493,6 +576,8 @@ export const createChatService = (deps: {
     if (target === undefined) {
       return Result.fail(new NothingToRegenerateError());
     }
+    const context = contextFor(chat, userMessage.parts);
+    if (Result.isFailure(context)) return context;
     const forkPoint = findForkPoint(messages, index);
     return Result.pipe(
       chats.deleteMessagesFrom(chat.id, target.seq),
@@ -517,7 +602,7 @@ export const createChatService = (deps: {
           content: toUserContent(userMessage.parts),
           taskId: chat.taskId,
           question: textOf(userMessage.parts),
-          context: contextFor(chat, userMessage.parts),
+          context: context.value,
           ...(forkPoint === undefined
             ? {}
             : { resumeSessionAt: forkPoint, forkSession: true }),
@@ -602,6 +687,7 @@ export const createChatService = (deps: {
 
   return {
     send,
+    sendToWikiPage,
     branch,
     regenerate,
     edit,

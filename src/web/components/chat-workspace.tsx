@@ -17,11 +17,17 @@ type SideDraft = {
   quote: QuoteData;
   settings: SendSettings;
 };
-type SideRequest = { id: string; draft?: SideDraft };
-type SideBranch = { chat: ChatDto; messages: ChatUIMessage[] };
+type BranchRequest = { kind: "branch"; id: string; draft?: SideDraft };
+type WikiRequest = {
+  kind: "wiki";
+  taskId: string;
+  pageId: string;
+  title?: string;
+};
+type SideConversation = { chat: ChatDto; messages: ChatUIMessage[] };
 
-/** 選択した回答から分岐を作るか、保存済みの分岐を開いて続ける。 */
-const SideChat = ({
+/** 分岐または Wiki ページにひも付く会話をサイドで開く。 */
+export const SideChat = ({
   request,
   onClose,
   api,
@@ -31,84 +37,131 @@ const SideChat = ({
   ChatViewProps,
   "api" | "models" | "onActivity" | "onOpenWikiPage" | "onCreateWikiPage"
 > & {
-  request: SideRequest;
+  request: BranchRequest | WikiRequest;
   onClose: () => void;
 }) => {
-  const [submitted, setSubmitted] = useState(false);
-  const draft = submitted ? undefined : request.draft;
+  const wiki = request.kind === "wiki" ? request : undefined;
+  const taskId = wiki?.taskId;
+  const pageId = wiki?.pageId;
+  const draft = request.kind === "branch" ? request.draft : undefined;
+  const branchId = request.kind === "branch" ? request.id : undefined;
+  const [submittedId, setSubmittedId] = useState<string>();
   const [creating, setCreating] = useState(false);
-  const [branch, setBranch] = useState<SideBranch>();
+  const [conversation, setConversation] = useState<
+    SideConversation | null | undefined
+  >(draft === undefined ? undefined : null);
   const [error, setError] = useState<string>();
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     panel.current?.focus();
   }, []);
 
-  const loadBranch = useCallback(async () => {
+  const chatId = submittedId ?? (draft === undefined ? branchId : undefined);
+  const loadConversation = useCallback(async () => {
     setError(undefined);
     try {
-      const { chat, messages } = await api.chats.get({ id: request.id });
-      setBranch({ chat, messages: messages as ChatUIMessage[] });
+      const result =
+        chatId !== undefined
+          ? await api.chats.get({ id: chatId })
+          : taskId !== undefined && pageId !== undefined
+            ? await api.wiki.chat({ taskId, pageId })
+            : null;
+      setConversation(
+        result === null
+          ? null
+          : {
+              chat: result.chat,
+              messages: result.messages as ChatUIMessage[],
+            },
+      );
     } catch {
       setError("サイドチャットを読み込めませんでした。");
     }
-  }, [api, request.id]);
+  }, [api, chatId, pageId, taskId]);
 
   useEffect(() => {
-    if (draft === undefined) void loadBranch();
-  }, [draft, loadBranch]);
+    if (chatId !== undefined || pageId !== undefined) void loadConversation();
+  }, [chatId, pageId, loadConversation]);
 
   const submit = async (text: string, images: ImageAttachment[]) => {
-    if (creating || draft === undefined) return false;
+    if (creating) return false;
     requestNotificationPermission();
     setCreating(true);
     setError(undefined);
     try {
-      await api.chat.branch({
-        parentId: draft.parentId,
-        messageId: draft.quote.sourceMessageId,
-        branchId: request.id,
-        message: {
-          id: crypto.randomUUID(),
-          role: "user",
-          parts: [
-            { type: "data-quote", data: draft.quote },
-            ...imageFileParts(images),
-            ...(text === "" ? [] : [{ type: "text" as const, text }]),
-          ],
-        },
-        ...draft.settings,
-        selectBranch: false,
-      });
+      const message = {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        parts: [
+          ...imageFileParts(images),
+          ...(text === "" ? [] : [{ type: "text" as const, text }]),
+        ],
+      };
+      const result =
+        wiki !== undefined
+          ? await api.wiki.ask({
+              taskId: wiki.taskId,
+              pageId: wiki.pageId,
+              message,
+            })
+          : draft !== undefined && branchId !== undefined
+            ? await api.chat.branch({
+                parentId: draft.parentId,
+                messageId: draft.quote.sourceMessageId,
+                branchId,
+                message: {
+                  ...message,
+                  parts: [
+                    { type: "data-quote", data: draft.quote },
+                    ...message.parts,
+                  ],
+                },
+                ...draft.settings,
+                selectBranch: false,
+              })
+            : undefined;
+      if (result === undefined) return false;
+      setConversation(undefined);
+      setSubmittedId(result.chatId);
     } catch (failure) {
       setError(
-        failure instanceof Error ? failure.message : "分岐を作れませんでした。",
+        failure instanceof Error
+          ? failure.message
+          : "質問を送信できませんでした。",
       );
       return false;
     } finally {
       setCreating(false);
     }
-    setSubmitted(true);
     callbacks.onActivity?.();
     return true;
   };
+
+  const title =
+    wiki !== undefined
+      ? (wiki.title ?? conversation?.chat.title)
+      : conversation == null
+        ? undefined
+        : branchLabel(conversation.chat);
 
   return (
     <aside
       ref={panel}
       tabIndex={-1}
       aria-label="サイドチャット"
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none max-lg:fixed max-lg:inset-0 max-lg:z-30 lg:w-[42%] lg:min-w-80 lg:max-w-xl lg:flex-none lg:border-l"
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none lg:w-[42%] lg:min-w-80 lg:max-w-xl lg:flex-none lg:border-l",
+        wiki === undefined
+          ? "max-lg:fixed max-lg:inset-0 max-lg:z-30"
+          : "max-lg:flex-[2] max-lg:border-t",
+      )}
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="min-w-0">
           <h2 className="font-medium text-sm">サイドチャット</h2>
-          {branch !== undefined && (
-            <p
-              className="truncate text-muted-foreground text-xs"
-              title={branchLabel(branch.chat)}
-            >
-              {branchLabel(branch.chat)}
+          {title !== undefined && (
+            <p className="truncate text-muted-foreground text-xs" title={title}>
+              {title}
             </p>
           )}
         </div>
@@ -121,16 +174,16 @@ const SideChat = ({
           <X aria-hidden />
         </Button>
       </header>
-      {branch !== undefined ? (
+      {conversation != null ? (
         <ChatView
           api={api}
-          chat={branch.chat}
-          initialMessages={branch.messages}
+          chat={conversation.chat}
+          initialMessages={conversation.messages}
           models={models}
           side
           {...callbacks}
         />
-      ) : draft === undefined ? (
+      ) : conversation === undefined ? (
         <div className="flex flex-1 flex-col items-start gap-2 p-4 text-sm">
           {error === undefined ? (
             <p role="status">サイドチャットを読み込み中…</p>
@@ -142,7 +195,7 @@ const SideChat = ({
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => void loadBranch()}
+                onClick={() => void loadConversation()}
               >
                 再読み込み
               </Button>
@@ -152,7 +205,7 @@ const SideChat = ({
       ) : (
         <>
           <div className="flex-1 overflow-y-auto p-4">
-            <QuoteBlock text={draft.quote.text} />
+            {draft !== undefined && <QuoteBlock text={draft.quote.text} />}
           </div>
           <div className="border-t p-4">
             {error !== undefined && (
@@ -177,7 +230,7 @@ export const ChatWorkspace = ({
   loading,
   ...props
 }: ChatViewProps & { loading: boolean }) => {
-  const [side, setSide] = useState<SideRequest>();
+  const [side, setSide] = useState<BranchRequest>();
   if (!loading && side?.id === props.chat.id) setSide(undefined);
   const main = useRef<HTMLElement>(null);
   const closeSide = () => {
@@ -211,11 +264,12 @@ export const ChatWorkspace = ({
             {...props}
             onAskSelection={(quote, settings) =>
               setSide({
+                kind: "branch",
                 id: crypto.randomUUID(),
                 draft: { parentId: props.chat.id, quote, settings },
               })
             }
-            onOpenSideBranch={(id) => setSide({ id })}
+            onOpenSideBranch={(id) => setSide({ kind: "branch", id })}
           />
         )}
       </section>

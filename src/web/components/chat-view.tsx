@@ -307,6 +307,11 @@ const MessageView = ({
           ))}
         </nav>
       )}
+      {wiki?.excerpted === true && (
+        <p className="text-muted-foreground text-xs">
+          Wiki ページの抜粋を参照しました。
+        </p>
+      )}
       <div className="flex items-center gap-2">
         {usage !== undefined && (
           <p className="text-muted-foreground text-xs">

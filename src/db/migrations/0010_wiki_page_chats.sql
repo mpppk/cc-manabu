@@ -1,0 +1,2 @@
+ALTER TABLE `chats` ADD `wiki_page_id` text;--> statement-breakpoint
+CREATE UNIQUE INDEX `chats_project_wiki_page_idx` ON `chats` (`project_id`,`wiki_page_id`) WHERE "chats"."parent_id" IS NULL AND "chats"."wiki_page_id" IS NOT NULL;

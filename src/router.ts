@@ -7,7 +7,11 @@ import { checkImagePart, MAX_IMAGES_PER_MESSAGE } from "./chat/attachments.ts";
 import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
 import type { QueueDispatcher } from "./chat/queue-dispatcher.ts";
 import type { ClaudeStatusHolder } from "./claude/status.ts";
-import type { ChatRepository, DatabaseError } from "./db/chat-repository.ts";
+import {
+  type ChatRepository,
+  type DatabaseError,
+  WikiChatTaskError,
+} from "./db/chat-repository.ts";
 import type { QueueRepository } from "./db/queue-repository.ts";
 import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
 import {
@@ -52,6 +56,8 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   TaskLinkNotFoundError: "NOT_FOUND",
   QueuedMessageNotFoundError: "NOT_FOUND",
   WikiPageNotFoundError: "NOT_FOUND",
+  WikiPageUnavailableError: "NOT_FOUND",
+  WikiChatTaskError: "BAD_REQUEST",
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
   ApprovalNotFoundError: "NOT_FOUND",
@@ -82,6 +88,7 @@ export type ChatDto = Pick<
   | "branchTitle"
   | "lastSelectedAt"
   | "taskId"
+  | "wikiPageId"
   | "title"
   | "model"
   | "effort"
@@ -108,6 +115,7 @@ const toChatDto = (row: ChatRow): ChatDto => ({
   branchTitle: row.branchTitle,
   lastSelectedAt: row.lastSelectedAt,
   taskId: row.taskId,
+  wikiPageId: row.wikiPageId,
   title: row.title,
   model: row.model,
   effort: row.effort,
@@ -236,6 +244,17 @@ const wikiPageInput = z.object({
 
 const chatId = z.object({ id: z.string().min(1) });
 const taskName = z.string().trim().min(1).max(100);
+const wikiChatTarget = z.object({
+  taskId: z.string().min(1),
+  pageId: z.string().min(1),
+});
+const sendSettings = {
+  model: z.string().min(1).optional(),
+  effort: z
+    .enum(["low", "medium", "high", "xhigh", "max"])
+    .nullable()
+    .optional(),
+};
 
 const userMessage = z.object({
   id: z.string().min(1),
@@ -456,6 +475,35 @@ export const router = {
       }),
   },
   wiki: {
+    /** 削除済みのページからも保存済みの会話を読み込める。 */
+    chat: base.input(wikiChatTarget).handler(async ({ context, input }) => {
+      const row = await unwrapForOrpc(
+        context.chats.getWikiChat(input.taskId, input.pageId),
+        ERROR_CODES,
+      );
+      if (row === undefined) return null;
+      const { chat, messages } = await unwrapForOrpc(
+        context.chats.getChat(row.id),
+        ERROR_CODES,
+      );
+      return { chat: toChatDto(chat), messages: messages.map(toMessageDto) };
+    }),
+    /** 初回送信で会話を作る。応答は通常どおり chat.reconnect で受け取る。 */
+    ask: base
+      .input(wikiChatTarget.extend({ message: userMessage, ...sendSettings }))
+      .handler(async ({ context, input }) => {
+        const runner = await unwrapForOrpc(
+          context.chatService.sendToWikiPage({
+            ...input,
+            cwd: context.cwd,
+            message: input.message as Parameters<
+              ChatService["send"]
+            >[0]["message"],
+          }),
+          ERROR_CODES,
+        );
+        return { chatId: runner.chatId };
+      }),
     /** タスクが参照する Wiki のページ（タイトル順）。 */
     list: base
       .input(z.object({ taskId: z.string().min(1) }))
@@ -569,10 +617,12 @@ export const router = {
               Result.andThen(() => context.chats.getChat(input.id)),
               // 分岐元と分岐先は同じタスクに属する（会話ごと移す）
               Result.andThen(({ chat }) =>
-                Result.pipe(
-                  context.chats.setGroupTask(chat.groupId, input.taskId),
-                  Result.andThen(() => context.chats.getChat(input.id)),
-                ),
+                chat.wikiPageId !== null && chat.taskId !== input.taskId
+                  ? Result.fail(new WikiChatTaskError())
+                  : Result.pipe(
+                      context.chats.setGroupTask(chat.groupId, input.taskId),
+                      Result.andThen(() => context.chats.getChat(input.id)),
+                    ),
               ),
               Result.map(({ chat }) => chat),
             ),
@@ -742,11 +792,7 @@ export const router = {
         z.object({
           chatId: z.string().min(1),
           message: userMessage,
-          model: z.string().min(1).optional(),
-          effort: z
-            .enum(["low", "medium", "high", "xhigh", "max"])
-            .nullable()
-            .optional(),
+          ...sendSettings,
         }),
       )
       .output(chunkIterator)
@@ -777,11 +823,7 @@ export const router = {
           branchId: z.string().uuid(),
           message: userMessage,
           selectBranch: z.boolean().default(true),
-          model: z.string().min(1).optional(),
-          effort: z
-            .enum(["low", "medium", "high", "xhigh", "max"])
-            .nullable()
-            .optional(),
+          ...sendSettings,
         }),
       )
       .handler(async ({ context, input }) => {

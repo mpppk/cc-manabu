@@ -1,6 +1,16 @@
 import { Result } from "@praha/byethrow";
-import { type TaskRepository, wikiIdOf } from "../db/task-repository.ts";
-import type { WikiRepository } from "../db/wiki-repository.ts";
+import { ErrorFactory } from "@praha/error-factory";
+import type { DatabaseError } from "../db/chat-repository.ts";
+import type { WikiPageRow } from "../db/schema.ts";
+import {
+  TaskNotFoundError,
+  type TaskRepository,
+  wikiIdOf,
+} from "../db/task-repository.ts";
+import {
+  WikiPageNotFoundError,
+  type WikiRepository,
+} from "../db/wiki-repository.ts";
 import { selectRelevantPages } from "./match.ts";
 import { buildReferenceText } from "./reference.ts";
 
@@ -9,6 +19,7 @@ export type WikiContext = {
   text: string;
   taskId: string;
   pages: { id: string; title: string }[];
+  excerpted?: boolean;
 };
 
 export type WikiContextBuilder = (
@@ -54,3 +65,56 @@ export const createWikiContextBuilder =
       return undefined;
     }
   };
+
+export class WikiPageUnavailableError extends ErrorFactory({
+  name: "WikiPageUnavailableError",
+  message:
+    "この Wiki ページを参照できません。削除されたか、このタスクの Wiki に属していません。",
+}) {}
+
+export type WikiPageReader = (
+  taskId: string,
+  pageId: string,
+) => Result.Result<WikiPageRow, DatabaseError | WikiPageUnavailableError>;
+
+/** 明示的な参照は、送信時点でページがタスクの Wiki に属するときだけ許可する。 */
+export const createWikiPageReader =
+  (
+    wiki: Pick<WikiRepository, "getPage">,
+    tasks: Pick<TaskRepository, "getTask">,
+  ): WikiPageReader =>
+  (taskId, pageId) =>
+    Result.pipe(
+      tasks.getTask(taskId),
+      Result.andThen((task) =>
+        Result.pipe(
+          wiki.getPage(pageId),
+          Result.andThen((page) =>
+            page.wikiId === wikiIdOf(task)
+              ? Result.succeed(page)
+              : Result.fail(new WikiPageUnavailableError()),
+          ),
+        ),
+      ),
+      Result.mapError((error) =>
+        error instanceof WikiPageNotFoundError ||
+        error instanceof TaskNotFoundError
+          ? new WikiPageUnavailableError({ cause: error })
+          : error,
+      ),
+    );
+
+export const wikiPageContext = (
+  taskId: string,
+  page: WikiPageRow,
+  question: string,
+): WikiContext | undefined => {
+  const reference = buildReferenceText([page], question);
+  if (reference === undefined) return undefined;
+  return {
+    text: reference.text,
+    taskId,
+    pages: [{ id: page.id, title: page.title }],
+    ...(reference.excerpted ? { excerpted: true } : {}),
+  };
+};

@@ -1,6 +1,6 @@
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
-import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
 import type { Db } from "./index.ts";
 import {
   type ChatRow,
@@ -19,6 +19,11 @@ export class ChatNotFoundError extends ErrorFactory({
 export class DatabaseError extends ErrorFactory({
   name: "DatabaseError",
   message: "A database error occurred",
+}) {}
+
+export class WikiChatTaskError extends ErrorFactory({
+  name: "WikiChatTaskError",
+  message: "Wiki ページの会話は別のタスクに移動できません。",
 }) {}
 
 const run = <T>(fn: () => T): Result.Result<T, DatabaseError> =>
@@ -49,35 +54,71 @@ export const createChatRepository = (db: Db) => {
   const findChat = (chatId: string) =>
     run(() => db.select().from(chats).where(eq(chats.id, chatId)).get());
 
+  const wikiChatWhere = (taskId: string, pageId: string) =>
+    and(
+      eq(chats.taskId, taskId),
+      eq(chats.wikiPageId, pageId),
+      isNull(chats.parentId),
+    );
+
+  const newChatValues = (input: {
+    cwd: string;
+    taskId?: string | null;
+    wikiPageId?: string;
+    model?: string;
+    effort?: string | null;
+    title?: string;
+    id?: string;
+  }) => {
+    const now = new Date();
+    const id = input.id ?? crypto.randomUUID();
+    return {
+      id,
+      groupId: id,
+      taskId: input.taskId ?? null,
+      wikiPageId: input.wikiPageId ?? null,
+      cwd: input.cwd,
+      model: input.model ?? "default",
+      effort: input.effort ?? null,
+      title: input.title ?? "",
+      createdAt: now,
+      updatedAt: now,
+    };
+  };
+
   return {
-    createChat: (input: {
+    createChat: (
+      input: Omit<Parameters<typeof newChatValues>[0], "wikiPageId">,
+    ): Result.Result<ChatRow, DatabaseError> =>
+      run(() =>
+        db.insert(chats).values(newChatValues(input)).returning().get(),
+      ),
+
+    getWikiChat: (taskId: string, pageId: string) =>
+      run(() =>
+        db.select().from(chats).where(wikiChatWhere(taskId, pageId)).get(),
+      ),
+
+    /** 複数のタブで初回送信しても、同じタスクとページの会話は 1 つにする。 */
+    getOrCreateWikiChat: (input: {
+      id: string;
+      taskId: string;
+      wikiPageId: string;
+      title: string;
       cwd: string;
-      taskId?: string | null;
-      model?: string;
-      effort?: string | null;
-      title?: string;
-      id?: string;
     }): Result.Result<ChatRow, DatabaseError> =>
-      run(() => {
-        const now = new Date();
-        const id = input.id ?? crypto.randomUUID();
-        return db
-          .insert(chats)
-          .values({
-            id,
-            // 新しい会話は、自分自身が会話（分岐のまとまり）になる
-            groupId: id,
-            taskId: input.taskId ?? null,
-            cwd: input.cwd,
-            model: input.model ?? "default",
-            effort: input.effort ?? null,
-            title: input.title ?? "",
-            createdAt: now,
-            updatedAt: now,
-          })
-          .returning()
-          .get();
-      }),
+      run(() =>
+        db.transaction(
+          (tx) =>
+            tx
+              .select()
+              .from(chats)
+              .where(wikiChatWhere(input.taskId, input.wikiPageId))
+              .get() ??
+            tx.insert(chats).values(newChatValues(input)).returning().get(),
+          { behavior: "immediate" },
+        ),
+      ),
 
     /** 更新日時の新しい順。 */
     listChats: (): Result.Result<ChatRow[], DatabaseError> =>
@@ -172,6 +213,7 @@ export const createChatRepository = (db: Db) => {
               forkSessionId: input.forkSessionId,
               forkFromUuid: input.forkFromUuid,
               taskId: input.parent.taskId,
+              wikiPageId: input.parent.wikiPageId,
               title: input.parent.title,
               cwd: input.parent.cwd,
               model: input.model,

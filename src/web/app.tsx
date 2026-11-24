@@ -250,6 +250,7 @@ export const App = ({ api }: { api: ApiClient }) => {
         : { returnTo: wikiState.returnTo },
     );
   };
+  const models = status?.claude.state === "ready" ? status.claude.models : [];
   const workspace = chatViewId === undefined ? undefined : current;
   const workspaceGroup =
     chats.find((chat) => chat.id === chatViewId)?.groupId ??
@@ -387,9 +388,7 @@ export const App = ({ api }: { api: ApiClient }) => {
               chat={workspace.chat}
               initialMessages={workspace.messages}
               loading={workspace.chat.id !== chatViewId}
-              models={
-                status?.claude.state === "ready" ? status.claude.models : []
-              }
+              models={models}
               onActivity={() => void refreshChats()}
               branches={chats.filter(
                 (chat) => chat.groupId === workspace.chat.groupId,
@@ -427,6 +426,14 @@ export const App = ({ api }: { api: ApiClient }) => {
               .map((p) => p.name)}
             autoTerms={task.autoTerms}
             pageId={wikiRoute.pageId}
+            models={models}
+            hasPageChat={chats.some(
+              (chat) =>
+                chat.taskId === task.id &&
+                chat.parentId === null &&
+                chat.wikiPageId === wikiRoute.pageId,
+            )}
+            onChatActivity={() => void refreshChats()}
             onOpenChat={select}
             returnTo={wikiState?.returnTo}
             initialDraft={wikiState?.draft}
