@@ -581,8 +581,7 @@ export const Sidebar = ({
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center justify-between p-3">
-        <span className="font-semibold">cc-manabu</span>
+      <div className="flex items-center p-2">
         <div className="flex items-center">
           <Button
             variant="ghost"
