@@ -514,12 +514,18 @@ const BranchSwitcher = ({
   branches,
   disabled,
   onSelect,
+  onOpenSide,
 }: {
   current: ChatDto;
   branches: ChatDto[];
   disabled: boolean;
   onSelect: (chatId: string) => void;
+  onOpenSide?: (chatId: string) => void;
 }) => {
+  const sidePicker = useRef<HTMLDetailsElement>(null);
+  const sorted = [...branches].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  );
   const labelOf = (chat: ChatDto) => {
     const parent = branches.find((b) => b.id === chat.parentId);
     return parent === undefined
@@ -538,19 +544,50 @@ const BranchSwitcher = ({
           disabled={disabled}
           onChange={(event) => onSelect(event.target.value)}
         >
-          {[...branches]
-            .sort(
-              (a, b) =>
-                new Date(a.createdAt).getTime() -
-                new Date(b.createdAt).getTime(),
-            )
-            .map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {labelOf(branch)}
-              </option>
-            ))}
+          {sorted.map((branch) => (
+            <option key={branch.id} value={branch.id}>
+              {labelOf(branch)}
+            </option>
+          ))}
         </select>
       </label>
+      {onOpenSide !== undefined && (
+        <details ref={sidePicker} className="group">
+          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-md px-1 py-1 text-muted-foreground text-xs hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
+            <ChevronRight
+              aria-hidden
+              className="size-3.5 transition-transform group-open:rotate-90"
+            />
+            サイドで開く
+          </summary>
+          <ul
+            aria-label="サイドで開く分岐"
+            className="max-h-48 overflow-y-auto rounded-md border bg-background p-1"
+          >
+            {sorted
+              .filter((branch) => branch.id !== current.id)
+              .map((branch) => (
+                <li key={branch.id}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-auto w-full justify-start whitespace-normal py-1.5 text-left"
+                    onClick={() => {
+                      if (sidePicker.current !== null) {
+                        sidePicker.current.open = false;
+                        sidePicker.current.querySelector("summary")?.focus();
+                      }
+                      onOpenSide(branch.id);
+                    }}
+                  >
+                    {labelOf(branch)}
+                  </Button>
+                </li>
+              ))}
+          </ul>
+        </details>
+      )}
       <span className="text-muted-foreground text-xs">
         会話の履歴は分岐ごとに分かれますが、ファイルへの変更はすべての分岐で共有されます。
       </span>
@@ -667,6 +704,8 @@ export type ChatViewProps = {
   branches?: ChatDto[];
   /** 分岐を開く（作った分岐を開くのにも使う）。 */
   onSelectBranch?: (chatId: string) => void;
+  /** メインで開いている分岐を保ったまま、別の分岐をサイドで開く。 */
+  onOpenSideBranch?: (chatId: string) => void;
   initialMessages: ChatUIMessage[];
   /** 選べるモデル（system.status から）。 */
   models: ModelInfo[];
@@ -688,6 +727,7 @@ export const ChatView = ({
   onOpenWikiPage,
   branches = [],
   onSelectBranch,
+  onOpenSideBranch,
   focusMessage,
   onCreateWikiPage,
   side = false,
@@ -1027,6 +1067,9 @@ export const ChatView = ({
                 branches={branches}
                 disabled={branchFrom !== undefined}
                 onSelect={(id) => onSelectBranch?.(id)}
+                {...(onOpenSideBranch === undefined
+                  ? {}
+                  : { onOpenSide: onOpenSideBranch })}
               />
             )}
             {turns
