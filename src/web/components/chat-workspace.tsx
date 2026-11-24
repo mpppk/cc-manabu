@@ -11,6 +11,7 @@ import { cn } from "../lib/utils.ts";
 import { ChatView, type ChatViewProps, QuoteBlock } from "./chat-view.tsx";
 import { Composer } from "./composer.tsx";
 import { Button } from "./ui/button.tsx";
+import { WikiPane } from "./wiki-pane.tsx";
 
 type SideDraft = {
   parentId: string;
@@ -25,6 +26,15 @@ type WikiRequest = {
   title?: string;
 };
 type SideConversation = { chat: ChatDto; messages: ChatUIMessage[] };
+/** 回答中の用語・引用から、会話の右側に開く Wiki ページ。 */
+type PageRequest = {
+  kind: "page";
+  id: string;
+  taskId: string;
+  pageId: string;
+  /** 閉じたときにフォーカスを戻す要素（開いた用語やリンク）。 */
+  returnFocus: HTMLElement | null;
+};
 
 /** 分岐または Wiki ページにひも付く会話をサイドで開く。 */
 export const SideChat = ({
@@ -226,23 +236,51 @@ export const SideChat = ({
   );
 };
 
+/**
+ * メインの会話と、右側のペイン（サイドチャットか Wiki ページのどちらか 1 つ）。
+ * 右側のペインは常に 1 つだけで、新しく開くと前のものと入れ替わる。
+ */
 export const ChatWorkspace = ({
   loading,
+  onOpenChat,
   ...props
-}: ChatViewProps & { loading: boolean }) => {
-  const [side, setSide] = useState<BranchRequest>();
+}: ChatViewProps & {
+  loading: boolean;
+  /** 別の会話を開く（Wiki ページの「元の回答を開く」）。 */
+  onOpenChat?: (chatId: string) => void;
+}) => {
+  const [side, setSide] = useState<BranchRequest | PageRequest>();
   if (!loading && side?.id === props.chat.id) setSide(undefined);
   const main = useRef<HTMLElement>(null);
+  const focusComposer = () =>
+    main.current
+      ?.querySelector<HTMLTextAreaElement>("textarea[aria-label='メッセージ']")
+      ?.focus();
   const closeSide = () => {
+    const returnFocus = side?.kind === "page" ? side.returnFocus : null;
     setSide(undefined);
-    requestAnimationFrame(() =>
-      main.current
-        ?.querySelector<HTMLTextAreaElement>(
-          "textarea[aria-label='メッセージ']",
-        )
-        ?.focus(),
-    );
+    requestAnimationFrame(() => {
+      if (returnFocus?.isConnected) {
+        returnFocus.focus();
+      } else {
+        focusComposer();
+      }
+    });
   };
+  const openWikiPane = useCallback((taskId: string, pageId: string) => {
+    const active = document.activeElement;
+    setSide({
+      kind: "page",
+      id: crypto.randomUUID(),
+      taskId,
+      pageId,
+      returnFocus:
+        active instanceof HTMLElement && active !== document.body
+          ? active
+          : null,
+    });
+  }, []);
+  const onOpenWikiPage = props.onOpenWikiPage;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
@@ -270,10 +308,24 @@ export const ChatWorkspace = ({
               })
             }
             onOpenSideBranch={(id) => setSide({ kind: "branch", id })}
+            onOpenWikiPane={openWikiPane}
           />
         )}
       </section>
-      {side !== undefined && (
+      {side?.kind === "page" ? (
+        <WikiPane
+          key={side.id}
+          api={props.api}
+          pageId={side.pageId}
+          onClose={closeSide}
+          onOpenFull={
+            onOpenWikiPage === undefined
+              ? undefined
+              : () => onOpenWikiPage(side.taskId, side.pageId)
+          }
+          onOpenChat={onOpenChat}
+        />
+      ) : side !== undefined ? (
         <SideChat
           key={side.id}
           request={side}
@@ -290,7 +342,7 @@ export const ChatWorkspace = ({
             ? {}
             : { onCreateWikiPage: props.onCreateWikiPage })}
         />
-      )}
+      ) : null}
     </div>
   );
 };

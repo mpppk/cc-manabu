@@ -586,7 +586,13 @@ test("Wiki ページを作り、タスクのスレッドの回答から参照・
   await expect(
     page.getByRole("navigation", { name: "参照した Wiki" }),
   ).toContainText("関係タプル");
+  // 引用リンクは右側のペインで開き、「Wiki で開く」で Wiki 画面へ移る
+  const chatUrl = page.url();
+  const pane = page.getByRole("complementary", { name: "Wiki ページ" });
   await link.click();
+  await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
+  await expect(page).toHaveURL(chatUrl);
+  await pane.getByRole("button", { name: "Wiki で開く" }).click();
   await expect(page).toHaveURL(pageUrl.replace(/#.*$/, ""));
   await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
 
@@ -615,7 +621,7 @@ test("Wiki ページを作り、タスクのスレッドの回答から参照・
   await expect(page.getByText(/参照: .*関係タプル/)).toBeVisible();
   await page.getByRole("main").locator("a[data-wiki-page]").click();
   await expect(
-    page.getByText("このページは削除されたか、存在しません。"),
+    pane.getByText("このページは削除されたか、存在しません。"),
   ).toBeVisible();
 });
 
@@ -754,10 +760,9 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await page.mouse.move(0, 0);
   await expect(card).toHaveCount(0);
 
-  // キーボード: フォーカスで要約、Enter で固定、「Wiki で開く」で移動
+  // キーボード: フォーカスで要約、Tab で要約の「Wiki で開く」へ移って Wiki 画面を開く
   await terms.nth(1).focus();
   await expect(card).toBeVisible();
-  await page.keyboard.press("Enter");
   await page.keyboard.press("Tab");
   await expect(card.getByRole("button", { name: "Wiki で開く" })).toBeFocused();
   await page.keyboard.press("Enter");
@@ -765,13 +770,6 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
   await page.getByRole("button", { name: "回答に戻る" }).click();
   await expect(page).toHaveURL(/\/c\/.+/);
-
-  // クリック（タップ）で固定して開き、外側を押すと閉じる
-  await terms.nth(0).click();
-  await page.mouse.move(0, 0);
-  await expect(card).toBeVisible();
-  await page.mouse.click(5, 300);
-  await expect(card).toHaveCount(0);
 
   // 回答のあとに自動作成されたページも、表示中の回答の用語になる
   await send(page, "「認可モデル」について");
@@ -826,6 +824,109 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     }),
   ).toHaveCount(0);
   await expect(terms.first()).toHaveText("関係タプル");
+});
+
+test("回答中の用語・引用をクリックすると、右側のペインで Wiki ページを開く", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "ペインの検証");
+  for (const [title, aliases, body] of [
+    ["関係タプル", "relation tuple", "主体・関係・対象の **3 つ組**。"],
+    ["認可モデル", "", "権限を決める仕組み。"],
+  ] as const) {
+    await openWiki(page, "ペインの検証");
+    await page.getByRole("button", { name: "新しいページ" }).click();
+    await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+    await page
+      .getByRole("textbox", { name: "別名（カンマ区切り）" })
+      .fill(aliases);
+    await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(body);
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  }
+  await openTask(page, "ペインの検証");
+  await newChat(page);
+  await send(page, "関係タプル と 認可モデル の関係");
+  await idle(page);
+  const chatUrl = page.url();
+
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  const pane = page.getByRole("complementary", { name: "Wiki ページ" });
+  const tuple = main
+    .locator("button[data-wiki-term]", { hasText: "関係タプル" })
+    .first();
+  const model = main
+    .locator("button[data-wiki-term]", { hasText: "認可モデル" })
+    .first();
+  await mainInput.fill("書きかけの質問");
+
+  // クリックで右側に開き、メインの会話はそのまま
+  await tuple.click();
+  await expect(pane).toBeFocused();
+  await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
+  await expect(pane).toContainText("主体・関係・対象の 3 つ組。");
+  await expect(pane).toContainText("別名: relation tuple");
+  await expect(main).toBeVisible();
+  await expect(
+    main.getByText("関係タプル と 認可モデル の関係", { exact: true }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(chatUrl);
+
+  // 別の用語をクリックすると切り替わり、Escape で閉じると用語にフォーカスが戻る
+  await model.click();
+  await expect(pane.getByRole("heading", { name: "認可モデル" })).toBeVisible();
+  await expect(pane.getByRole("heading", { name: "関係タプル" })).toHaveCount(
+    0,
+  );
+  await page.keyboard.press("Escape");
+  await expect(pane).toHaveCount(0);
+  await expect(model).toBeFocused();
+  await expect(mainInput).toHaveValue("書きかけの質問");
+
+  // キーボード: Enter で開いてペインにフォーカスが移り、閉じるボタンで戻る
+  await tuple.focus();
+  await page.keyboard.press("Enter");
+  await expect(pane).toBeFocused();
+  await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
+  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+  await expect(pane).toHaveCount(0);
+  await expect(tuple).toBeFocused();
+
+  // 引用リンクも同じペインで開き、「Wiki で開く」で Wiki 画面へ移って戻れる
+  await main.locator("a[data-wiki-page]").first().click();
+  await expect(pane.getByRole("heading")).toHaveCount(1);
+  await pane.getByRole("button", { name: "Wiki で開く" }).click();
+  await expect(page).toHaveURL(/\/wiki\/.+/);
+  await page.getByRole("button", { name: "回答に戻る" }).click();
+  await expect(page).toHaveURL(chatUrl);
+  await expect(mainInput).toHaveValue("書きかけの質問");
+  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+
+  // 右側のペインは 1 つだけ: サイドチャットを開いていても、用語を押すと入れ替わる
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  await selectLastAnswerParagraph(page);
+  await main.getByRole("button", { name: "質問", exact: true }).click();
+  await expect(side).toBeVisible();
+  await model.click();
+  await expect(pane.getByRole("heading", { name: "認可モデル" })).toBeVisible();
+  await expect(side).toHaveCount(0);
+  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+
+  // 狭い画面ではペインが全面に出て、閉じるとメインの現在地と下書きに戻る
+  await page.setViewportSize({ width: 700, height: 740 });
+  await tuple.click();
+  await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
+  await expect(main).toBeHidden();
+  expect((await pane.boundingBox())?.width).toBe(700);
+  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+  await expect(main).toBeVisible();
+  await expect(mainInput).toHaveValue("書きかけの質問");
+  await expect(tuple).toBeFocused();
 });
 
 test("タスクに関連リンクを登録し、開き、編集・削除できる", async ({ page }) => {
@@ -1127,13 +1228,13 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   ).toHaveCount(0);
   await expect(ask).toHaveCount(0);
 
-  // 用語はクリックで説明が開く（選択しても説明は開かない）
+  // 用語はクリックで右側のペインに開く（選択してもペインは開かない）
   const term = main.locator("button[data-wiki-term]").last();
+  const wikiPane = page.getByRole("complementary", { name: "Wiki ページ" });
   await term.click();
-  await expect(page.getByRole("dialog", { name: "用語の説明" })).toContainText(
-    "非同期で処理する方式。",
-  );
-  await term.press("Escape");
+  await expect(wikiPane).toContainText("非同期で処理する方式。");
+  await page.keyboard.press("Escape");
+  await expect(wikiPane).toHaveCount(0);
   await mainInput.hover();
   await expect(page.getByRole("dialog", { name: "用語の説明" })).toHaveCount(0);
 
