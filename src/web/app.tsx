@@ -137,9 +137,13 @@ export const App = ({ api }: { api: ApiClient }) => {
     void refreshProjects();
   }, [refreshProjects]);
 
+  /** 検索結果から開いた発言（#115）。開いた会話でその発言へ移動する。 */
+  const [focus, setFocus] = useState<{ chatId: string; messageId: string }>();
+
   // 選んだ会話・プロジェクトを URL に反映し、ブラウザの戻る・進むにも対応する
   const navigate = useCallback(
     (next: string, state?: { returnTo?: string; draft?: PageDraft }) => {
+      setFocus(undefined);
       if (window.location.pathname !== next) {
         window.history.pushState(state ?? null, "", next);
       }
@@ -161,22 +165,23 @@ export const App = ({ api }: { api: ApiClient }) => {
     [navigate, api, refreshChats],
   );
 
-  /** 検索結果から開いた発言（#115）。開いた会話でその発言へ移動する。 */
-  const [focus, setFocus] = useState<{ chatId: string; messageId: string }>();
   const searchChats = useCallback(
     (q: string) => api.search.query({ q }),
     [api],
   );
   const openSearchHit = useCallback(
     (chatId: string, messageId?: string) => {
-      setFocus(messageId === undefined ? undefined : { chatId, messageId });
       select(chatId);
+      if (messageId !== undefined) setFocus({ chatId, messageId });
     },
     [select],
   );
 
   useEffect(() => {
-    const onPopState = () => setPath(window.location.pathname);
+    const onPopState = () => {
+      setFocus(undefined);
+      setPath(window.location.pathname);
+    };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
@@ -399,7 +404,7 @@ export const App = ({ api }: { api: ApiClient }) => {
               navigate(pathForWiki(projectId), { returnTo: path, draft })
             }
             {...(focus?.chatId === current.chat.id
-              ? { focusMessageId: focus.messageId }
+              ? { focusMessage: focus }
               : {})}
             onOpenWikiPage={(projectId, pageId) =>
               // Wiki から元の回答に戻れるようにする
