@@ -1,6 +1,6 @@
 {
   "name": "cc-manabu",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Local chat app that talks to Claude through your Claude Code login",
   "license": "MIT",
   "type": "module",
