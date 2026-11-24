@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   probe:
-    runs-on: macos-15
+    runs-on: macos-latest
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v4
