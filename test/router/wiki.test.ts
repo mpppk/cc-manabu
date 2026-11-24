@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createRouterClient } from "@orpc/server";
 import { Result } from "@praha/byethrow";
 import { DatabaseError } from "../../src/db/chat-repository.ts";
+import type { ProjectRow } from "../../src/db/schema.ts";
 import { router } from "../../src/router.ts";
 import { createWikiContextBuilder } from "../../src/wiki/context.ts";
 import { createTestContext } from "../helpers/context.ts";
@@ -67,7 +68,7 @@ describe("wiki の CRUD", () => {
     expect(page).toMatchObject({
       title: "関係タプル",
       aliases: ["tuple", "relation tuple"],
-      projectId: project.id,
+      wikiId: project.wikiId,
     });
     expect(
       (await client.wiki.list({ projectId: project.id })).map((p) => p.id),
@@ -207,11 +208,49 @@ describe("回答時の Wiki 参照", () => {
   });
 });
 
+describe("Wiki の共有", () => {
+  test("既存の Wiki を選んで作ったプロジェクトは、同じページを読み書きし、回答の参照資料にも使う", async () => {
+    const { client } = await setup();
+    const a = await client.projects.create({ name: "認可基盤" });
+    const page = await client.wiki.create({
+      projectId: a.id,
+      title: "関係タプル",
+      aliases: [],
+      body: "社内では三つ組チケットと呼ぶ。",
+    });
+    const b = await client.projects.create({
+      name: "監査ログ",
+      wikiId: a.wikiId,
+    });
+    expect(b.wikiId).toBe(a.wikiId);
+    expect(
+      (await client.wiki.list({ projectId: b.id })).map((p) => p.id),
+    ).toEqual([page.id]);
+    expect(await client.wikis.list()).toEqual([
+      { id: a.wikiId, name: "認可基盤", projectCount: 2 },
+    ]);
+    await client.wikis.rename({ id: a.wikiId, name: "共通用語集" });
+    expect((await client.wikis.list())[0]?.name).toBe("共通用語集");
+
+    // 新しい Wiki を作ったプロジェクトには見えない
+    const c = await client.projects.create({ name: "別件" });
+    expect(c.wikiId).not.toBe(a.wikiId);
+    expect(await client.wiki.list({ projectId: c.id })).toEqual([]);
+
+    // 無い Wiki は指定できない
+    await expect(
+      client.projects.create({ name: "x", wikiId: "missing" }),
+    ).rejects.toThrow();
+  });
+});
+
 describe("createWikiContextBuilder", () => {
   test("Wiki の読み込みに失敗したら undefined（通常どおり生成する）", () => {
     const errors: unknown[] = [];
+    const project = { id: "p", wikiId: "p" } as unknown as ProjectRow;
     const failing = createWikiContextBuilder(
       { listPages: () => Result.fail(new DatabaseError()) },
+      { getProject: () => Result.succeed(project) },
       (error) => errors.push(error),
     );
     expect(failing("p", "関係タプル")).toBeUndefined();
@@ -221,6 +260,7 @@ describe("createWikiContextBuilder", () => {
           throw new Error("boom");
         },
       },
+      { getProject: () => Result.succeed(project) },
       (error) => errors.push(error),
     );
     expect(throwing("p", "関係タプル")).toBeUndefined();

@@ -29,15 +29,15 @@ export type WikiPageInput = {
   body: string;
 };
 
-/** プロジェクトの Wiki ページの永続化。 */
+/** Wiki ページの永続化。ページは Wiki（複数のプロジェクトで共有できる）に属する。 */
 export const createWikiRepository = (db: Db) => ({
-  /** プロジェクトのページ（タイトル順）。 */
-  listPages: (projectId: string): Result.Result<WikiPageRow[], DatabaseError> =>
+  /** Wiki のページ（タイトル順）。 */
+  listPages: (wikiId: string): Result.Result<WikiPageRow[], DatabaseError> =>
     run(() =>
       db
         .select()
         .from(wikiPages)
-        .where(eq(wikiPages.projectId, projectId))
+        .where(eq(wikiPages.wikiId, wikiId))
         .orderBy(asc(wikiPages.title))
         .all(),
     ),
@@ -53,7 +53,7 @@ export const createWikiRepository = (db: Db) => ({
     ),
 
   createPage: (
-    input: WikiPageInput & { projectId: string; id?: string },
+    input: WikiPageInput & { wikiId: string; id?: string },
   ): Result.Result<WikiPageRow, DatabaseError> =>
     run(() => {
       const now = new Date();
@@ -61,7 +61,7 @@ export const createWikiRepository = (db: Db) => ({
         .insert(wikiPages)
         .values({
           id: input.id ?? crypto.randomUUID(),
-          projectId: input.projectId,
+          wikiId: input.wikiId,
           title: input.title,
           aliases: input.aliases,
           body: input.body,
@@ -94,7 +94,7 @@ export const createWikiRepository = (db: Db) => ({
    * 既存のページは書き換えない。作ったページを返す。
    */
   createTermPages: (
-    projectId: string,
+    wikiId: string,
     candidates: readonly TermCandidate[],
     source: { chatId: string; messageId: string },
   ): Result.Result<WikiPageRow[], DatabaseError> =>
@@ -104,7 +104,7 @@ export const createWikiRepository = (db: Db) => ({
           tx
             .select({ title: wikiPages.title, aliases: wikiPages.aliases })
             .from(wikiPages)
-            .where(eq(wikiPages.projectId, projectId))
+            .where(eq(wikiPages.wikiId, wikiId))
             .all()
             .flatMap((page) => [page.title, ...page.aliases])
             .map(normalizeTerm),
@@ -123,7 +123,7 @@ export const createWikiRepository = (db: Db) => ({
               .insert(wikiPages)
               .values({
                 id: crypto.randomUUID(),
-                projectId,
+                wikiId,
                 title: candidate.term,
                 aliases: candidate.aliases,
                 body: candidate.summary,

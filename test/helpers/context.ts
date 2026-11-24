@@ -75,7 +75,7 @@ export const createTestContext = (
       createClaudeCode({ cwd: "/work", query, canUseTool, onRateLimit })(
         modelId,
       ),
-    wikiContext: createWikiContextBuilder(wiki),
+    wikiContext: createWikiContextBuilder(wiki, projects),
     onRunnerFinish: (chatId, outcome) =>
       queueDispatcher?.onRunnerFinish(chatId, outcome),
     ...(writeTermPages === undefined

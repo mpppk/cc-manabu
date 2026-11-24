@@ -12,6 +12,9 @@ import projectProgress from "./migrations/0005_project_progress.sql" with {
 import branches from "./migrations/0006_branches.sql" with { type: "text" };
 import queue from "./migrations/0007_queue.sql" with { type: "text" };
 import appState from "./migrations/0008_app_state.sql" with { type: "text" };
+import sharedWikis from "./migrations/0009_shared_wikis.sql" with {
+  type: "text",
+};
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -27,6 +30,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0006_branches", sql: branches },
   { name: "0007_queue", sql: queue },
   { name: "0008_app_state", sql: appState },
+  { name: "0009_shared_wikis", sql: sharedWikis },
 ];
 
 /** 未適用のマイグレーションを順に適用する。 */

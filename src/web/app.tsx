@@ -1,7 +1,7 @@
 import { Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
-import type { ChatDto, ProjectDto } from "../router.ts";
+import type { ChatDto, ProjectDto, WikiDto } from "../router.ts";
 import { ChatView } from "./components/chat-view.tsx";
 import { ProjectList } from "./components/project-list.tsx";
 import { ProjectOverview } from "./components/project-overview.tsx";
@@ -123,8 +123,14 @@ export const App = ({ api }: { api: ApiClient }) => {
     return () => clearInterval(timer);
   }, [refreshChats]);
 
+  const [wikis, setWikis] = useState<WikiDto[]>([]);
   const refreshProjects = useCallback(async () => {
-    setProjects(await api.projects.list());
+    const [nextProjects, nextWikis] = await Promise.all([
+      api.projects.list(),
+      api.wikis.list(),
+    ]);
+    setProjects(nextProjects);
+    setWikis(nextWikis);
   }, [api]);
 
   useEffect(() => {
@@ -228,8 +234,12 @@ export const App = ({ api }: { api: ApiClient }) => {
     select(chat.id);
   };
 
-  const createProject = async (name: string) => {
-    const project = await api.projects.create({ name });
+  /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
+  const createProject = async (name: string, wikiId?: string) => {
+    const project = await api.projects.create({
+      name,
+      ...(wikiId === undefined ? {} : { wikiId }),
+    });
     await refreshProjects();
     navigate(pathForProject(project.id));
   };
@@ -243,6 +253,11 @@ export const App = ({ api }: { api: ApiClient }) => {
     await api.projects.delete({ id });
     await Promise.all([refreshProjects(), refreshChats()]);
     navigate(pathForProject(null));
+  };
+
+  const renameWiki = async (id: string, name: string) => {
+    await api.wikis.rename({ id, name });
+    await refreshProjects();
   };
 
   const setAutoTerms = async (id: string, enabled: boolean) => {
@@ -288,6 +303,8 @@ export const App = ({ api }: { api: ApiClient }) => {
         onDelete={remove}
         onSelectProject={(id) => navigate(pathForProject(id))}
         onCreateProject={createProject}
+        wikis={wikis}
+        onRenameWiki={renameWiki}
         onRenameProject={renameProject}
         onDeleteProject={deleteProject}
         onSetProject={setProject}
@@ -344,6 +361,10 @@ export const App = ({ api }: { api: ApiClient }) => {
             api={api}
             projectId={project.id}
             projectName={project.name}
+            wikiName={wikis.find((wiki) => wiki.id === project.wikiId)?.name}
+            sharedWith={(projects ?? [])
+              .filter((p) => p.wikiId === project.wikiId && p.id !== project.id)
+              .map((p) => p.name)}
             autoTerms={project.autoTerms}
             pageId={wikiRoute.pageId}
             onOpenChat={select}

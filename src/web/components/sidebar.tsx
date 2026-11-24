@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import type { ChatDto, ProjectDto } from "../../router.ts";
+import type { ChatDto, ProjectDto, WikiDto } from "../../router.ts";
 import { groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
 import { AddThreadsDialog, ProjectSwitcher } from "./project-switcher.tsx";
@@ -194,6 +194,8 @@ export const Sidebar = ({
   onDelete,
   onSelectProject,
   onCreateProject,
+  wikis,
+  onRenameWiki,
   onRenameProject,
   onDeleteProject,
   onSetProject,
@@ -215,7 +217,11 @@ export const Sidebar = ({
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onSelectProject: (projectId: string | null) => void;
-  onCreateProject: (name: string) => Promise<void>;
+  /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
+  onCreateProject: (name: string, wikiId?: string) => Promise<void>;
+  /** Wiki（プロジェクトで共有できる）。 */
+  wikis: WikiDto[];
+  onRenameWiki: (wikiId: string, name: string) => Promise<void>;
   onRenameProject: (projectId: string, name: string) => Promise<void>;
   onDeleteProject: (projectId: string) => Promise<void>;
   /** 会話の所属を変える（null で未所属に戻す）。 */
@@ -294,6 +300,8 @@ export const Sidebar = ({
           projectId={projectId}
           onSelect={onSelectProject}
           onCreate={onCreateProject}
+          wikis={wikis}
+          onRenameWiki={onRenameWiki}
           onRename={onRenameProject}
           onDelete={onDeleteProject}
           onSetAutoTerms={onSetAutoTerms}

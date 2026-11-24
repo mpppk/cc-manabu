@@ -8,9 +8,10 @@ import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
 import type { QueueDispatcher } from "./chat/queue-dispatcher.ts";
 import type { ClaudeStatusHolder } from "./claude/status.ts";
 import type { ChatRepository, DatabaseError } from "./db/chat-repository.ts";
-import type {
-  ProjectNotFoundError,
-  ProjectRepository,
+import {
+  type ProjectNotFoundError,
+  type ProjectRepository,
+  wikiIdOf,
 } from "./db/project-repository.ts";
 import type { QueueRepository } from "./db/queue-repository.ts";
 import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
@@ -135,11 +136,15 @@ export type ProjectDto = Pick<
   | "nextAction"
   | "progressUpdatedAt"
   | "createdAt"
->;
+> & {
+  /** 参照する Wiki（ほかのプロジェクトと共有していることがある）。 */
+  wikiId: string;
+};
 
 const toProjectDto = (row: ProjectRow): ProjectDto => ({
   id: row.id,
   name: row.name,
+  wikiId: wikiIdOf(row),
   autoTerms: row.autoTerms,
   status: row.status,
   progressNote: row.progressNote,
@@ -147,6 +152,9 @@ const toProjectDto = (row: ProjectRow): ProjectDto => ({
   progressUpdatedAt: row.progressUpdatedAt,
   createdAt: row.createdAt,
 });
+
+/** クライアントに返す Wiki（複数のプロジェクトで共有できる）。 */
+export type WikiDto = { id: string; name: string; projectCount: number };
 
 /** projectId が指定されていれば、そのプロジェクトがあることを確かめる。 */
 const requireProject = (
@@ -197,7 +205,7 @@ const projectLinkInput = z.object({
 export type WikiPageDto = Pick<
   WikiPageRow,
   | "id"
-  | "projectId"
+  | "wikiId"
   | "title"
   | "aliases"
   | "body"
@@ -209,7 +217,7 @@ export type WikiPageDto = Pick<
 
 const toWikiPageDto = (row: WikiPageRow): WikiPageDto => ({
   id: row.id,
-  projectId: row.projectId,
+  wikiId: row.wikiId,
   title: row.title,
   aliases: row.aliases,
   body: row.body,
@@ -304,12 +312,18 @@ export const router = {
         toProjectDto,
       ),
     ),
+    /** プロジェクトを作る。wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
     create: base
-      .input(z.object({ name: projectName }))
+      .input(
+        z.object({ name: projectName, wikiId: z.string().min(1).optional() }),
+      )
       .handler(async ({ context, input }) =>
         toProjectDto(
           await unwrapForOrpc(
-            context.projects.createProject({ name: input.name }),
+            context.projects.createProject({
+              name: input.name,
+              ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
+            }),
             ERROR_CODES,
           ),
         ),
@@ -427,16 +441,40 @@ export const router = {
         return { id: input.id };
       }),
   },
+  wikis: {
+    /** Wiki（作った順）と、参照しているプロジェクトの数。 */
+    list: base.handler(async ({ context }) =>
+      (await unwrapForOrpc(context.projects.listWikis(), ERROR_CODES)).map(
+        (wiki): WikiDto => ({
+          id: wiki.id,
+          name: wiki.name,
+          projectCount: wiki.projectCount,
+        }),
+      ),
+    ),
+    /** Wiki の名前を変える（共有しているプロジェクトすべてに反映される）。 */
+    rename: base
+      .input(z.object({ id: z.string().min(1), name: projectName }))
+      .handler(async ({ context, input }) => {
+        const wiki = await unwrapForOrpc(
+          context.projects.renameWiki(input.id, input.name),
+          ERROR_CODES,
+        );
+        return { id: wiki.id, name: wiki.name };
+      }),
+  },
   wiki: {
-    /** プロジェクトの Wiki ページ（タイトル順）。 */
+    /** プロジェクトが参照する Wiki のページ（タイトル順）。 */
     list: base
       .input(z.object({ projectId: z.string().min(1) }))
       .handler(async ({ context, input }) =>
         (
           await unwrapForOrpc(
             Result.pipe(
-              requireProject(context, input.projectId),
-              Result.andThen(() => context.wiki.listPages(input.projectId)),
+              context.projects.getProject(input.projectId),
+              Result.andThen((project) =>
+                context.wiki.listPages(wikiIdOf(project)),
+              ),
             ),
             ERROR_CODES,
           )
@@ -455,8 +493,15 @@ export const router = {
         toWikiPageDto(
           await unwrapForOrpc(
             Result.pipe(
-              requireProject(context, input.projectId),
-              Result.andThen(() => context.wiki.createPage(input)),
+              context.projects.getProject(input.projectId),
+              Result.andThen((project) =>
+                context.wiki.createPage({
+                  wikiId: wikiIdOf(project),
+                  title: input.title,
+                  aliases: input.aliases,
+                  body: input.body,
+                }),
+              ),
             ),
             ERROR_CODES,
           ),

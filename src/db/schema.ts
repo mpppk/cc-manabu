@@ -24,10 +24,30 @@ export const PROJECT_STATUSES = [
 ] as const;
 export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
 
-/** 複数の会話（と、のちに Wiki）をまとめる単位。 */
+/**
+ * Wiki（ページのまとまり）。複数のプロジェクトで共有できる。
+ * どのプロジェクトからも参照されなくなったら、ページごと消す。
+ */
+export const wikis = sqliteTable("wikis", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch('subsec') * 1000)`),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .notNull()
+    .default(sql`(unixepoch('subsec') * 1000)`),
+});
+
+/** 複数の会話と、参照する Wiki をまとめる単位。 */
 export const projects = sqliteTable("projects", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
+  /**
+   * 参照する Wiki。ほかのプロジェクトと共有できる。
+   * 既存の行に後から足した列なので DB では null を許すが、アプリは必ず設定する。
+   */
+  wikiId: text("wiki_id").references(() => wikis.id),
   /** 回答から用語ページを自動で作るか（回答ごとに Claude を追加で呼び出す）。 */
   autoTerms: integer("auto_terms", { mode: "boolean" }).notNull().default(true),
   /** 進捗の状態。既存のプロジェクトは未着手として扱う。 */
@@ -129,15 +149,15 @@ export const messages = sqliteTable(
   (table) => [uniqueIndex("messages_chat_seq_idx").on(table.chatId, table.seq)],
 );
 
-/** プロジェクトの Wiki ページ（Markdown）。プロジェクトを消すと一緒に消える。 */
+/** Wiki のページ（Markdown）。Wiki を消すと一緒に消える。 */
 export const wikiPages = sqliteTable(
   "wiki_pages",
   {
     /** 安定したページ ID（回答からのリンクに使う）。 */
     id: text("id").primaryKey(),
-    projectId: text("project_id")
+    wikiId: text("wiki_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => wikis.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     /** 別名（JSON の文字列配列）。関連ページの照合とリンクに使う。 */
     aliases: text("aliases", { mode: "json" })
@@ -162,7 +182,7 @@ export const wikiPages = sqliteTable(
       .notNull()
       .default(sql`(unixepoch('subsec') * 1000)`),
   },
-  (table) => [index("wiki_pages_project_id_idx").on(table.projectId)],
+  (table) => [index("wiki_pages_wiki_id_idx").on(table.wikiId)],
 );
 
 /** プロジェクトの関連リンク（GitHub リポジトリ・設計資料など、繰り返し開く URL）。 */
@@ -226,6 +246,7 @@ export type ProjectRow = typeof projects.$inferSelect;
 export type QueuedMessageRow = typeof queuedMessages.$inferSelect;
 export type ProjectLinkRow = typeof projectLinks.$inferSelect;
 export type WikiPageRow = typeof wikiPages.$inferSelect;
+export type WikiRow = typeof wikis.$inferSelect;
 export type ChatRow = typeof chats.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;
 

@@ -1,6 +1,6 @@
 import { FolderPlus, Pencil, Settings, Trash2 } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import type { ProjectDto } from "../../router.ts";
+import type { ProjectDto, WikiDto } from "../../router.ts";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 
@@ -68,6 +68,169 @@ const NameDialog = ({
   );
 };
 
+/** 新しいプロジェクトを作るダイアログ。Wiki は新しく作るか、既存のものを共有する。 */
+const CreateProjectDialog = ({
+  open,
+  wikis,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  wikis: WikiDto[];
+  onClose: () => void;
+  onSubmit: (name: string, wikiId: string | undefined) => Promise<void>;
+}) => {
+  const [name, setName] = useState("");
+  const [useExisting, setUseExisting] = useState(false);
+  const [wikiId, setWikiId] = useState("");
+  const [prevOpen, setPrevOpen] = useState(open);
+  // 開き直すたびに初期値に戻す
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setName("");
+      setUseExisting(false);
+      setWikiId(wikis[0]?.id ?? "");
+    }
+  }
+  const chosen = useExisting ? wikis.find((w) => w.id === wikiId) : undefined;
+  const valid = name.trim() !== "" && (!useExisting || chosen !== undefined);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!valid) return;
+    await onSubmit(name.trim(), chosen?.id);
+    onClose();
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      title="新しいプロジェクト"
+    >
+      <form className="grid gap-4" onSubmit={submit}>
+        <input
+          className="rounded-md border bg-background px-3 py-2 text-sm"
+          aria-label="プロジェクトの名前"
+          placeholder="例: 認可基盤"
+          maxLength={100}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <fieldset className="grid gap-2 text-sm">
+          <legend className="mb-1 font-medium">Wiki</legend>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="wiki"
+              checked={!useExisting}
+              onChange={() => setUseExisting(false)}
+            />
+            新しい Wiki を作る
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="wiki"
+              checked={useExisting}
+              disabled={wikis.length === 0}
+              onChange={() => setUseExisting(true)}
+            />
+            既存の Wiki を使う
+            {wikis.length === 0 && (
+              <span className="text-muted-foreground text-xs">
+                （まだ Wiki がありません）
+              </span>
+            )}
+          </label>
+          {useExisting && (
+            <select
+              className="ml-6 rounded-md border bg-background px-2 py-1.5"
+              aria-label="使う Wiki"
+              value={wikiId}
+              onChange={(event) => setWikiId(event.target.value)}
+            >
+              {wikis.map((wiki) => (
+                <option key={wiki.id} value={wiki.id}>
+                  {wiki.name}（{wiki.projectCount} 件のプロジェクトで使用中）
+                </option>
+              ))}
+            </select>
+          )}
+          <span className="text-muted-foreground text-xs">
+            同じ Wiki
+            を使うプロジェクトどうしでは、ページ（用語ページを含む）を共有し、回答の参照資料にも使います。
+          </span>
+        </fieldset>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            キャンセル
+          </Button>
+          <Button type="submit" disabled={!valid}>
+            作成
+          </Button>
+        </DialogFooter>
+      </form>
+    </Dialog>
+  );
+};
+
+/** Wiki の名前を変える欄（プロジェクトの設定の中）。 */
+const WikiNameField = ({
+  wiki,
+  onRename,
+}: {
+  wiki: WikiDto;
+  onRename: (name: string) => Promise<void>;
+}) => {
+  const [name, setName] = useState(wiki.name);
+  const [prevName, setPrevName] = useState(wiki.name);
+  if (wiki.name !== prevName) {
+    setPrevName(wiki.name);
+    setName(wiki.name);
+  }
+  return (
+    <form
+      className="flex gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (name.trim() !== "" && name.trim() !== wiki.name) {
+          void onRename(name.trim());
+        }
+      }}
+    >
+      <input
+        className="min-w-0 flex-1 rounded-md border bg-background px-3 py-1.5 text-sm"
+        aria-label="Wiki の名前"
+        maxLength={100}
+        value={name}
+        onChange={(event) => setName(event.target.value)}
+      />
+      <Button
+        type="submit"
+        size="sm"
+        variant="outline"
+        disabled={name.trim() === "" || name.trim() === wiki.name}
+      >
+        名前を保存
+      </Button>
+    </form>
+  );
+};
+
+const GROUP_KEY = "cc-manabu.groupProjectsByWiki";
+
+const loadGroupByWiki = (): boolean => {
+  try {
+    return localStorage.getItem(GROUP_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
 /** サイドバー上部のプロジェクト選択（作成・名前変更・削除）。 */
 export const ProjectSwitcher = ({
   projects,
@@ -77,12 +240,18 @@ export const ProjectSwitcher = ({
   onRename,
   onDelete,
   onSetAutoTerms,
+  wikis,
+  onRenameWiki,
 }: {
   projects: ProjectDto[];
+  /** Wiki（複数のプロジェクトで共有できる）。 */
+  wikis: WikiDto[];
+  onRenameWiki: (wikiId: string, name: string) => Promise<void>;
   /** 選択中のプロジェクト。null は未所属の会話。 */
   projectId: string | null;
   onSelect: (projectId: string | null) => void;
-  onCreate: (name: string) => Promise<void>;
+  /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
+  onCreate: (name: string, wikiId?: string) => Promise<void>;
   onRename: (projectId: string, name: string) => Promise<void>;
   onDelete: (projectId: string) => Promise<void>;
   onSetAutoTerms: (projectId: string, enabled: boolean) => Promise<void>;
@@ -93,79 +262,126 @@ export const ProjectSwitcher = ({
   const current = projects.find((p) => p.id === projectId);
   /** 保存中の自動作成の設定（保存が終わるまで表示に使う）。 */
   const [autoTerms, setAutoTerms] = useState<boolean>();
+  /** 一覧を参照している Wiki ごとにまとめるか（ブラウザに覚える）。 */
+  const [groupByWiki, setGroupByWiki] = useState(loadGroupByWiki);
+  const currentWiki = wikis.find((wiki) => wiki.id === current?.wikiId);
+  /** 今のプロジェクトと同じ Wiki を使う、ほかのプロジェクト。 */
+  const sharing = projects.filter(
+    (p) =>
+      current !== undefined &&
+      p.wikiId === current.wikiId &&
+      p.id !== current.id,
+  );
+
+  const optionOf = (project: ProjectDto) => (
+    <option key={project.id} value={project.id}>
+      {project.status === "done" ? `${project.name}（完了）` : project.name}
+    </option>
+  );
+  const grouped = wikis.flatMap((wiki) => {
+    const members = projects.filter((p) => p.wikiId === wiki.id);
+    return members.length === 0 ? [] : [{ wiki, members }];
+  });
+  const ungrouped = projects.filter(
+    (p) => !wikis.some((wiki) => wiki.id === p.wikiId),
+  );
 
   return (
-    <div className="flex items-center gap-1 px-3 pb-2">
-      <select
-        className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-sm"
-        aria-label="プロジェクト"
-        value={projectId ?? UNASSIGNED}
-        onChange={(event) =>
-          onSelect(
-            event.target.value === UNASSIGNED ? null : event.target.value,
-          )
-        }
-      >
-        <option value={UNASSIGNED}>未所属のスレッド</option>
-        {projects.map((project) => (
-          <option key={project.id} value={project.id}>
-            {project.status === "done"
-              ? `${project.name}（完了）`
-              : project.name}
-          </option>
-        ))}
-      </select>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-8"
-        aria-label="新しいプロジェクト"
-        title="新しいプロジェクト"
-        onClick={() => setDialog("create")}
-      >
-        <FolderPlus className="size-4" />
-      </Button>
-      {current !== undefined && (
-        <>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label="プロジェクトの設定"
-            title="プロジェクトの設定"
-            onClick={() => setDialog("settings")}
-          >
-            <Settings className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label="プロジェクトの名前を変える"
-            title="プロジェクトの名前を変える"
-            onClick={() => setDialog("rename")}
-          >
-            <Pencil className="size-3.5" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-8"
-            aria-label="プロジェクトを削除"
-            title="プロジェクトを削除"
-            onClick={() => setDialog("delete")}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        </>
+    <div className="flex flex-col gap-1 px-3 pb-2">
+      <div className="flex items-center gap-1">
+        <select
+          className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-sm"
+          aria-label="プロジェクト"
+          value={projectId ?? UNASSIGNED}
+          onChange={(event) =>
+            onSelect(
+              event.target.value === UNASSIGNED ? null : event.target.value,
+            )
+          }
+        >
+          <option value={UNASSIGNED}>未所属のスレッド</option>
+          {groupByWiki ? (
+            <>
+              {grouped.map(({ wiki, members }) => (
+                <optgroup key={wiki.id} label={`Wiki: ${wiki.name}`}>
+                  {members.map(optionOf)}
+                </optgroup>
+              ))}
+              {ungrouped.map(optionOf)}
+            </>
+          ) : (
+            projects.map(optionOf)
+          )}
+        </select>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          aria-label="新しいプロジェクト"
+          title="新しいプロジェクト"
+          onClick={() => setDialog("create")}
+        >
+          <FolderPlus className="size-4" />
+        </Button>
+        {current !== undefined && (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label="プロジェクトの設定"
+              title="プロジェクトの設定"
+              onClick={() => setDialog("settings")}
+            >
+              <Settings className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label="プロジェクトの名前を変える"
+              title="プロジェクトの名前を変える"
+              onClick={() => setDialog("rename")}
+            >
+              <Pencil className="size-3.5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8"
+              aria-label="プロジェクトを削除"
+              title="プロジェクトを削除"
+              onClick={() => setDialog("delete")}
+            >
+              <Trash2 className="size-3.5" />
+            </Button>
+          </>
+        )}
+      </div>
+      {projects.length > 0 && (
+        <label className="flex items-center gap-1.5 text-muted-foreground text-xs">
+          <input
+            type="checkbox"
+            className="size-3.5"
+            checked={groupByWiki}
+            onChange={(event) => {
+              const next = event.target.checked;
+              setGroupByWiki(next);
+              try {
+                localStorage.setItem(GROUP_KEY, next ? "1" : "0");
+              } catch {
+                // 覚えられなくても表示は切り替える
+              }
+            }}
+          />
+          参照している Wiki ごとにまとめる
+        </label>
       )}
-      <NameDialog
+      <CreateProjectDialog
         open={dialog === "create"}
-        title="新しいプロジェクト"
-        initial=""
-        submitLabel="作成"
+        wikis={wikis}
         onClose={() => setDialog(undefined)}
-        onSubmit={onCreate}
+        onSubmit={(name, wikiId) => onCreate(name, wikiId)}
       />
       <NameDialog
         open={dialog === "rename"}
@@ -212,6 +428,20 @@ export const ProjectSwitcher = ({
             </span>
           </span>
         </label>
+        {currentWiki !== undefined && (
+          <section className="grid gap-2" aria-label="Wiki">
+            <span className="font-medium text-sm">Wiki</span>
+            <WikiNameField
+              wiki={currentWiki}
+              onRename={(name) => onRenameWiki(currentWiki.id, name)}
+            />
+            <span className="text-muted-foreground text-xs">
+              {sharing.length === 0
+                ? "この Wiki はこのプロジェクトだけで使っています。"
+                : `この Wiki は ${sharing.map((p) => `「${p.name}」`).join("")} と共有しています。名前とページはすべてのプロジェクトに反映されます。`}
+            </span>
+          </section>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => setDialog(undefined)}>
             閉じる
@@ -224,7 +454,11 @@ export const ProjectSwitcher = ({
           if (!open) setDialog(undefined);
         }}
         title="プロジェクトを削除しますか？"
-        description={`「${current?.name ?? ""}」を削除します。所属しているスレッドは削除されず、未所属に戻ります。`}
+        description={`「${current?.name ?? ""}」を削除します。所属しているスレッドは削除されず、未所属に戻ります。${
+          sharing.length > 0
+            ? `Wiki「${currentWiki?.name ?? ""}」はほかのプロジェクトでも使っているので残ります。`
+            : `Wiki「${currentWiki?.name ?? ""}」とそのページも削除されます。`
+        }`}
       >
         <DialogFooter>
           <Button variant="outline" onClick={() => setDialog(undefined)}>
