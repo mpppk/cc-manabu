@@ -14,7 +14,13 @@ test("CC_MANABU_NO_AUTH=1 のサーバは、トークン付きの URL でなく�
     0,
   );
   // 会話一覧などの API もトークンなしで呼べている
-  await page.getByLabel("新しい会話", { exact: true }).click();
+  const unassigned = page
+    .getByRole("navigation", { name: "会話一覧" })
+    .locator("li[data-unassigned] > div.group");
+  await unassigned.hover();
+  await unassigned
+    .getByRole("button", { name: "未所属に新しいスレッド" })
+    .click();
   await expect(page).toHaveURL(/\/c\/.+/);
   await context.close();
 });

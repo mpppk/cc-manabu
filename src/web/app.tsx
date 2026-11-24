@@ -330,7 +330,6 @@ export const App = ({ api }: { api: ApiClient }) => {
             : undefined
         }
         openWikiTaskId={showWiki ? task.id : undefined}
-        onNew={() => void newChat(taskId)}
         onNewInTask={(id) => void newChat(id)}
         onSelect={select}
         onRename={rename}

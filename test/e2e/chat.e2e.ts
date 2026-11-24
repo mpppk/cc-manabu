@@ -8,9 +8,28 @@ const open = async (page: Page) => {
   await expect(page.getByText("Claude Code 0.0.0-e2e")).toBeVisible();
 };
 
+/**
+ * 今開いている画面のタスク（無ければ未所属）に、サイドバーの行の操作で新しいスレッドを作る。
+ * タスクの概要・Wiki（`/t/<id>`）ならそのタスク、スレッドならその所属先。
+ */
 const newChat = async (page: Page) => {
-  // 無題の会話もサイドバーに「新しい会話」と表示されるので、aria-label で作成ボタンを指す
-  await page.getByLabel("新しい会話", { exact: true }).click();
+  const before = page.url();
+  const path = new URL(before).pathname;
+  const tree = page.getByRole("navigation", { name: "会話一覧" });
+  const taskId = /^\/t\/([^/]+)/.exec(path)?.[1];
+  const owner =
+    taskId !== undefined
+      ? tree.locator(`li[data-task-id="${taskId}"]`)
+      : path.startsWith("/c/")
+        ? tree
+            .locator("li[data-task-id], li[data-unassigned]")
+            .filter({ has: page.locator('[aria-current="page"]') })
+            .last()
+        : tree.locator("li[data-unassigned]");
+  const row = owner.locator(":scope > div.group");
+  await row.hover();
+  await row.getByRole("button", { name: /に新しいスレッド$/ }).click();
+  await expect(page).not.toHaveURL(before);
   await expect(page).toHaveURL(/\/c\/.+/);
 };
 
@@ -1672,6 +1691,25 @@ test("既存の Wiki を共有するタスクを作り、サイドバーで Wiki
   // 3 つ目は別の Wiki になる
   await createTask(page, "別の Wiki");
   await expect(taskNames("別の Wiki")).toHaveText(["別の Wiki"]);
+
+  // まとめるのをやめると、タスクが Wiki の下ではなく平らに並ぶ（リロードしても保たれる）
+  const groupToggle = page.getByRole("button", { name: "Wiki ごとにまとめる" });
+  await expect(groupToggle).toHaveAttribute("aria-pressed", "true");
+  await groupToggle.click();
+  await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(wikiRow(page, "共有元")).toHaveCount(0);
+  for (const name of ["共有元", "共有先", "別の Wiki"]) {
+    await expect(
+      sidebarTree(page)
+        .locator(":scope > ul > li[data-task-id]")
+        .filter({ has: rowMatching(page, `「${name}」の概要を開く`) }),
+    ).toHaveCount(1);
+  }
+  await page.reload();
+  await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(taskRow(page, "共有先")).toBeVisible();
+  await groupToggle.click();
+  await expect(taskNames("共有元")).toHaveText(["共有元", "共有先"]);
 
   // Wiki の行を押すと、その下のタスクを開閉する（リロードしても保たれる）
   const sharedToggle = wikiRow(page, "共有元").locator(
