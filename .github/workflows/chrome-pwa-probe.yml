@@ -16,4 +16,8 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
+      - name: Load the proposed code
+        run: |
+          git fetch --depth=1 origin 668c689247f7e2de18609af132cb2ce37fe62f1e
+          git checkout FETCH_HEAD -- src test bunfig.toml
       - run: bun .github/chrome-pwa-probe.ts
