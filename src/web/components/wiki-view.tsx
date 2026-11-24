@@ -1,4 +1,12 @@
-import { ArrowLeft, FilePlus, Pencil, Search, Trash2 } from "lucide-react";
+import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
+import {
+  ArrowLeft,
+  FilePlus,
+  MessageCircle,
+  Pencil,
+  Search,
+  Trash2,
+} from "lucide-react";
 import {
   type FormEvent,
   useCallback,
@@ -9,6 +17,7 @@ import {
 import type { WikiPageDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { SideChat } from "./chat-workspace.tsx";
 import { Markdown } from "./markdown.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
@@ -103,6 +112,9 @@ export const WikiView = ({
   sharedWith = [],
   autoTerms,
   pageId,
+  models,
+  hasPageChat,
+  onChatActivity,
   onNavigate,
   onOpenChat,
   returnTo,
@@ -127,6 +139,9 @@ export const WikiView = ({
   onReturn: (path: string) => void;
   /** 開いているページ。undefined なら一覧。 */
   pageId: string | undefined;
+  models: ModelInfo[];
+  hasPageChat: boolean;
+  onChatActivity: () => void;
   onNavigate: (pageId: string | undefined) => void;
 }) => {
   const [pages, setPages] = useState<WikiPageDto[]>();
@@ -136,6 +151,12 @@ export const WikiView = ({
     initialDraft === undefined ? "view" : "new",
   );
   const [deleting, setDeleting] = useState(false);
+  const [askingPageId, setAskingPageId] = useState<string>();
+  const askButton = useRef<HTMLButtonElement>(null);
+  const closeChat = () => {
+    setAskingPageId(undefined);
+    requestAnimationFrame(() => askButton.current?.focus());
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -156,9 +177,23 @@ export const WikiView = ({
     if (openedPageId.current === pageId) return;
     openedPageId.current = pageId;
     setMode("view");
+    setAskingPageId(undefined);
   }, [pageId]);
 
   const page = pages?.find((p) => p.id === pageId);
+  const asking = pageId !== undefined && askingPageId === pageId;
+  const openChatButton = (label: string) => (
+    <Button
+      ref={askButton}
+      variant="outline"
+      size="sm"
+      aria-expanded={asking}
+      onClick={() => setAskingPageId(pageId)}
+    >
+      <MessageCircle className="size-3.5" />
+      {label}
+    </Button>
+  );
 
   const header = (
     <div className="flex items-center justify-between gap-2">
@@ -280,6 +315,7 @@ export const WikiView = ({
           <p className="text-muted-foreground">
             このページは削除されたか、存在しません。
           </p>
+          {hasPageChat && openChatButton("質問の履歴を開く")}
           <Button
             variant="outline"
             size="sm"
@@ -311,7 +347,7 @@ export const WikiView = ({
     }
     return (
       <article className="flex flex-col gap-3">
-        <div className="flex items-center gap-1">
+        <div className="flex flex-wrap items-center gap-1">
           <Button
             variant="ghost"
             size="sm"
@@ -331,6 +367,7 @@ export const WikiView = ({
             </Button>
           )}
           <div className="flex-1" />
+          {openChatButton("このページについて質問")}
           <Button variant="outline" size="sm" onClick={() => setMode("edit")}>
             <Pencil className="size-3.5" />
             編集
@@ -393,7 +430,7 @@ export const WikiView = ({
                 await api.wiki.delete({ id: page.id });
                 setDeleting(false);
                 await refresh();
-                onNavigate(undefined);
+                if (!asking && !hasPageChat) onNavigate(undefined);
               }}
             >
               削除
@@ -405,11 +442,24 @@ export const WikiView = ({
   })();
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
-        {header}
-        {body}
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
+      <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
+          {header}
+          {body}
+        </div>
       </div>
+      {asking && (
+        <SideChat
+          key={pageId}
+          request={{ kind: "wiki", projectId, pageId, title: page?.title }}
+          api={api}
+          models={models}
+          onActivity={onChatActivity}
+          onClose={closeChat}
+          onOpenWikiPage={(_, id) => onNavigate(id)}
+        />
+      )}
     </div>
   );
 };

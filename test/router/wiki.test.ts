@@ -208,6 +208,120 @@ describe("回答時の Wiki 参照", () => {
   });
 });
 
+describe("Wiki の個別ページからの質問", () => {
+  const message = (text: string) => ({
+    id: crypto.randomUUID(),
+    role: "user" as const,
+    parts: [{ type: "text", text }],
+  });
+
+  test("ページ名なしで質問でき、追加質問は会話と最新の本文を引き継ぐ", async () => {
+    const { client, calls } = await setup();
+    const project = await client.projects.create({ name: "運用" });
+    const page = await client.wiki.create({
+      projectId: project.id,
+      title: "認可",
+      aliases: [],
+      body: "委譲の旧ルール",
+    });
+    const target = { projectId: project.id, pageId: page.id };
+    expect(await client.wiki.chat(target)).toBeNull();
+    const { chatId } = await client.wiki.ask({
+      ...target,
+      message: message("要約して"),
+    });
+    await drain(await client.chat.reconnect({ chatId }));
+    const [firstReference, firstQuestion] = await textsOf(calls[0]?.prompt);
+    expect(firstReference).toContain(`<wiki-page id="${page.id}"`);
+    expect(firstReference).toContain("委譲の旧ルール");
+    expect(firstQuestion).toBe("要約して");
+
+    await client.wiki.update({
+      id: page.id,
+      title: page.title,
+      aliases: [],
+      body: `${"別の説明。".repeat(500)}
+
+## 委譲
+新ルールでは管理者が承認する。`,
+    });
+    await send(client, chatId, "委譲って何？");
+    const [nextReference, nextQuestion] = await textsOf(calls[1]?.prompt);
+    expect(calls[1]?.options?.resume).toBeString();
+    expect(nextReference).toContain("## 委譲\n新ルールでは管理者が承認する。");
+    expect(nextReference).toContain("本文は抜粋です。");
+    expect(nextReference).not.toContain("旧ルール");
+    expect(nextQuestion).toBe("委譲って何？");
+    const saved = await client.wiki.chat(target);
+    expect(saved?.chat.id).toBe(chatId);
+    expect(saved?.messages.map((entry) => entry.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    expect(saved?.messages[2]?.parts).toEqual([
+      { type: "text", text: "委譲って何？" },
+    ]);
+    expect(saved?.messages[3]?.metadata).toMatchObject({
+      wiki: { excerpted: true },
+    });
+  });
+
+  test("共有 Wiki でも履歴を分け、範囲外や削除済みのページを送信できない", async () => {
+    const { client, calls } = await setup();
+    const a = await client.projects.create({ name: "開発" });
+    const b = await client.projects.create({ name: "運用", wikiId: a.wikiId });
+    const other = await client.projects.create({ name: "別の Wiki" });
+    const page = await client.wiki.create({
+      projectId: a.id,
+      title: "手順",
+      aliases: [],
+      body: "手順の本文",
+    });
+    const target = (projectId: string) => ({ projectId, pageId: page.id });
+    const ask = (projectId: string, text: string) =>
+      client.wiki.ask({ ...target(projectId), message: message(text) });
+
+    await expect(ask(other.id, "要約して")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+    const first = await ask(a.id, "開発での質問");
+    await drain(await client.chat.reconnect(first));
+    expect(await client.wiki.chat(target(b.id))).toBeNull();
+    const second = await ask(b.id, "運用での質問");
+    await drain(await client.chat.reconnect(second));
+    expect(first.chatId).not.toBe(second.chatId);
+    await expect(
+      client.chats.setProject({ id: first.chatId, projectId: b.id }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    await client.wiki.delete({ id: page.id });
+    for (const [projectId, chatId, question] of [
+      [a.id, first.chatId, "開発での質問"],
+      [b.id, second.chatId, "運用での質問"],
+    ] as const) {
+      const history = await client.wiki.chat(target(projectId));
+      expect(history?.chat.id).toBe(chatId);
+      expect(history?.messages[0]?.parts).toEqual([
+        { type: "text", text: question },
+      ]);
+      await expect(
+        send(client, chatId, "もう一度要約して"),
+      ).rejects.toMatchObject({
+        code: "NOT_FOUND",
+        message: expect.stringContaining("参照できません"),
+      });
+      await expect(client.chat.regenerate({ chatId })).rejects.toMatchObject({
+        code: "NOT_FOUND",
+      });
+      expect(await client.wiki.chat(target(projectId))).toEqual(history);
+    }
+    expect(calls).toHaveLength(2);
+    expect(await client.chats.list()).toHaveLength(2);
+  });
+});
+
 describe("Wiki の共有", () => {
   test("既存の Wiki を選んで作ったプロジェクトは、同じページを読み書きし、回答の参照資料にも使う", async () => {
     const { client } = await setup();
