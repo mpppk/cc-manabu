@@ -41,6 +41,8 @@ import { createScriptedQuery } from "./scripted-query.ts";
 
 export const E2E_PORT = Number(process.env.E2E_PORT ?? 45200);
 export const E2E_TOKEN = "e2e-token";
+/** E2E_NO_AUTH=1 なら、トークンを要求しないモード（CC_MANABU_NO_AUTH=1 相当）で起動する。 */
+const NO_AUTH = process.env.E2E_NO_AUTH === "1";
 
 const opened = openDatabase(":memory:");
 if (Result.isFailure(opened)) throw opened.error;
@@ -106,7 +108,7 @@ const claude = createClaudeStatus(
 
 const started = startServer({
   port: E2E_PORT,
-  token: E2E_TOKEN,
+  token: NO_AUTH ? null : E2E_TOKEN,
   router,
   index,
   context: {

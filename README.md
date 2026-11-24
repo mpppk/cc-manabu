@@ -81,6 +81,7 @@ cc-manabu --help
 | `CC_MANABU_PORT` | 待ち受けるポート（既定: 空いているポート） |
 | `CC_MANABU_NO_OPEN=1` | 起動時にブラウザを開かない |
 | `CC_MANABU_CLAUDE_PATH` | 使う `claude` のパス（既定: PATH から探す） |
+| `CC_MANABU_NO_AUTH=1` | API にアクセストークンを要求しない（デバッグ用。下記「セキュリティ」を参照） |
 | `CC_MANABU_DB` | 会話を保存する SQLite のパス（既定: `$XDG_DATA_HOME/cc-manabu/db.sqlite`、未設定なら `~/.local/share/cc-manabu/db.sqlite`） |
 
 ## セキュリティ
@@ -89,6 +90,7 @@ cc-manabu --help
 - 読み取り系のツール（Read / Glob / Grep / WebSearch / TodoWrite）は自動で許可し、それ以外は Web UI で都度承認します。`settings.json` の `deny` や `settings.local.json` の `allow` も効きます
 - Web UI は `127.0.0.1` でのみ待ち受けます。API は起動ごとに発行されるトークンがないと呼べず、Host / Origin ヘッダも検証します
 - トークンは起動時に表示される URL のフラグメント（`#token=...`）で渡されます。この URL を共有しないでください
+- `CC_MANABU_NO_AUTH=1` を付けて起動すると、トークンなしで API を呼べます（`bun run dev` の再起動でトークンが変わり、開いているページが使えなくなるのを避けるためのデバッグ用）。Host / Origin の検証は残りますが、同じマシンの他のプロセスやユーザーからも Claude にファイル編集やコマンド実行をさせられるので、普段は使わないでください
 - 会話の内容（添付した画像を含む）は上記の SQLite ファイルにローカル保存されます。Claude Code 側のセッションの記録は `~/.claude` に残ります
 
 ## 開発
@@ -96,6 +98,8 @@ cc-manabu --help
 ```sh
 bun install
 bun run dev          # 開発サーバ（HMR）
+CC_MANABU_NO_AUTH=1 CC_MANABU_PORT=4000 bun run dev
+                     # トークンなしの開発サーバ（再起動しても同じ URL で開き直せる）
 bun run check        # Biome
 bun run typecheck
 bun test             # 単体テスト

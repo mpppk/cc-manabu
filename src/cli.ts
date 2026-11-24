@@ -32,6 +32,8 @@ Claude Code のログインを使って、ブラウザから Claude と会話す
 環境変数:
   CC_MANABU_PORT              待ち受けるポート（既定: 空いているポート）
   CC_MANABU_NO_OPEN=1         起動時にブラウザを開かない
+  CC_MANABU_NO_AUTH=1         アクセストークンを要求しない（デバッグ用。
+                              同じマシンの他のプロセスからも API を呼べる）
 `;
 
 type CliIo = {
