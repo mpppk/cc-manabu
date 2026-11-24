@@ -1121,7 +1121,10 @@ test("過去の回答をサイドで質問し、狭い画面でもメインの�
   });
   await input.fill("A からの脇道");
   await input.press("Enter");
-  await expect(side.getByText(/了解: .*A からの脇道/s)).toBeVisible();
+  const sideAnswers = side.locator("[data-assistant-message]");
+  await expect(
+    sideAnswers.getByText("A からの脇道", { exact: true }),
+  ).toBeVisible();
   await expect(side.getByText("メインの続き B", { exact: true })).toHaveCount(
     0,
   );
@@ -1141,7 +1144,7 @@ test("過去の回答をサイドで質問し、狭い画面でもメインの�
   await main.getByRole("button", { name: "質問", exact: true }).click();
   await input.fill("A の別の脇道");
   await input.press("Enter");
-  const sideAnswer = side.getByText(/了解: .*A の別の脇道/s);
+  const sideAnswer = sideAnswers.getByText("A の別の脇道", { exact: true });
   await expect(sideAnswer).toBeVisible();
   await expect(
     main.getByText("この応答の続きとして分岐を作ります。"),
