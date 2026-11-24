@@ -16,6 +16,7 @@ import {
   titleFor,
 } from "./lib/notify.ts";
 import type { ApiClient } from "./lib/orpc.ts";
+import type { PageDraft } from "./lib/page-draft.ts";
 import {
   chatIdFromPath,
   isProjectListPath,
@@ -132,7 +133,7 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   // 選んだ会話・プロジェクトを URL に反映し、ブラウザの戻る・進むにも対応する
   const navigate = useCallback(
-    (next: string, state?: { returnTo?: string }) => {
+    (next: string, state?: { returnTo?: string; draft?: PageDraft }) => {
       if (window.location.pathname !== next) {
         window.history.pushState(state ?? null, "", next);
       }
@@ -216,6 +217,10 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   const project = projects?.find((p) => p.id === projectId);
   const showWiki = wikiRoute !== undefined && project !== undefined;
+  const wikiState = window.history.state as {
+    returnTo?: string;
+    draft?: PageDraft;
+  } | null;
 
   const newChat = async () => {
     const chat = await api.chats.create({ projectId });
@@ -342,11 +347,18 @@ export const App = ({ api }: { api: ApiClient }) => {
             autoTerms={project.autoTerms}
             pageId={wikiRoute.pageId}
             onOpenChat={select}
-            returnTo={
-              (window.history.state as { returnTo?: string } | null)?.returnTo
-            }
+            returnTo={wikiState?.returnTo}
+            initialDraft={wikiState?.draft}
             onReturn={(to) => navigate(to)}
-            onNavigate={(pageId) => navigate(pathForWiki(project.id, pageId))}
+            onNavigate={(pageId) =>
+              // 回答から開いたときは、ページを移っても回答に戻れるようにする
+              navigate(
+                pathForWiki(project.id, pageId),
+                wikiState?.returnTo === undefined
+                  ? undefined
+                  : { returnTo: wikiState.returnTo },
+              )
+            }
           />
         ) : current !== undefined && current.chat.id === selectedId ? (
           <ChatView
@@ -362,6 +374,9 @@ export const App = ({ api }: { api: ApiClient }) => {
               (chat) => chat.groupId === current.chat.groupId,
             )}
             onSelectBranch={select}
+            onCreateWikiPage={(projectId, draft) =>
+              navigate(pathForWiki(projectId), { returnTo: path, draft })
+            }
             {...(focus?.chatId === current.chat.id
               ? { focusMessageId: focus.messageId }
               : {})}
