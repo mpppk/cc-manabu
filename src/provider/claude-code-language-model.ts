@@ -112,6 +112,9 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
             if (includeRaw) {
               controller.enqueue({ type: "raw", rawValue: message });
             }
+            if (message.type === "rate_limit_event") {
+              this.settings.onRateLimit?.(message.rate_limit_info);
+            }
             for (const part of mapper.map(message)) {
               controller.enqueue(part);
             }

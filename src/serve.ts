@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
 import { createApprovalBroker } from "./chat/approval-broker.ts";
@@ -7,6 +8,7 @@ import {
   createQueueDispatcher,
   type QueueDispatcher,
 } from "./chat/queue-dispatcher.ts";
+import { normalizeRateLimit } from "./chat/rate-limit.ts";
 import { RunnerRegistry } from "./chat/runner-registry.ts";
 import { resolveClaudePath } from "./claude/detect.ts";
 import { createClaudeStatus } from "./claude/status.ts";
@@ -15,6 +17,7 @@ import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
 import { createProjectRepository } from "./db/project-repository.ts";
 import { createQueueRepository } from "./db/queue-repository.ts";
+import { createRateLimitRepository } from "./db/rate-limit-repository.ts";
 import { createSearchRepository } from "./db/search-repository.ts";
 import { createWikiRepository } from "./db/wiki-repository.ts";
 import { CliExit } from "./errors/index.ts";
@@ -40,6 +43,10 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       const projects = createProjectRepository(db);
       const wiki = createWikiRepository(db);
       const queue = createQueueRepository(db);
+      const rateLimits = createRateLimitRepository(db);
+      const onRateLimit = (info: SDKRateLimitInfo) => {
+        rateLimits.save(normalizeRateLimit(info, Date.now()));
+      };
       // 前回の終了時に送信中だった予約を復元する（#102）
       queue.recover();
       const claudePath = resolveClaudePath({
@@ -59,6 +66,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       );
       const providerSettings = {
         cwd: process.cwd(),
+        onRateLimit,
         pathToClaudeCodeExecutable: Result.isSuccess(claudePath)
           ? claudePath.value
           : undefined,
@@ -110,6 +118,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           queue,
           queueDispatcher,
           search: createSearchRepository(db),
+          rateLimits,
           chatService,
           approvals,
           claude,

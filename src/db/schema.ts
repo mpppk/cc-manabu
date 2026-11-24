@@ -228,3 +228,13 @@ export type ProjectLinkRow = typeof projectLinks.$inferSelect;
 export type WikiPageRow = typeof wikiPages.$inferSelect;
 export type ChatRow = typeof chats.$inferSelect;
 export type MessageRow = typeof messages.$inferSelect;
+
+/**
+ * アプリ全体で 1 つだけ持つ値（キーごとに JSON）。
+ * - `rate_limit`: 最後に観測した利用枠（#116）
+ */
+export const appState = sqliteTable("app_state", {
+  key: text("key").primaryKey(),
+  value: text("value", { mode: "json" }).notNull().$type<unknown>(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});

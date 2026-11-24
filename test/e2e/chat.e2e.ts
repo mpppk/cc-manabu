@@ -1087,3 +1087,15 @@ test("会話をタイトルと本文で検索し、一致した発言へ移動�
     page.getByRole("navigation", { name: "会話一覧" }),
   ).toBeVisible();
 });
+
+test("回答のあとに、サブスクリプションの利用枠とリセット時刻をヘッダーに出す", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  await send(page, "利用枠");
+  await idle(page);
+  const badge = page.getByTestId("rate-limit");
+  await expect(badge).toHaveText(/7 日間枠 67%・\d+\/\d+ \d+:\d\d にリセット/);
+  await expect(badge).toHaveAttribute("title", /5 時間枠: 62%/);
+});

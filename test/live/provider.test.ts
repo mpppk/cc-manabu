@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { generateText, readUIMessageStream, streamText } from "ai";
+import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import {
   type ClaudeCodeProviderMetadata,
   createClaudeCode,
@@ -173,6 +174,28 @@ describe.skipIf(!LIVE)("live: Claude Code provider", () => {
           (cache?.cacheWrite5mTokens ?? 0) +
           (cache?.cacheWrite1hTokens ?? 0),
       ).toBeGreaterThan(0);
+    },
+    TIMEOUT,
+  );
+  test(
+    "回答のたびに利用枠（rate_limit_event）が届く（#116）",
+    async () => {
+      const infos: unknown[] = [];
+      await generateText({
+        model: createClaudeCode({
+          cwd,
+          pathToClaudeCodeExecutable: claudePath,
+          settingSources: [],
+          onRateLimit: (info) => infos.push(info),
+        })("haiku"),
+        prompt: "「OK」とだけ返してください。",
+      });
+      expect(infos.length).toBeGreaterThan(0);
+      const snapshot = normalizeRateLimit(
+        infos[0] as Parameters<typeof normalizeRateLimit>[0],
+        Date.now(),
+      );
+      expect(snapshot.windows.length).toBeGreaterThan(0);
     },
     TIMEOUT,
   );

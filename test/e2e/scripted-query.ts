@@ -174,6 +174,26 @@ export const createScriptedQuery = (): QueryFunction => {
       }
 
       if (signal?.aborted) return;
+      // 実機と同じく、回答のたびに利用枠の情報が届く（docs/spikes/rate-limits.md）
+      const resetsAt = Math.floor(Date.now() / 1000) + 2 * 60 * 60;
+      yield {
+        ...base,
+        type: "rate_limit_event",
+        uuid: crypto.randomUUID(),
+        rate_limit_info: {
+          status: "allowed",
+          resetsAt,
+          rateLimitType: "five_hour",
+          unifiedWindows: {
+            five_hour: { utilization: 0.62, resetsAt, status: "allowed" },
+            seven_day: {
+              utilization: 0.67,
+              resetsAt: resetsAt + 3 * 24 * 60 * 60,
+              status: "allowed",
+            },
+          },
+        },
+      } as unknown as SDKMessage;
       yield {
         ...base,
         type: "result",
