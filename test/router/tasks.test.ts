@@ -17,49 +17,49 @@ const drain = async (iterable: AsyncIterable<unknown>) => {
   }
 };
 
-describe("projects", () => {
+describe("tasks", () => {
   test("作成・一覧・名前変更・削除", async () => {
     const { client } = await setup();
-    const a = await client.projects.create({ name: " 認可基盤 " });
-    const b = await client.projects.create({ name: "家計簿" });
+    const a = await client.tasks.create({ name: " 認可基盤 " });
+    const b = await client.tasks.create({ name: "家計簿" });
     expect(a.name).toBe("認可基盤");
-    expect((await client.projects.list()).map((p) => p.name)).toEqual([
+    expect((await client.tasks.list()).map((p) => p.name)).toEqual([
       "認可基盤",
       "家計簿",
     ]);
-    expect(
-      (await client.projects.rename({ id: a.id, name: "認可" })).name,
-    ).toBe("認可");
-    await client.projects.delete({ id: b.id });
-    expect((await client.projects.list()).map((p) => p.id)).toEqual([a.id]);
+    expect((await client.tasks.rename({ id: a.id, name: "認可" })).name).toBe(
+      "認可",
+    );
+    await client.tasks.delete({ id: b.id });
+    expect((await client.tasks.list()).map((p) => p.id)).toEqual([a.id]);
   });
 
-  test("空の名前は BAD_REQUEST、存在しないプロジェクトは NOT_FOUND", async () => {
+  test("空の名前は BAD_REQUEST、存在しないタスクは NOT_FOUND", async () => {
     const { client } = await setup();
-    expect(client.projects.create({ name: "  " })).rejects.toMatchObject({
+    expect(client.tasks.create({ name: "  " })).rejects.toMatchObject({
       code: "BAD_REQUEST",
     });
     expect(
-      client.projects.rename({ id: "missing", name: "x" }),
+      client.tasks.rename({ id: "missing", name: "x" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    expect(client.projects.delete({ id: "missing" })).rejects.toMatchObject({
+    expect(client.tasks.delete({ id: "missing" })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
   });
 });
 
 describe("会話の所属", () => {
-  test("プロジェクトに会話を作ると、一覧で projectId が分かる", async () => {
+  test("タスクに会話を作ると、一覧で taskId が分かる", async () => {
     const { client } = await setup();
-    const project = await client.projects.create({ name: "p" });
-    const inProject = await client.chats.create({ projectId: project.id });
+    const task = await client.tasks.create({ name: "p" });
+    const inTask = await client.chats.create({ taskId: task.id });
     const loose = await client.chats.create({});
-    expect(inProject.projectId).toBe(project.id);
-    expect(loose.projectId).toBeNull();
+    expect(inTask.taskId).toBe(task.id);
+    expect(loose.taskId).toBeNull();
     const list = await client.chats.list();
     expect(
-      Object.fromEntries(list.map((chat) => [chat.id, chat.projectId])),
-    ).toEqual({ [inProject.id]: project.id, [loose.id]: null });
+      Object.fromEntries(list.map((chat) => [chat.id, chat.taskId])),
+    ).toEqual({ [inTask.id]: task.id, [loose.id]: null });
   });
 
   test("既存の会話を追加すると、メッセージとセッションを引き継いで続けられる", async () => {
@@ -75,12 +75,12 @@ describe("会話の所属", () => {
         },
       }),
     );
-    const project = await client.projects.create({ name: "p" });
-    const moved = await client.chats.setProject({
+    const task = await client.tasks.create({ name: "p" });
+    const moved = await client.chats.setTask({
       id: chat.id,
-      projectId: project.id,
+      taskId: task.id,
     });
-    expect(moved).toMatchObject({ projectId: project.id, hasSession: true });
+    expect(moved).toMatchObject({ taskId: task.id, hasSession: true });
     expect((await client.chats.get({ id: chat.id })).messages).toHaveLength(2);
 
     await drain(
@@ -101,29 +101,29 @@ describe("会話の所属", () => {
     expect(calls[1]?.options?.resume).toBe(result.session_id);
   });
 
-  test("プロジェクトから外すと未所属に戻り、プロジェクトを消しても会話は残る", async () => {
+  test("タスクから外すと未所属に戻り、タスクを消しても会話は残る", async () => {
     const { client } = await setup();
-    const project = await client.projects.create({ name: "p" });
-    const a = await client.chats.create({ projectId: project.id });
-    const b = await client.chats.create({ projectId: project.id });
+    const task = await client.tasks.create({ name: "p" });
+    const a = await client.chats.create({ taskId: task.id });
+    const b = await client.chats.create({ taskId: task.id });
     expect(
-      (await client.chats.setProject({ id: a.id, projectId: null })).projectId,
+      (await client.chats.setTask({ id: a.id, taskId: null })).taskId,
     ).toBeNull();
-    await client.projects.delete({ id: project.id });
-    expect((await client.chats.get({ id: b.id })).chat.projectId).toBeNull();
+    await client.tasks.delete({ id: task.id });
+    expect((await client.chats.get({ id: b.id })).chat.taskId).toBeNull();
   });
 
-  test("存在しないプロジェクトには作れない・追加できない", async () => {
+  test("存在しないタスクには作れない・追加できない", async () => {
     const { client } = await setup();
     const chat = await client.chats.create({});
-    expect(client.chats.create({ projectId: "missing" })).rejects.toMatchObject(
-      { code: "NOT_FOUND" },
-    );
+    expect(client.chats.create({ taskId: "missing" })).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
     expect(
-      client.chats.setProject({ id: chat.id, projectId: "missing" }),
+      client.chats.setTask({ id: chat.id, taskId: "missing" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(
-      client.chats.setProject({ id: "missing", projectId: null }),
+      client.chats.setTask({ id: "missing", taskId: null }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

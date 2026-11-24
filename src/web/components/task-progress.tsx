@@ -1,52 +1,51 @@
 import { ClipboardList } from "lucide-react";
 import { type FormEvent, useState } from "react";
-import type { ProjectStatus } from "../../db/schema.ts";
-import type { ProjectDto } from "../../router.ts";
+import type { TaskStatus } from "../../db/schema.ts";
+import type { TaskDto } from "../../router.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import {
   formatDateTime,
-  isProjectStatus,
-  PROJECT_STATUS_CLASSES,
-  PROJECT_STATUS_LABELS,
-  PROJECT_STATUS_ORDER,
-} from "../lib/project-status.ts";
+  isTaskStatus,
+  TASK_STATUS_CLASSES,
+  TASK_STATUS_LABELS,
+  TASK_STATUS_ORDER,
+} from "../lib/task-status.ts";
 import { cn } from "../lib/utils.ts";
 import { Button } from "./ui/button.tsx";
 
-export const ProjectStatusBadge = ({ status }: { status: ProjectStatus }) => (
+export const TaskStatusBadge = ({ status }: { status: TaskStatus }) => (
   <span
     className={cn(
       "shrink-0 rounded px-1.5 py-0.5 text-xs",
-      PROJECT_STATUS_CLASSES[status],
+      TASK_STATUS_CLASSES[status],
     )}
   >
-    {PROJECT_STATUS_LABELS[status]}
+    {TASK_STATUS_LABELS[status]}
   </span>
 );
 
-/** プロジェクトの進捗（状態・進捗メモ・次にやること）。状態は選ぶとすぐ保存する。 */
-export const ProjectProgress = ({
+/** タスクの進捗（状態・進捗メモ・次にやること）。状態は選ぶとすぐ保存する。 */
+export const TaskProgress = ({
   api,
-  project,
+  task,
   onChanged,
 }: {
   api: ApiClient;
-  project: ProjectDto;
+  task: TaskDto;
   onChanged: () => Promise<void>;
 }) => {
-  const [note, setNote] = useState(project.progressNote);
-  const [next, setNext] = useState(project.nextAction);
+  const [note, setNote] = useState(task.progressNote);
+  const [next, setNext] = useState(task.nextAction);
   const [error, setError] = useState<string>();
   const [saved, setSaved] = useState(false);
-  const dirty =
-    note !== project.progressNote || next.trim() !== project.nextAction;
+  const dirty = note !== task.progressNote || next.trim() !== task.nextAction;
 
   const update = async (
-    progress: Parameters<ApiClient["projects"]["updateProgress"]>[0],
+    progress: Parameters<ApiClient["tasks"]["updateProgress"]>[0],
   ) => {
     setError(undefined);
     try {
-      await api.projects.updateProgress(progress);
+      await api.tasks.updateProgress(progress);
       await onChanged();
       return true;
     } catch {
@@ -58,25 +57,23 @@ export const ProjectProgress = ({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!dirty) return;
-    if (
-      await update({ id: project.id, progressNote: note, nextAction: next })
-    ) {
+    if (await update({ id: task.id, progressNote: note, nextAction: next })) {
       setSaved(true);
     }
   };
 
   return (
-    <section aria-labelledby="project-progress" className="flex flex-col gap-3">
+    <section aria-labelledby="task-progress" className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2
-          id="project-progress"
+          id="task-progress"
           className="flex items-center gap-2 font-semibold text-base"
         >
           <ClipboardList className="size-4" />
           進捗
         </h2>
         <span className="text-muted-foreground text-xs">
-          最終更新: {formatDateTime(project.progressUpdatedAt)}
+          最終更新: {formatDateTime(task.progressUpdatedAt)}
         </span>
       </div>
       <label className="flex items-center gap-3 text-sm">
@@ -84,20 +81,20 @@ export const ProjectProgress = ({
         <select
           className="rounded-md border bg-background px-2 py-1.5 text-sm"
           aria-label="状態"
-          value={project.status}
+          value={task.status}
           onChange={(event) => {
-            if (isProjectStatus(event.target.value)) {
-              void update({ id: project.id, status: event.target.value });
+            if (isTaskStatus(event.target.value)) {
+              void update({ id: task.id, status: event.target.value });
             }
           }}
         >
-          {PROJECT_STATUS_ORDER.map((status) => (
+          {TASK_STATUS_ORDER.map((status) => (
             <option key={status} value={status}>
-              {PROJECT_STATUS_LABELS[status]}
+              {TASK_STATUS_LABELS[status]}
             </option>
           ))}
         </select>
-        <ProjectStatusBadge status={project.status} />
+        <TaskStatusBadge status={task.status} />
       </label>
       <form className="flex flex-col gap-3" onSubmit={submit}>
         <label className="flex items-start gap-3 text-sm">

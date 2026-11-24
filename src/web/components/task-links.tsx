@@ -1,6 +1,6 @@
 import { ExternalLink, Link2, Pencil, Plus, Trash2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useState } from "react";
-import type { ProjectLinkDto } from "../../router.ts";
+import type { TaskLinkDto } from "../../router.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { Button } from "./ui/button.tsx";
 
@@ -83,29 +83,29 @@ const LinkForm = ({
   );
 };
 
-/** プロジェクトの関連リンク（一覧・追加・編集・削除）。 */
-export const ProjectLinks = ({
+/** タスクの関連リンク（一覧・追加・編集・削除）。 */
+export const TaskLinks = ({
   api,
-  projectId,
+  taskId,
 }: {
   api: ApiClient;
-  projectId: string;
+  taskId: string;
 }) => {
-  const [links, setLinks] = useState<ProjectLinkDto[]>();
+  const [links, setLinks] = useState<TaskLinkDto[]>();
   const [editing, setEditing] = useState<string>();
 
   const refresh = useCallback(async () => {
-    setLinks(await api.links.list({ projectId }).catch(() => []));
-  }, [api, projectId]);
+    setLinks(await api.links.list({ taskId }).catch(() => []));
+  }, [api, taskId]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
   return (
-    <section aria-labelledby="project-links" className="flex flex-col gap-3">
+    <section aria-labelledby="task-links" className="flex flex-col gap-3">
       <h2
-        id="project-links"
+        id="task-links"
         className="flex items-center gap-2 font-semibold text-base"
       >
         <Link2 className="size-4" />
@@ -187,7 +187,7 @@ export const ProjectLinks = ({
             initial={{ url: "", label: "" }}
             submitLabel="追加"
             onSubmit={async ({ url, label }) => {
-              await api.links.create({ projectId, url, label });
+              await api.links.create({ taskId, url, label });
               await refresh();
             }}
           />

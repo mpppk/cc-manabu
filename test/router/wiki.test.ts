@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createRouterClient } from "@orpc/server";
 import { Result } from "@praha/byethrow";
 import { DatabaseError } from "../../src/db/chat-repository.ts";
-import type { ProjectRow } from "../../src/db/schema.ts";
+import type { TaskRow } from "../../src/db/schema.ts";
 import { router } from "../../src/router.ts";
 import { createWikiContextBuilder } from "../../src/wiki/context.ts";
 import { createTestContext } from "../helpers/context.ts";
@@ -58,9 +58,9 @@ const textsOf = async (prompt: unknown): Promise<string[]> => {
 describe("wiki の CRUD", () => {
   test("作成・一覧・取得・更新・削除。別名は空と重複を除く", async () => {
     const { client } = await setup();
-    const project = await client.projects.create({ name: "p" });
+    const task = await client.tasks.create({ name: "p" });
     const page = await client.wiki.create({
-      projectId: project.id,
+      taskId: task.id,
       title: " 関係タプル ",
       aliases: ["tuple", " ", "tuple", "relation tuple"],
       body: "本文",
@@ -68,10 +68,10 @@ describe("wiki の CRUD", () => {
     expect(page).toMatchObject({
       title: "関係タプル",
       aliases: ["tuple", "relation tuple"],
-      wikiId: project.wikiId,
+      wikiId: task.wikiId,
     });
     expect(
-      (await client.wiki.list({ projectId: project.id })).map((p) => p.id),
+      (await client.wiki.list({ taskId: task.id })).map((p) => p.id),
     ).toEqual([page.id]);
     const updated = await client.wiki.update({
       id: page.id,
@@ -87,23 +87,23 @@ describe("wiki の CRUD", () => {
     });
   });
 
-  test("存在しないプロジェクト・ページは NOT_FOUND、空のタイトルは BAD_REQUEST", async () => {
+  test("存在しないタスク・ページは NOT_FOUND、空のタイトルは BAD_REQUEST", async () => {
     const { client } = await setup();
-    expect(client.wiki.list({ projectId: "missing" })).rejects.toMatchObject({
+    expect(client.wiki.list({ taskId: "missing" })).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
     expect(
       client.wiki.create({
-        projectId: "missing",
+        taskId: "missing",
         title: "t",
         aliases: [],
         body: "",
       }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
-    const project = await client.projects.create({ name: "p" });
+    const task = await client.tasks.create({ name: "p" });
     expect(
       client.wiki.create({
-        projectId: project.id,
+        taskId: task.id,
         title: " ",
         aliases: [],
         body: "",
@@ -118,20 +118,20 @@ describe("wiki の CRUD", () => {
 describe("回答時の Wiki 参照", () => {
   const prepare = async () => {
     const s = await setup();
-    const project = await s.client.projects.create({ name: "認可基盤" });
+    const task = await s.client.tasks.create({ name: "認可基盤" });
     const page = await s.client.wiki.create({
-      projectId: project.id,
+      taskId: task.id,
       title: "関係タプル",
       aliases: ["relation tuple"],
       body: "主体・関係・対象の 3 つ組。",
     });
-    return { ...s, project, page };
+    return { ...s, task, page };
   };
 
-  test("プロジェクトのどのスレッドからでも、関連ページが質問とは別のブロックで届く", async () => {
-    const { client, calls, project, page } = await prepare();
-    const a = await client.chats.create({ projectId: project.id });
-    const b = await client.chats.create({ projectId: project.id });
+  test("タスクのどのスレッドからでも、関連ページが質問とは別のブロックで届く", async () => {
+    const { client, calls, task, page } = await prepare();
+    const a = await client.chats.create({ taskId: task.id });
+    const b = await client.chats.create({ taskId: task.id });
     await send(client, a.id, "関係タプルって何？");
     await send(client, b.id, "relation tuple の例を教えて");
 
@@ -149,15 +149,15 @@ describe("回答時の Wiki 参照", () => {
     ]);
     expect(messages[1]?.metadata).toMatchObject({
       wiki: {
-        projectId: project.id,
+        taskId: task.id,
         pages: [{ id: page.id, title: "関係タプル" }],
       },
     });
   });
 
   test("既存のセッションへの続きの送信でも、参照資料が届く", async () => {
-    const { client, calls, project } = await prepare();
-    const chat = await client.chats.create({ projectId: project.id });
+    const { client, calls, task } = await prepare();
+    const chat = await client.chats.create({ taskId: task.id });
     await send(client, chat.id, "こんにちは");
     await send(client, chat.id, "関係タプルについて");
     expect(calls[1]?.options?.resume).toBeString();
@@ -165,8 +165,8 @@ describe("回答時の Wiki 参照", () => {
   });
 
   test("関連ページが無い質問では、参照資料を送らない", async () => {
-    const { client, calls, project } = await prepare();
-    const chat = await client.chats.create({ projectId: project.id });
+    const { client, calls, task } = await prepare();
+    const chat = await client.chats.create({ taskId: task.id });
     await send(client, chat.id, "今日の天気は？");
     expect(calls[0]?.prompt).toBe("今日の天気は？");
     const { messages } = await client.chats.get({ id: chat.id });
@@ -175,11 +175,11 @@ describe("回答時の Wiki 参照", () => {
     ).toBeUndefined();
   });
 
-  test("未所属のスレッドや別のプロジェクトからは参照できない", async () => {
+  test("未所属のスレッドや別のタスクからは参照できない", async () => {
     const { client, calls } = await prepare();
-    const other = await client.projects.create({ name: "別" });
+    const other = await client.tasks.create({ name: "別" });
     const loose = await client.chats.create({});
-    const elsewhere = await client.chats.create({ projectId: other.id });
+    const elsewhere = await client.chats.create({ taskId: other.id });
     await send(client, loose.id, "関係タプルって何？");
     await send(client, elsewhere.id, "関係タプルって何？");
     expect(calls.map((call) => call.prompt)).toEqual([
@@ -189,8 +189,8 @@ describe("回答時の Wiki 参照", () => {
   });
 
   test("再生成・編集でも参照資料を渡す", async () => {
-    const { client, calls, project } = await prepare();
-    const chat = await client.chats.create({ projectId: project.id });
+    const { client, calls, task } = await prepare();
+    const chat = await client.chats.create({ taskId: task.id });
     await send(client, chat.id, "関係タプルって何？");
     await drain(await client.chat.regenerate({ chatId: chat.id }));
     const { messages } = await client.chats.get({ id: chat.id });
@@ -217,14 +217,14 @@ describe("Wiki の個別ページからの質問", () => {
 
   test("ページ名なしで質問でき、追加質問は会話と最新の本文を引き継ぐ", async () => {
     const { client, calls } = await setup();
-    const project = await client.projects.create({ name: "運用" });
+    const task = await client.tasks.create({ name: "運用" });
     const page = await client.wiki.create({
-      projectId: project.id,
+      taskId: task.id,
       title: "認可",
       aliases: [],
       body: "委譲の旧ルール",
     });
-    const target = { projectId: project.id, pageId: page.id };
+    const target = { taskId: task.id, pageId: page.id };
     expect(await client.wiki.chat(target)).toBeNull();
     const { chatId } = await client.wiki.ask({
       ...target,
@@ -270,18 +270,18 @@ describe("Wiki の個別ページからの質問", () => {
 
   test("共有 Wiki でも履歴を分け、範囲外や削除済みのページを送信できない", async () => {
     const { client, calls } = await setup();
-    const a = await client.projects.create({ name: "開発" });
-    const b = await client.projects.create({ name: "運用", wikiId: a.wikiId });
-    const other = await client.projects.create({ name: "別の Wiki" });
+    const a = await client.tasks.create({ name: "開発" });
+    const b = await client.tasks.create({ name: "運用", wikiId: a.wikiId });
+    const other = await client.tasks.create({ name: "別の Wiki" });
     const page = await client.wiki.create({
-      projectId: a.id,
+      taskId: a.id,
       title: "手順",
       aliases: [],
       body: "手順の本文",
     });
-    const target = (projectId: string) => ({ projectId, pageId: page.id });
-    const ask = (projectId: string, text: string) =>
-      client.wiki.ask({ ...target(projectId), message: message(text) });
+    const target = (taskId: string) => ({ taskId, pageId: page.id });
+    const ask = (taskId: string, text: string) =>
+      client.wiki.ask({ ...target(taskId), message: message(text) });
 
     await expect(ask(other.id, "要約して")).rejects.toMatchObject({
       code: "NOT_FOUND",
@@ -293,15 +293,15 @@ describe("Wiki の個別ページからの質問", () => {
     await drain(await client.chat.reconnect(second));
     expect(first.chatId).not.toBe(second.chatId);
     await expect(
-      client.chats.setProject({ id: first.chatId, projectId: b.id }),
+      client.chats.setTask({ id: first.chatId, taskId: b.id }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
 
     await client.wiki.delete({ id: page.id });
-    for (const [projectId, chatId, question] of [
+    for (const [taskId, chatId, question] of [
       [a.id, first.chatId, "開発での質問"],
       [b.id, second.chatId, "運用での質問"],
     ] as const) {
-      const history = await client.wiki.chat(target(projectId));
+      const history = await client.wiki.chat(target(taskId));
       expect(history?.chat.id).toBe(chatId);
       expect(history?.messages[0]?.parts).toEqual([
         { type: "text", text: question },
@@ -315,7 +315,7 @@ describe("Wiki の個別ページからの質問", () => {
       await expect(client.chat.regenerate({ chatId })).rejects.toMatchObject({
         code: "NOT_FOUND",
       });
-      expect(await client.wiki.chat(target(projectId))).toEqual(history);
+      expect(await client.wiki.chat(target(taskId))).toEqual(history);
     }
     expect(calls).toHaveLength(2);
     expect(await client.chats.list()).toHaveLength(2);
@@ -323,37 +323,37 @@ describe("Wiki の個別ページからの質問", () => {
 });
 
 describe("Wiki の共有", () => {
-  test("既存の Wiki を選んで作ったプロジェクトは、同じページを読み書きし、回答の参照資料にも使う", async () => {
+  test("既存の Wiki を選んで作ったタスクは、同じページを読み書きし、回答の参照資料にも使う", async () => {
     const { client } = await setup();
-    const a = await client.projects.create({ name: "認可基盤" });
+    const a = await client.tasks.create({ name: "認可基盤" });
     const page = await client.wiki.create({
-      projectId: a.id,
+      taskId: a.id,
       title: "関係タプル",
       aliases: [],
       body: "社内では三つ組チケットと呼ぶ。",
     });
-    const b = await client.projects.create({
+    const b = await client.tasks.create({
       name: "監査ログ",
       wikiId: a.wikiId,
     });
     expect(b.wikiId).toBe(a.wikiId);
-    expect(
-      (await client.wiki.list({ projectId: b.id })).map((p) => p.id),
-    ).toEqual([page.id]);
+    expect((await client.wiki.list({ taskId: b.id })).map((p) => p.id)).toEqual(
+      [page.id],
+    );
     expect(await client.wikis.list()).toEqual([
-      { id: a.wikiId, name: "認可基盤", projectCount: 2 },
+      { id: a.wikiId, name: "認可基盤", taskCount: 2 },
     ]);
     await client.wikis.rename({ id: a.wikiId, name: "共通用語集" });
     expect((await client.wikis.list())[0]?.name).toBe("共通用語集");
 
-    // 新しい Wiki を作ったプロジェクトには見えない
-    const c = await client.projects.create({ name: "別件" });
+    // 新しい Wiki を作ったタスクには見えない
+    const c = await client.tasks.create({ name: "別件" });
     expect(c.wikiId).not.toBe(a.wikiId);
-    expect(await client.wiki.list({ projectId: c.id })).toEqual([]);
+    expect(await client.wiki.list({ taskId: c.id })).toEqual([]);
 
     // 無い Wiki は指定できない
     await expect(
-      client.projects.create({ name: "x", wikiId: "missing" }),
+      client.tasks.create({ name: "x", wikiId: "missing" }),
     ).rejects.toThrow();
   });
 });
@@ -361,10 +361,10 @@ describe("Wiki の共有", () => {
 describe("createWikiContextBuilder", () => {
   test("Wiki の読み込みに失敗したら undefined（通常どおり生成する）", () => {
     const errors: unknown[] = [];
-    const project = { id: "p", wikiId: "p" } as unknown as ProjectRow;
+    const task = { id: "p", wikiId: "p" } as unknown as TaskRow;
     const failing = createWikiContextBuilder(
       { listPages: () => Result.fail(new DatabaseError()) },
-      { getProject: () => Result.succeed(project) },
+      { getTask: () => Result.succeed(task) },
       (error) => errors.push(error),
     );
     expect(failing("p", "関係タプル")).toBeUndefined();
@@ -374,7 +374,7 @@ describe("createWikiContextBuilder", () => {
           throw new Error("boom");
         },
       },
-      { getProject: () => Result.succeed(project) },
+      { getTask: () => Result.succeed(task) },
       (error) => errors.push(error),
     );
     expect(throwing("p", "関係タプル")).toBeUndefined();

@@ -15,18 +15,18 @@ export const CHAT_STATUSES = [
 ] as const;
 export type ChatStatus = (typeof CHAT_STATUSES)[number];
 
-/** プロジェクトの進捗の状態（#104）。 */
-export const PROJECT_STATUSES = [
+/** タスクの進捗の状態（#104）。 */
+export const TASK_STATUSES = [
   "not_started",
   "in_progress",
   "on_hold",
   "done",
 ] as const;
-export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 /**
- * Wiki（ページのまとまり）。複数のプロジェクトで共有できる。
- * どのプロジェクトからも参照されなくなったら、ページごと消す。
+ * Wiki（ページのまとまり）。複数のタスクで共有できる。
+ * どのタスクからも参照されなくなったら、ページごと消す。
  */
 export const wikis = sqliteTable("wikis", {
   id: text("id").primaryKey(),
@@ -40,18 +40,18 @@ export const wikis = sqliteTable("wikis", {
 });
 
 /** 複数の会話と、参照する Wiki をまとめる単位。 */
-export const projects = sqliteTable("projects", {
+export const tasks = sqliteTable("tasks", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   /**
-   * 参照する Wiki。ほかのプロジェクトと共有できる。
+   * 参照する Wiki。ほかのタスクと共有できる。
    * 既存の行に後から足した列なので DB では null を許すが、アプリは必ず設定する。
    */
   wikiId: text("wiki_id").references(() => wikis.id),
   /** 回答から用語ページを自動で作るか（回答ごとに Claude を追加で呼び出す）。 */
   autoTerms: integer("auto_terms", { mode: "boolean" }).notNull().default(true),
-  /** 進捗の状態。既存のプロジェクトは未着手として扱う。 */
-  status: text("status", { enum: PROJECT_STATUSES })
+  /** 進捗の状態。既存のタスクは未着手として扱う。 */
+  status: text("status", { enum: TASK_STATUSES })
     .notNull()
     .default("not_started"),
   /** 進捗メモ（任意）。 */
@@ -72,8 +72,8 @@ export const chats = sqliteTable(
   "chats",
   {
     id: text("id").primaryKey(),
-    /** 所属するプロジェクト。未所属なら null。プロジェクトを消すと未所属に戻る。 */
-    projectId: text("project_id").references(() => projects.id, {
+    /** 所属するタスク。未所属なら null。タスクを消すと未所属に戻る。 */
+    taskId: text("task_id").references(() => tasks.id, {
       onDelete: "set null",
     }),
     /** ページを削除した後も履歴を開けるよう、外部キーにはしない。 */
@@ -87,7 +87,7 @@ export const chats = sqliteTable(
     status: text("status", { enum: CHAT_STATUSES }).notNull().default("idle"),
     /**
      * 会話（分岐のまとまり）の ID（#76）。最初の分岐（元の会話）では自分の id。
-     * サイドバーには会話ごとに 1 行を出し、タイトル・プロジェクト・作業ディレクトリは会話で共有する。
+     * サイドバーには会話ごとに 1 行を出し、タイトル・タスク・作業ディレクトリは会話で共有する。
      */
     groupId: text("group_id").notNull().default(""),
     /** 分岐元の分岐。元の会話では null。 */
@@ -119,10 +119,10 @@ export const chats = sqliteTable(
   },
   (table) => [
     index("chats_updated_at_idx").on(table.updatedAt),
-    index("chats_project_id_idx").on(table.projectId),
+    index("chats_task_id_idx").on(table.taskId),
     index("chats_group_id_idx").on(table.groupId),
-    uniqueIndex("chats_project_wiki_page_idx")
-      .on(table.projectId, table.wikiPageId)
+    uniqueIndex("chats_task_wiki_page_idx")
+      .on(table.taskId, table.wikiPageId)
       .where(
         sql`${table.parentId} IS NULL AND ${table.wikiPageId} IS NOT NULL`,
       ),
@@ -192,14 +192,14 @@ export const wikiPages = sqliteTable(
   (table) => [index("wiki_pages_wiki_id_idx").on(table.wikiId)],
 );
 
-/** プロジェクトの関連リンク（GitHub リポジトリ・設計資料など、繰り返し開く URL）。 */
-export const projectLinks = sqliteTable(
-  "project_links",
+/** タスクの関連リンク（GitHub リポジトリ・設計資料など、繰り返し開く URL）。 */
+export const taskLinks = sqliteTable(
+  "task_links",
   {
     id: text("id").primaryKey(),
-    projectId: text("project_id")
+    taskId: text("task_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => tasks.id, { onDelete: "cascade" }),
     /** http / https の URL。 */
     url: text("url").notNull(),
     /** 表示名。無ければ URL を表示する。 */
@@ -211,7 +211,7 @@ export const projectLinks = sqliteTable(
       .notNull()
       .default(sql`(unixepoch('subsec') * 1000)`),
   },
-  (table) => [index("project_links_project_id_idx").on(table.projectId)],
+  (table) => [index("task_links_task_id_idx").on(table.taskId)],
 );
 
 export const QUEUE_STATUSES = ["pending", "sending", "held"] as const;
@@ -249,9 +249,9 @@ export const queuedMessages = sqliteTable(
   (table) => [index("queued_messages_chat_id_idx").on(table.chatId)],
 );
 
-export type ProjectRow = typeof projects.$inferSelect;
+export type TaskRow = typeof tasks.$inferSelect;
 export type QueuedMessageRow = typeof queuedMessages.$inferSelect;
-export type ProjectLinkRow = typeof projectLinks.$inferSelect;
+export type TaskLinkRow = typeof taskLinks.$inferSelect;
 export type WikiPageRow = typeof wikiPages.$inferSelect;
 export type WikiRow = typeof wikis.$inferSelect;
 export type ChatRow = typeof chats.$inferSelect;

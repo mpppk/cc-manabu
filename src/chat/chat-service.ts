@@ -84,7 +84,11 @@ export type ChatMessageMetadata = {
   };
   aborted?: boolean;
   /** このターンで参照資料として渡した Wiki ページ（引用をリンクにするのに使う）。 */
-  wiki?: Omit<WikiContext, "text">;
+  wiki?: Omit<WikiContext, "text" | "taskId"> & {
+    taskId?: string;
+    /** 「プロジェクト」を「タスク」に改名する前に保存した回答の taskId。 */
+    projectId?: string;
+  };
   /** 回答の要約（閉じた回答に出す）。回答のあとに作るので、後から付く。 */
   summary?: string;
 };
@@ -191,16 +195,16 @@ export const createChatService = (deps: {
     modelId: string,
     options: { canUseTool: CanUseTool },
   ) => LanguageModelV4;
-  /** プロジェクトの会話で、質問に関係する Wiki ページを参照資料にする。 */
+  /** タスクの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
   readWikiPage?: WikiPageReader;
   /**
-   * プロジェクトの会話で回答が最後まで終わったとき（中断・エラーを除く）に呼ぶ。
+   * タスクの会話で回答が最後まで終わったとき（中断・エラーを除く）に呼ぶ。
    * 用語ページの自動作成（#80）に使う。回答の保存のあとに呼び、結果は待たない。
    */
   onAnswerComplete?: (event: AnswerCompleted) => void;
   /**
-   * 回答が最後まで終わったとき（中断・エラーを除く。プロジェクトに属さない会話も含む）に呼ぶ。
+   * 回答が最後まで終わったとき（中断・エラーを除く。タスクに属さない会話も含む）に呼ぶ。
    * 回答の要約に使う。回答の保存のあとに呼び、結果は待たない。
    */
   onAnswerFinish?: (event: AnswerFinished) => void;
@@ -212,25 +216,23 @@ export const createChatService = (deps: {
 }) => {
   const { chats, registry, approvals } = deps;
 
-  const readWikiPage: WikiPageReader = (projectId, pageId) =>
-    deps.readWikiPage?.(projectId, pageId) ??
+  const readWikiPage: WikiPageReader = (taskId, pageId) =>
+    deps.readWikiPage?.(taskId, pageId) ??
     Result.fail(new WikiPageUnavailableError());
 
   /** ページにひも付く会話は、ページを参照できない場合に生成を始めない。 */
   const contextFor = (chat: ChatRow, parts: ChatUIMessage["parts"]) => {
-    const { projectId, wikiPageId } = chat;
+    const { taskId, wikiPageId } = chat;
     const question = textOf(parts);
     if (wikiPageId === null) {
       return Result.succeed(
-        projectId === null
-          ? undefined
-          : deps.wikiContext?.(projectId, question),
+        taskId === null ? undefined : deps.wikiContext?.(taskId, question),
       );
     }
-    if (projectId === null) return Result.fail(new WikiPageUnavailableError());
+    if (taskId === null) return Result.fail(new WikiPageUnavailableError());
     return Result.pipe(
-      readWikiPage(projectId, wikiPageId),
-      Result.map((page) => wikiPageContext(projectId, page, question)),
+      readWikiPage(taskId, wikiPageId),
+      Result.map((page) => wikiPageContext(taskId, page, question)),
     );
   };
 
@@ -240,8 +242,8 @@ export const createChatService = (deps: {
     effort: Effort | null;
     sessionId: string | null;
     content: UserContent;
-    /** 会話の所属プロジェクト（回答後の用語ページ作成に使う）。 */
-    projectId: string | null;
+    /** 会話の所属タスク（回答後の用語ページ作成に使う）。 */
+    taskId: string | null;
     /** 質問の本文（回答後の用語ページ作成に使う）。 */
     question: string;
     /** 質問とは別に渡す Wiki の参照資料。DB の発話には保存しない。 */
@@ -305,7 +307,7 @@ export const createChatService = (deps: {
                       ? {}
                       : {
                           wiki: {
-                            projectId: params.context.projectId,
+                            taskId: params.context.taskId,
                             pages: params.context.pages,
                             ...(params.context.excerpted
                               ? { excerpted: true }
@@ -371,13 +373,13 @@ export const createChatService = (deps: {
           if (
             !isAborted &&
             !failed &&
-            params.projectId !== null &&
+            params.taskId !== null &&
             answer.trim() !== ""
           ) {
             try {
               deps.onAnswerComplete?.({
                 chatId: params.chatId,
-                projectId: params.projectId,
+                taskId: params.taskId,
                 messageId: responseMessage.id,
                 question: params.question,
                 answer,
@@ -426,7 +428,7 @@ export const createChatService = (deps: {
           effort: (chat.effort as Effort | null) ?? null,
           ...resumeOf(chat),
           content: toUserContent(input.message.parts),
-          projectId: chat.projectId,
+          taskId: chat.taskId,
           question: textOf(input.message.parts),
           context,
         }),
@@ -449,7 +451,7 @@ export const createChatService = (deps: {
 
   const sendToWikiPage = (
     input: Omit<SendInput, "chatId"> & {
-      projectId: string;
+      taskId: string;
       pageId: string;
       cwd: string;
     },
@@ -457,12 +459,12 @@ export const createChatService = (deps: {
     const id = crypto.randomUUID();
     return Result.pipe(
       registry.canStart(id),
-      Result.andThen(() => readWikiPage(input.projectId, input.pageId)),
+      Result.andThen(() => readWikiPage(input.taskId, input.pageId)),
       Result.andThen((page) =>
         Result.pipe(
           chats.getOrCreateWikiChat({
             id,
-            projectId: input.projectId,
+            taskId: input.taskId,
             wikiPageId: page.id,
             title: page.title,
             cwd: input.cwd,
@@ -475,7 +477,7 @@ export const createChatService = (deps: {
                   chat,
                   input,
                   wikiPageContext(
-                    input.projectId,
+                    input.taskId,
                     page,
                     textOf(input.message.parts),
                   ),
@@ -564,7 +566,7 @@ export const createChatService = (deps: {
               effort: (created.effort as Effort | null) ?? null,
               ...resumeOf(created),
               content: toUserContent(input.message.parts),
-              projectId: created.projectId,
+              taskId: created.taskId,
               question: textOf(input.message.parts),
               context,
             }),
@@ -618,7 +620,7 @@ export const createChatService = (deps: {
               ? null
               : (chat.sessionId ?? chat.forkSessionId),
           content: toUserContent(userMessage.parts),
-          projectId: chat.projectId,
+          taskId: chat.taskId,
           question: textOf(userMessage.parts),
           context: context.value,
           ...(forkPoint === undefined

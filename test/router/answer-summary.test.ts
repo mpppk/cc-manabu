@@ -48,7 +48,7 @@ const send = async (client: Client, chatId: string, text: string) =>
 describe("回答の要約", () => {
   test("回答のあとに要約を作り、メッセージと chats.summaries から読める", async () => {
     const { client, summaryJobs, prompts } = setup();
-    // プロジェクトに属さない会話でも作る
+    // タスクに属さない会話でも作る
     const chat = await client.chats.create({});
     await send(client, chat.id, "関係タプルとは");
     await Promise.all(summaryJobs);

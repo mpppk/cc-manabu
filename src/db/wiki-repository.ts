@@ -29,7 +29,7 @@ export type WikiPageInput = {
   body: string;
 };
 
-/** Wiki ページの永続化。ページは Wiki（複数のプロジェクトで共有できる）に属する。 */
+/** Wiki ページの永続化。ページは Wiki（複数のタスクで共有できる）に属する。 */
 export const createWikiRepository = (db: Db) => ({
   /** Wiki のページ（タイトル順）。 */
   listPages: (wikiId: string): Result.Result<WikiPageRow[], DatabaseError> =>

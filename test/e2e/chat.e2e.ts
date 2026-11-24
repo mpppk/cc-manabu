@@ -178,12 +178,13 @@ test("停止・再生成・編集", async ({ page }) => {
   await open(page);
   await newChat(page);
 
-  // 停止
+  // 停止（ヘッダーの利用枠のリセット時刻に数字が出るので、チャットの中だけを見る）
+  const chat = page.getByRole("region", { name: "メインのチャット" });
   await send(page, "ゆっくり数えて");
-  await expect(page.locator("main")).toContainText("2");
+  await expect(chat).toContainText("2");
   await page.getByRole("button", { name: "停止" }).click();
   await idle(page);
-  await expect(page.locator("main")).not.toContainText("40");
+  await expect(chat).not.toContainText("40");
 
   // 再生成
   await send(page, "一回目");
@@ -221,14 +222,18 @@ test("会話の切り替え・名前変更・削除", async ({ page }) => {
   await list.getByText("一つ目の会話").click();
   await expect(firstAnswer).toBeVisible();
 
-  const item = list.locator("li").filter({ hasText: "一つ目の会話" });
+  const item = list
+    .locator("li:not(:has(li))")
+    .filter({ hasText: "一つ目の会話" });
   await item.hover();
   await item.getByRole("button", { name: /の名前を変える/ }).click();
   await page.getByRole("textbox", { name: "会話の名前" }).fill("名前を変えた");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(list.getByText("名前を変えた")).toBeVisible();
 
-  const renamed = list.locator("li").filter({ hasText: "名前を変えた" });
+  const renamed = list
+    .locator("li:not(:has(li))")
+    .filter({ hasText: "名前を変えた" });
   await renamed.hover();
   await renamed.getByRole("button", { name: /を削除$/ }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
@@ -334,109 +339,192 @@ test("画像だけでも送れて、タイトルは「画像」になる", async
   ).toBeVisible();
 });
 
-/** プロジェクトのメニュー（歯車）を開いて項目を選ぶ。 */
-const openProjectMenu = async (page: Page, item: string) => {
-  await page.getByRole("button", { name: "プロジェクトのメニュー" }).click();
+/** サイドバーのツリー（Wiki → タスク → スレッド）。 */
+const sidebarTree = (page: Page) =>
+  page.getByRole("navigation", { name: "会話一覧" });
+
+/** 行（Wiki・タスク・未所属）を、行の操作（ホバーで出る）の名前で見分ける。has に渡せるよう相対で書く。 */
+const rowMatching = (page: Page, actionLabel: string) =>
+  page
+    .locator("div.group")
+    .filter({ has: page.locator(`[aria-label="${actionLabel}"]`) });
+
+/** ツリーの行。 */
+const treeRow = (page: Page, actionLabel: string) =>
+  sidebarTree(page).locator(rowMatching(page, actionLabel));
+
+const taskRow = (page: Page, name: string) =>
+  treeRow(page, `「${name}」の概要を開く`);
+
+const wikiRow = (page: Page, name: string) =>
+  treeRow(page, `Wiki「${name}」のページを開く`);
+
+/** タスクの行と、その下のスレッド。 */
+const taskItem = (page: Page, name: string) =>
+  sidebarTree(page)
+    .locator("li")
+    .filter({ has: rowMatching(page, `「${name}」の概要を開く`) })
+    .last();
+
+/** Wiki の行と、その下のタスク。 */
+const wikiItem = (page: Page, name: string) =>
+  sidebarTree(page)
+    .locator("li")
+    .filter({ has: rowMatching(page, `Wiki「${name}」のページを開く`) })
+    .first();
+
+/** 「未所属のスレッド」の行と、その下のスレッド。 */
+const unassignedItem = (page: Page) =>
+  sidebarTree(page)
+    .locator("li")
+    .filter({ has: rowMatching(page, "未所属に新しいスレッド") })
+    .first();
+
+/** 行にホバーして、行の操作を押す。 */
+const rowAction = async (row: ReturnType<typeof treeRow>, label: string) => {
+  await row.hover();
+  await row.getByRole("button", { name: label, exact: true }).click();
+};
+
+/** 「未所属のスレッド」の行から新しいスレッドを作る。 */
+const newUnassignedChat = async (page: Page) => {
+  const before = page.url();
+  await rowAction(
+    treeRow(page, "未所属に新しいスレッド"),
+    "未所属に新しいスレッド",
+  );
+  await expect(page).not.toHaveURL(before);
+  await expect(page).toHaveURL(/\/c\/.+/);
+};
+
+/** タスクの概要を開く。 */
+const openTask = async (page: Page, name: string) => {
+  await rowAction(taskRow(page, name), `「${name}」の概要を開く`);
+  await expect(page).toHaveURL(/\/t\/[^/]+$/);
+};
+
+/** Wiki のページ一覧を開く。 */
+const openWiki = async (page: Page, name: string) => {
+  await rowAction(wikiRow(page, name), `Wiki「${name}」のページを開く`);
+  await expect(page).toHaveURL(/\/wiki$/);
+};
+
+/** タスクの行のメニュー（歯車）を開いて項目を選ぶ。 */
+const openTaskMenu = async (page: Page, name: string, item: string) => {
+  await rowAction(taskRow(page, name), `「${name}」のメニュー`);
   await page.getByRole("menuitem", { name: item }).click();
 };
 
-const createProject = async (page: Page, name: string) => {
-  await openProjectMenu(page, "新しいプロジェクト");
-  await page.getByRole("textbox", { name: "プロジェクトの名前" }).fill(name);
+const createTask = async (page: Page, name: string) => {
+  await page.getByRole("button", { name: "新しいタスク", exact: true }).click();
+  await page.getByRole("textbox", { name: "タスクの名前" }).fill(name);
   await page.getByRole("button", { name: "作成" }).click();
-  await expect(page).toHaveURL(/\/p\/.+/);
-  await expect(
-    page.getByRole("combobox", { name: "プロジェクト" }),
-  ).toHaveValue(/.+/);
+  await expect(page).toHaveURL(/\/t\/.+/);
+  await expect(taskRow(page, name)).toBeVisible();
 };
 
-test("プロジェクトでスレッドをまとめ、既存のスレッドを追加できる", async ({
+test("タスクでスレッドをまとめ、既存のスレッドを追加できる", async ({
   page,
 }) => {
   await open(page);
-  const list = page.getByRole("navigation", { name: "会話一覧" });
-  const projectSelect = page.getByRole("combobox", { name: "プロジェクト" });
+  const list = sidebarTree(page);
+  const unassigned = unassignedItem(page);
 
   // 未所属のスレッドを 1 つ作っておく
   await newChat(page);
   await send(page, "あとで追加する会話");
   await idle(page);
 
-  // プロジェクトを 2 つ作り、それぞれにスレッドを作る
-  await createProject(page, "認可基盤");
-  await expect(
-    list.getByText("このプロジェクトにはまだ会話がありません。"),
-  ).toBeVisible();
+  // タスクを 2 つ作り、それぞれにスレッドを作る
+  await createTask(page, "認可基盤");
+  const auth = taskItem(page, "認可基盤");
+  await expect(auth.getByText("まだスレッドがありません。")).toBeVisible();
   await newChat(page);
   await send(page, "認可の会話");
   await idle(page);
-  await createProject(page, "家計簿");
+  await createTask(page, "家計簿");
   await newChat(page);
   await send(page, "家計簿の会話");
   await idle(page);
 
-  // 切り替えると、それぞれのスレッドだけが並ぶ
-  await projectSelect.selectOption({ label: "認可基盤" });
-  await expect(list.getByText("認可の会話")).toBeVisible();
-  await expect(list.getByText("家計簿の会話")).toHaveCount(0);
-  await projectSelect.selectOption({ label: "未所属のスレッド" });
-  await expect(list.getByText("あとで追加する会話")).toBeVisible();
+  // スレッドはタスクの下にまとまり、タスクの行を押すと開閉する
+  await expect(auth.getByText("認可の会話")).toBeVisible();
+  await expect(auth.getByText("家計簿の会話")).toHaveCount(0);
+  await expect(unassigned.getByText("あとで追加する会話")).toBeVisible();
+  await expect(unassigned.getByText("認可の会話")).toHaveCount(0);
+  const authToggle = taskRow(page, "認可基盤").locator(
+    ":scope > button[aria-expanded]",
+  );
+  await authToggle.click();
+  await expect(authToggle).toHaveAttribute("aria-expanded", "false");
   await expect(list.getByText("認可の会話")).toHaveCount(0);
+  // 開閉はリロードしても保たれる
+  await page.reload();
+  await expect(authToggle).toHaveAttribute("aria-expanded", "false");
+  await authToggle.click();
+  await expect(auth.getByText("認可の会話")).toBeVisible();
 
   // 未所属のスレッドを追加すると、過去のメッセージごと移って続けられる
-  await projectSelect.selectOption({ label: "認可基盤" });
-  await page.getByRole("button", { name: "既存のスレッドを追加" }).click();
+  await openTaskMenu(page, "認可基盤", "既存のスレッドを追加");
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "「あとで追加する会話」を追加" })
     .click();
   await page.getByRole("button", { name: "閉じる" }).click();
-  await list.getByText("あとで追加する会話").click();
+  await auth.getByText("あとで追加する会話").click();
   await expect(page.getByText("了解: あとで追加する会話")).toBeVisible();
   await send(page, "続きの発話");
   await expect(page.getByText("了解: 続きの発話")).toBeVisible();
   await idle(page);
 
-  // リロードしてもプロジェクトと所属は保たれる
+  // リロードしても所属は保たれる
   await page.reload();
-  await expect(projectSelect).toHaveValue(/.+/);
-  await expect(projectSelect.locator("option:checked")).toHaveText("認可基盤");
-  await expect(list.getByText("あとで追加する会話")).toBeVisible();
-  await expect(list.getByText("認可の会話")).toBeVisible();
+  await expect(auth.getByText("あとで追加する会話")).toBeVisible();
+  await expect(auth.getByText("認可の会話")).toBeVisible();
+  await expect(unassigned.getByText("あとで追加する会話")).toHaveCount(0);
 
-  // プロジェクトから外すと未所属に戻る
-  const item = list.locator("li").filter({ hasText: "あとで追加する会話" });
+  // タスクから外すと未所属に戻る
+  const item = auth
+    .locator("li:not(:has(li))")
+    .filter({ hasText: "あとで追加する会話" });
   await item.hover();
-  await item.getByRole("button", { name: /をプロジェクトから外す$/ }).click();
-  await expect(list.getByText("あとで追加する会話")).toHaveCount(0);
+  await item.getByRole("button", { name: /をタスクから外す$/ }).click();
+  await expect(auth.getByText("あとで追加する会話")).toHaveCount(0);
+  await expect(unassigned.getByText("あとで追加する会話")).toBeVisible();
+
+  // 未所属の行からも新しいスレッドを作れる
+  await newUnassignedChat(page);
+  await send(page, "未所属の新しい会話");
+  await idle(page);
+  await expect(unassigned.getByText("未所属の新しい会話")).toBeVisible();
 
   // 名前を変えて、削除するとスレッドは未所属に戻る
-  await openProjectMenu(page, "プロジェクトの名前を変える");
-  await page.getByRole("textbox", { name: "プロジェクトの名前" }).fill("認可");
+  await openTaskMenu(page, "認可基盤", "タスクの名前を変える");
+  await page.getByRole("textbox", { name: "タスクの名前" }).fill("認可");
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(projectSelect.locator("option:checked")).toHaveText("認可");
-  await openProjectMenu(page, "プロジェクトを削除");
+  await expect(taskRow(page, "認可")).toBeVisible();
+  await openTask(page, "認可");
+  await openTaskMenu(page, "認可", "タスクを削除");
   await page.getByRole("button", { name: "削除", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(projectSelect.locator("option:checked")).toHaveText(
-    "未所属のスレッド",
+  await expect(taskRow(page, "認可")).toHaveCount(0);
+  await expect(unassigned.getByText("認可の会話")).toBeVisible();
+  await expect(unassigned.getByText("あとで追加する会話")).toBeVisible();
+  await expect(unassigned.getByText("家計簿の会話")).toHaveCount(0);
+  await expect(taskItem(page, "家計簿").getByText("家計簿の会話")).toHaveCount(
+    1,
   );
-  await expect(list.getByText("認可の会話")).toBeVisible();
-  await expect(list.getByText("あとで追加する会話")).toBeVisible();
-  await expect(list.getByText("家計簿の会話")).toHaveCount(0);
 });
 
-test("Wiki ページを作り、プロジェクトのスレッドの回答から参照・リンクできる", async ({
+test("Wiki ページを作り、タスクのスレッドの回答から参照・リンクできる", async ({
   page,
 }) => {
   await open(page);
-  const list = page.getByRole("navigation", { name: "会話一覧" });
-  await createProject(page, "Wiki の検証");
-  const projectUrl = page.url();
+  await createTask(page, "Wiki の検証");
+  const taskUrl = page.url();
 
   // Wiki にページを作る
-  await page.getByRole("button", { name: "Wiki", exact: true }).click();
-  await expect(page).toHaveURL(/\/wiki$/);
+  await openWiki(page, "Wiki の検証");
   await page.getByRole("button", { name: "新しいページ" }).click();
   await page
     .getByRole("textbox", { name: "ページのタイトル" })
@@ -453,9 +541,8 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await expect(page.getByText("3 つ組")).toBeVisible();
   const pageUrl = page.url();
 
-  // ページの一覧は会話一覧の場所に出て、開いているページが分かる
+  // ページの一覧は Wiki 画面の左に出て、開いているページが分かる
   const wikiPages = page.getByRole("list", { name: "Wiki のページ" });
-  await expect(page.getByRole("navigation", { name: "会話一覧" })).toBeHidden();
   await expect(
     wikiPages.getByRole("button", { name: /関係タプル/ }),
   ).toHaveAttribute("aria-current", "page");
@@ -467,8 +554,8 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await expect(page.getByText("一致するページはありません。")).toBeVisible();
 
   // スレッドから質問すると、引用したページだけがリンクになる
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
-  await expect(page).toHaveURL(projectUrl.replace(/#.*$/, ""));
+  await openTask(page, "Wiki の検証");
+  await expect(page).toHaveURL(taskUrl.replace(/#.*$/, ""));
   await newChat(page);
   await send(page, "関係タプルって何？");
   await idle(page);
@@ -483,8 +570,8 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await expect(page).toHaveURL(pageUrl.replace(/#.*$/, ""));
   await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
 
-  // 同じプロジェクトの別のスレッドからも参照できる（別名でも一致する）
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  // 同じタスクの別のスレッドからも参照できる（別名でも一致する）
+  await openTask(page, "Wiki の検証");
   await newChat(page);
   await send(page, "relation tuple の例は？");
   await idle(page);
@@ -493,10 +580,7 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   );
 
   // 未所属のスレッドからは参照しない
-  await page
-    .getByRole("combobox", { name: "プロジェクト" })
-    .selectOption({ label: "未所属のスレッド" });
-  await newChat(page);
+  await newUnassignedChat(page);
   await send(page, "関係タプルって何？");
   await expect(page.getByText("了解: 関係タプルって何？")).toBeVisible();
   await idle(page);
@@ -506,8 +590,8 @@ test("Wiki ページを作り、プロジェクトのスレッドの回答から
   await page.getByRole("button", { name: "ページを削除" }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
   await expect(page.getByText("まだページがありません。")).toBeVisible();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
-  await list.getByText("関係タプルって何？").click();
+  await openTask(page, "Wiki の検証");
+  await taskItem(page, "Wiki の検証").getByText("関係タプルって何？").click();
   await expect(page.getByText(/参照: .*関係タプル/)).toBeVisible();
   await page.getByRole("main").locator("a[data-wiki-page]").click();
   await expect(
@@ -519,12 +603,9 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   page,
 }) => {
   await open(page);
-  await createProject(page, "用語の検証");
+  await createTask(page, "用語の検証");
   const wikiPages = page.getByRole("list", { name: "Wiki のページ" });
-  const openWiki = async () => {
-    await page.getByRole("button", { name: "Wiki", exact: true }).click();
-    await expect(page).toHaveURL(/\/wiki$/);
-  };
+  const openTermsWiki = () => openWiki(page, "用語の検証");
   /** 用語ページは回答のあとに作られるので、出てくるまで開き直す。 */
   const expectPage = async (title: string) =>
     expect(async () => {
@@ -535,7 +616,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await newChat(page);
   await send(page, "「認可モデル」について");
   await idle(page);
-  await openWiki();
+  await openTermsWiki();
   await expectPage("認可モデル");
 
   // 自動作成のページから、元の回答を開ける
@@ -546,7 +627,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await expect(page.getByText("了解: 「認可モデル」について")).toBeVisible();
 
   // 本文を編集してから同じ用語が出てきても、編集内容は保たれ、ページは増えない
-  await openWiki();
+  await openTermsWiki();
   await wikiPages.getByText("認可モデル").click();
   await page.getByRole("button", { name: "編集" }).click();
   await page
@@ -554,21 +635,21 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
     .fill("利用者が書いた説明");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("利用者が書いた説明")).toBeVisible();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await openTask(page, "用語の検証");
   await page
     .getByRole("navigation", { name: "会話一覧" })
     .getByText("「認可モデル」について")
     .click();
   await send(page, "「認可モデル」と「関係タプル」の違い");
   await idle(page);
-  await openWiki();
+  await openTermsWiki();
   await expectPage("関係タプル");
   await expect(wikiPages.getByText("認可モデル")).toHaveCount(1);
   await wikiPages.getByText("認可モデル").click();
   await expect(page.getByText("利用者が書いた説明")).toBeVisible();
 
   // 設定で止めると、新しい用語のページは作られない
-  await openProjectMenu(page, "プロジェクトの設定");
+  await openTaskMenu(page, "用語の検証", "タスクの設定");
   const toggle = page.getByRole("checkbox", {
     name: /回答から用語ページを自動で作る/,
   });
@@ -577,11 +658,11 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await toggle.uncheck();
   await expect(toggle).not.toBeChecked();
   await page.getByRole("button", { name: "閉じる" }).click();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await openTask(page, "用語の検証");
   await newChat(page);
   await send(page, "「止めたあとの語」について");
   await idle(page);
-  await openWiki();
+  await openTermsWiki();
   await expect(page.getByText("自動作成: オフ")).toBeVisible();
   await page.waitForTimeout(500);
   await page.reload();
@@ -594,11 +675,12 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
 }) => {
   await open(page);
   const createWikiPage = async (
+    task: string,
     title: string,
     aliases: string,
     body: string,
   ) => {
-    await page.getByRole("button", { name: "Wiki", exact: true }).click();
+    await openWiki(page, task);
     await page.getByRole("button", { name: "新しいページ" }).click();
     await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
     await page
@@ -607,22 +689,23 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(body);
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByRole("heading", { name: title })).toBeVisible();
-    await page.getByRole("button", { name: "スレッド", exact: true }).click();
+    await openTask(page, task);
   };
   const terms = page.getByRole("main").locator("button[data-wiki-term]");
   const card = page.getByRole("dialog", { name: "用語の説明" });
 
-  // 別のプロジェクトに同じ名前の用語を作っておく
-  await createProject(page, "別のプロジェクト");
-  await createWikiPage("関係タプル", "", "別のプロジェクトでの定義。");
+  // 別のタスクに同じ名前の用語を作っておく
+  await createTask(page, "別のタスク");
+  await createWikiPage("別のタスク", "関係タプル", "", "別のタスクでの定義。");
   await newChat(page);
   await send(page, "関係タプル とは");
   await idle(page);
   await terms.first().hover();
-  await expect(card).toContainText("別のプロジェクトでの定義。");
+  await expect(card).toContainText("別のタスクでの定義。");
 
-  await createProject(page, "用語プレビュー");
+  await createTask(page, "用語プレビュー");
   await createWikiPage(
+    "用語プレビュー",
     "関係タプル",
     "relation tuple",
     "## 定義\n主体・関係・対象の **3 つ組**。",
@@ -644,10 +727,10 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     "関係タプル",
   );
 
-  // マウス: ホバーで所属プロジェクトの要約が出る
+  // マウス: ホバーで所属タスクの要約が出る
   await terms.nth(0).hover();
   await expect(card).toContainText("主体・関係・対象の 3 つ組。");
-  await expect(card).not.toContainText("別のプロジェクト");
+  await expect(card).not.toContainText("別のタスク");
   await page.mouse.move(0, 0);
   await expect(card).toHaveCount(0);
 
@@ -680,7 +763,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   ).toHaveCount(1, { timeout: 15_000 });
 
   // 編集すると最新の説明を出し、削除しても回答は表示されたまま
-  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await openWiki(page, "用語プレビュー");
   await page
     .getByRole("list", { name: "Wiki のページ" })
     .getByText("認可モデル")
@@ -691,7 +774,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     .fill("編集後の説明");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByText("編集後の説明")).toBeVisible();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await openTask(page, "用語プレビュー");
   await page
     .getByRole("navigation", { name: "会話一覧" })
     .getByText("関係タプル と relation tuple")
@@ -704,14 +787,14 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await model.hover();
   await expect(card).toContainText("編集後の説明");
 
-  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await openWiki(page, "用語プレビュー");
   await page
     .getByRole("list", { name: "Wiki のページ" })
     .getByText("認可モデル")
     .click();
   await page.getByRole("button", { name: "ページを削除" }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await openTask(page, "用語プレビュー");
   await page
     .getByRole("navigation", { name: "会話一覧" })
     .getByText("関係タプル と relation tuple")
@@ -725,11 +808,9 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await expect(terms.first()).toHaveText("関係タプル");
 });
 
-test("プロジェクトに関連リンクを登録し、開き、編集・削除できる", async ({
-  page,
-}) => {
+test("タスクに関連リンクを登録し、開き、編集・削除できる", async ({ page }) => {
   await open(page);
-  await createProject(page, "リンクの検証");
+  await createTask(page, "リンクの検証");
   const links = page.getByRole("list", { name: "関連リンク" });
   const add = async (url: string, label = "") => {
     await page.getByRole("textbox", { name: "URL" }).last().fill(url);
@@ -776,25 +857,21 @@ test("プロジェクトに関連リンクを登録し、開き、編集・削�
   await page.getByRole("button", { name: "「リポジトリ」を削除" }).click();
   await expect(links.getByRole("link")).toHaveCount(1);
 
-  // 開き直しても残り、別のプロジェクトには出ない
+  // 開き直しても残り、別のタスクには出ない
   await page.reload();
   await expect(links.getByRole("link", { name: /設計資料/ })).toBeVisible();
-  await createProject(page, "別のリンク");
+  await createTask(page, "別のリンク");
   await expect(page.getByText("よく開く URL を登録できます")).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "プロジェクト" })
-    .selectOption({ label: "リンクの検証" });
+  await openTask(page, "リンクの検証");
   await expect(links.getByRole("link")).toHaveCount(1);
 });
 
-test("プロジェクトの進捗を記録し、一覧で状態ごとに確認できる", async ({
-  page,
-}) => {
+test("タスクの進捗を記録し、一覧で状態ごとに確認できる", async ({ page }) => {
   await open(page);
   const status = page.getByRole("combobox", { name: "状態" });
   const progress = page.getByRole("region", { name: "進捗" });
 
-  await createProject(page, "進捗A");
+  await createTask(page, "進捗A");
   await expect(status).toHaveValue("not_started");
   await expect(progress).toContainText("最終更新: —");
 
@@ -811,26 +888,25 @@ test("プロジェクトの進捗を記録し、一覧で状態ごとに確認�
   await expect(page.getByRole("status")).toHaveText("保存しました");
   const updatedText = await progress.getByText(/最終更新:/).textContent();
 
-  // 別のプロジェクトには反映されない
-  await createProject(page, "進捗B");
+  // 別のタスクには反映されない
+  await createTask(page, "進捗B");
   await expect(status).toHaveValue("not_started");
   await expect(page.getByRole("textbox", { name: "次にやること" })).toHaveValue(
     "",
   );
 
   // スレッドで会話を続けても、状態と最終更新は変わらない
-  const projectSelect = page.getByRole("combobox", { name: "プロジェクト" });
-  await projectSelect.selectOption({ label: "進捗A" });
+  await openTask(page, "進捗A");
   await newChat(page);
   await send(page, "進捗の続き");
   await idle(page);
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await openTask(page, "進捗A");
   await expect(status).toHaveValue("in_progress");
   await expect(progress.getByText(/最終更新:/)).toHaveText(updatedText ?? "");
 
   // 一覧で状態と次にやることを確認し、絞り込める（リロードしても保たれる）
-  await page.getByRole("button", { name: "プロジェクト一覧" }).click();
-  await expect(page).toHaveURL(/\/projects$/);
+  await page.getByRole("button", { name: "タスク一覧" }).click();
+  await expect(page).toHaveURL(/\/tasks$/);
   const rows = page.getByRole("row");
   await expect(rows.filter({ hasText: "進捗A" })).toContainText("進行中");
   await expect(rows.filter({ hasText: "進捗A" })).toContainText(
@@ -854,20 +930,17 @@ test("プロジェクトの進捗を記録し、一覧で状態ごとに確認�
   // 完了してもスレッド・Wiki・関連リンクを開け、進行中に戻せる
   await rows.filter({ hasText: "進捗A" }).getByRole("button").click();
   await status.selectOption({ label: "完了" });
-  await expect(projectSelect.locator("option:checked")).toHaveText(
-    "進捗A（完了）",
-  );
+  await expect(taskRow(page, "進捗A")).toContainText("完了");
   await expect(page.getByRole("heading", { name: "関連リンク" })).toBeVisible();
   await page
     .getByRole("main")
     .getByRole("button", { name: /進捗の続き/ })
     .click();
   await expect(page.getByText("了解: 進捗の続き")).toBeVisible();
-  await page.getByRole("button", { name: "Wiki", exact: true }).click();
-  await expect(page).toHaveURL(/\/wiki$/);
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await openWiki(page, "進捗A");
+  await openTask(page, "進捗A");
   await status.selectOption({ label: "進行中" });
-  await expect(projectSelect.locator("option:checked")).toHaveText("進捗A");
+  await expect(taskRow(page, "進捗A")).not.toContainText("完了");
 });
 
 test("応答から分岐し、同じ会話の中で分岐を切り替えて続けられる", async ({
@@ -915,7 +988,7 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   ).toBeVisible();
   // サイドバーの会話は 1 つのまま
   await expect(
-    list.locator("li").filter({ hasText: "分岐の設計案は？" }),
+    list.locator("li:not(:has(li))").filter({ hasText: "分岐の設計案は？" }),
   ).toHaveCount(1);
 
   // 元の会話に切り替えて続ける
@@ -943,7 +1016,7 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   await idle(page);
   await expect(branchSelect.locator("option")).toHaveCount(3);
   await expect(
-    list.locator("li").filter({ hasText: "分岐の設計案は？" }),
+    list.locator("li:not(:has(li))").filter({ hasText: "分岐の設計案は？" }),
   ).toHaveCount(1);
 
   // 元の会話を編集しても、分岐の履歴は残る
@@ -971,7 +1044,10 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
     "非同期だと？（元の会話 から分岐）",
   );
   await newChat(page);
-  await list.locator("li").filter({ hasText: "分岐の設計案は？" }).click();
+  await list
+    .locator("li:not(:has(li))")
+    .filter({ hasText: "分岐の設計案は？" })
+    .click();
   await expect(branchSelect.locator("option:checked")).toHaveText(
     "非同期だと？（元の会話 から分岐）",
   );
@@ -1005,16 +1081,16 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   const popup = main.getByRole("toolbar", { name: "選択範囲の操作" });
   const ask = popup.getByRole("button", { name: "質問", exact: true });
 
-  // 用語ページのあるプロジェクトで、用語の説明と選択による質問を使い分ける
-  await createProject(page, "引用の検証");
-  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  // 用語ページのあるタスクで、用語の説明と選択による質問を使い分ける
+  await createTask(page, "引用の検証");
+  await openWiki(page, "引用の検証");
   await page.getByRole("button", { name: "新しいページ" }).click();
   await page.getByRole("textbox", { name: "ページのタイトル" }).fill("方式B");
   await page
     .getByRole("textbox", { name: "本文（Markdown）" })
     .fill("非同期で処理する方式。");
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await page.getByRole("button", { name: "スレッド", exact: true }).click();
+  await openTask(page, "引用の検証");
   await newChat(page);
   await send(page, "方式A と 方式B の比較");
   await idle(page);
@@ -1439,14 +1515,14 @@ test("回答の選択範囲から Wiki のページを作り、回答に戻れ�
   const popup = main.getByRole("toolbar", { name: "選択範囲の操作" });
   const createPage = popup.getByRole("button", { name: "ページを作成" });
 
-  // プロジェクトに属さない会話では押せない
+  // タスクに属さない会話では押せない
   await newChat(page);
   await send(page, "分散トランザクション");
   await idle(page);
   await selectLastAnswerParagraph(page);
   await expect(createPage).toBeDisabled();
 
-  await createProject(page, "ページ作成の検証");
+  await createTask(page, "ページ作成の検証");
   await newChat(page);
   await send(page, "冪等性キー");
   await expect(main.getByText("了解: 冪等性キー")).toBeVisible();
@@ -1498,8 +1574,8 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
   page,
 }) => {
   await open(page);
-  await createProject(page, "ページ質問の検証");
-  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await createTask(page, "ページ質問の検証");
+  await openWiki(page, "ページ質問の検証");
   await page.getByRole("button", { name: "新しいページ" }).click();
   const title = "委譲手順";
   await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
@@ -1557,15 +1633,16 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
   );
 });
 
-test("既存の Wiki を共有するプロジェクトを作り、一覧を Wiki ごとにまとめられる", async ({
+test("既存の Wiki を共有するタスクを作り、サイドバーで Wiki ごとにまとまる", async ({
   page,
 }) => {
   await open(page);
-  const switcher = page.getByRole("combobox", { name: "プロジェクト" });
+  const taskNames = (wiki: string) =>
+    wikiItem(page, wiki).locator("li div.group > button[aria-expanded]");
 
   // 1 つ目は新しい Wiki で作り、ページを書く
-  await createProject(page, "共有元");
-  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await createTask(page, "共有元");
+  await openWiki(page, "共有元");
   await page.getByRole("button", { name: "新しいページ" }).click();
   await page
     .getByRole("textbox", { name: "ページのタイトル" })
@@ -1573,67 +1650,60 @@ test("既存の Wiki を共有するプロジェクトを作り、一覧を Wiki
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("heading", { name: "共有用語" })).toBeVisible();
 
-  // 2 つ目は既存の Wiki を選んで作る
-  await openProjectMenu(page, "新しいプロジェクト");
-  await page
-    .getByRole("textbox", { name: "プロジェクトの名前" })
-    .fill("共有先");
-  await page.getByRole("radio", { name: "既存の Wiki を使う" }).check();
-  await page
-    .getByRole("combobox", { name: "使う Wiki" })
-    .selectOption({ label: "共有元（1 件のプロジェクトで使用中）" });
+  // 2 つ目は Wiki の行から作ると、その Wiki を共有する
+  await rowAction(wikiRow(page, "共有元"), "Wiki「共有元」で新しいタスク");
+  await page.getByRole("textbox", { name: "タスクの名前" }).fill("共有先");
+  await expect(
+    page.getByRole("radio", { name: "既存の Wiki を使う" }),
+  ).toBeChecked();
+  await expect(
+    page.getByRole("combobox", { name: "使う Wiki" }).locator("option:checked"),
+  ).toHaveText("共有元（1 件のタスクで使用中）");
   await page.getByRole("button", { name: "作成" }).click();
-  await expect(switcher.locator("option:checked")).toHaveText("共有先");
+  await expect(taskNames("共有元")).toHaveText(["共有元", "共有先"]);
 
   // 同じページが見え、共有していることが分かる
-  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await openWiki(page, "共有元");
   await expect(
-    page.getByText("「共有元」と共有している Wiki です"),
+    page.getByText("「共有先」と共有している Wiki です"),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "共有用語" })).toBeVisible();
 
-  // 3 つ目は別の Wiki
-  await createProject(page, "別の Wiki");
+  // 3 つ目は別の Wiki になる
+  await createTask(page, "別の Wiki");
+  await expect(taskNames("別の Wiki")).toHaveText(["別の Wiki"]);
 
-  // Wiki ごとにまとめる
-  await page
-    .getByRole("checkbox", { name: "参照している Wiki ごとにまとめる" })
-    .check();
-  await expect(
-    switcher.locator('optgroup[label="Wiki: 共有元"] option'),
-  ).toHaveText(["共有元", "共有先"]);
-  await expect(
-    switcher.locator('optgroup[label="Wiki: 別の Wiki"] option'),
-  ).toHaveText(["別の Wiki"]);
-  // リロードしても覚えている
-  await page.reload();
-  await expect(switcher.locator('optgroup[label="Wiki: 共有元"]')).toHaveCount(
-    1,
+  // Wiki の行を押すと、その下のタスクを開閉する（リロードしても保たれる）
+  const sharedToggle = wikiRow(page, "共有元").locator(
+    ":scope > button[aria-expanded]",
   );
+  await sharedToggle.click();
+  await expect(taskRow(page, "共有先")).toHaveCount(0);
+  await page.reload();
+  await expect(sharedToggle).toHaveAttribute("aria-expanded", "false");
+  await sharedToggle.click();
+  await expect(taskNames("共有元")).toHaveText(["共有元", "共有先"]);
 
-  // 設定で Wiki の名前を変えると、まとめの見出しにも反映される
-  await switcher.selectOption({ label: "共有先" });
-  await openProjectMenu(page, "プロジェクトの設定");
+  // 設定で Wiki の名前を変えると、ツリーの Wiki の行にも反映される
+  await openTaskMenu(page, "共有先", "タスクの設定");
   await page.getByRole("textbox", { name: "Wiki の名前" }).fill("共通用語集");
   await page.getByRole("button", { name: "名前を保存" }).click();
   await expect(page.getByRole("button", { name: "名前を保存" })).toBeDisabled();
   await page.getByRole("button", { name: "閉じる" }).click();
-  await expect(
-    switcher.locator('optgroup[label="Wiki: 共通用語集"] option'),
-  ).toHaveText(["共有元", "共有先"]);
+  await expect(taskNames("共通用語集")).toHaveText(["共有元", "共有先"]);
 
-  // 共有している Wiki は、プロジェクトを消しても残る
-  await openProjectMenu(page, "プロジェクトを削除");
+  // 共有している Wiki は、タスクを消しても残る
+  await openTaskMenu(page, "共有先", "タスクを削除");
   await expect(
     page.getByText(
-      "Wiki「共通用語集」はほかのプロジェクトでも使っているので残ります。",
+      "Wiki「共通用語集」はほかのタスクでも使っているので残ります。",
       {
         exact: false,
       },
     ),
   ).toBeVisible();
   await page.getByRole("button", { name: "削除", exact: true }).click();
-  await switcher.selectOption({ label: "共有元" });
-  await page.getByRole("button", { name: "Wiki", exact: true }).click();
+  await expect(taskNames("共通用語集")).toHaveText(["共有元"]);
+  await openWiki(page, "共通用語集");
   await expect(page.getByRole("button", { name: "共有用語" })).toBeVisible();
 });

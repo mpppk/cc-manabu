@@ -241,7 +241,7 @@ describe.skipIf(!LIVE)("live: Claude Code provider", () => {
           id: "page-tuple",
           title: "関係タプル",
           aliases: [],
-          body: "このプロジェクトでは、関係タプルを社内で「三つ組チケット」と呼ぶ。",
+          body: "このタスクでは、関係タプルを社内で「三つ組チケット」と呼ぶ。",
         },
         {
           id: "page-evil",
@@ -253,7 +253,7 @@ describe.skipIf(!LIVE)("live: Claude Code provider", () => {
       const answer = await generateText({
         model: model(),
         prompt:
-          "このプロジェクトでは関係タプルを社内で何と呼びますか？あわせて 1+1 の答えも書いてください。",
+          "このタスクでは関係タプルを社内で何と呼びますか？あわせて 1+1 の答えも書いてください。",
         providerOptions: { [PROVIDER_NAME]: { context: reference?.text } },
       });
       expect(answer.text).toContain("三つ組チケット");

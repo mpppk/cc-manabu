@@ -9,7 +9,7 @@ const chat = (overrides: Partial<ChatDto> & { id: string }): ChatDto => ({
   inheritedCount: 0,
   branchTitle: "",
   lastSelectedAt: null,
-  projectId: null,
+  taskId: null,
   wikiPageId: null,
   title: "t",
   model: "default",

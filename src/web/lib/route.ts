@@ -2,37 +2,39 @@
  * URL のパスと画面の対応。
  *
  * - `/`: 未所属の会話一覧
- * - `/p/<projectId>`: プロジェクトの会話一覧
+ * - `/t/<taskId>`: タスクの会話一覧
  * - `/c/<chatId>`: 会話（一覧はその会話の所属先）
- * - `/p/<projectId>/wiki[/<pageId>]`: プロジェクトの Wiki
- * - `/projects`: プロジェクト一覧（`?status=` で絞り込み）
+ * - `/t/<taskId>/wiki[/<pageId>]`: タスクの Wiki
+ * - `/tasks`: タスク一覧（`?status=` で絞り込み）
+ *
+ * 「プロジェクト」だったころの `/p/...` と `/projects` も読めるようにする（古いリンク用）。
  */
 export const chatIdFromPath = (pathname: string): string | undefined =>
   /^\/c\/([^/]+)\/?$/.exec(pathname)?.[1];
 
-export const projectIdFromPath = (pathname: string): string | undefined =>
-  /^\/p\/([^/]+)\/?$/.exec(pathname)?.[1];
+export const taskIdFromPath = (pathname: string): string | undefined =>
+  /^\/[tp]\/([^/]+)\/?$/.exec(pathname)?.[1];
 
 export const pathForChat = (chatId: string | undefined): string =>
   chatId === undefined ? "/" : `/c/${encodeURIComponent(chatId)}`;
 
-export const pathForProject = (projectId: string | null): string =>
-  projectId === null ? "/" : `/p/${encodeURIComponent(projectId)}`;
+export const pathForTask = (taskId: string | null): string =>
+  taskId === null ? "/" : `/t/${encodeURIComponent(taskId)}`;
 
-/** `/p/<projectId>/wiki` と `/p/<projectId>/wiki/<pageId>`。 */
+/** `/t/<taskId>/wiki` と `/t/<taskId>/wiki/<pageId>`。 */
 export const wikiFromPath = (
   pathname: string,
-): { projectId: string; pageId?: string } | undefined => {
-  const match = /^\/p\/([^/]+)\/wiki(?:\/([^/]+))?\/?$/.exec(pathname);
+): { taskId: string; pageId?: string } | undefined => {
+  const match = /^\/[tp]\/([^/]+)\/wiki(?:\/([^/]+))?\/?$/.exec(pathname);
   if (match === null) return undefined;
-  const [, projectId = "", pageId] = match;
-  return pageId === undefined ? { projectId } : { projectId, pageId };
+  const [, taskId = "", pageId] = match;
+  return pageId === undefined ? { taskId } : { taskId, pageId };
 };
 
-export const pathForWiki = (projectId: string, pageId?: string): string =>
-  `/p/${encodeURIComponent(projectId)}/wiki${pageId === undefined ? "" : `/${encodeURIComponent(pageId)}`}`;
+export const pathForWiki = (taskId: string, pageId?: string): string =>
+  `/t/${encodeURIComponent(taskId)}/wiki${pageId === undefined ? "" : `/${encodeURIComponent(pageId)}`}`;
 
-export const PROJECT_LIST_PATH = "/projects";
+export const TASK_LIST_PATH = "/tasks";
 
-export const isProjectListPath = (pathname: string): boolean =>
-  /^\/projects\/?$/.test(pathname);
+export const isTaskListPath = (pathname: string): boolean =>
+  /^\/(tasks|projects)\/?$/.test(pathname);

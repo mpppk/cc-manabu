@@ -1,14 +1,14 @@
 import { BookOpen, MessageSquare } from "lucide-react";
-import type { ChatDto, ProjectDto } from "../../router.ts";
+import type { ChatDto, TaskDto } from "../../router.ts";
 import type { ApiClient } from "../lib/orpc.ts";
-import { ProjectLinks } from "./project-links.tsx";
-import { ProjectProgress } from "./project-progress.tsx";
+import { TaskLinks } from "./task-links.tsx";
+import { TaskProgress } from "./task-progress.tsx";
 import { Button } from "./ui/button.tsx";
 
-/** プロジェクト画面（`/p/<id>`）。スレッド・Wiki への入口と関連リンク。 */
-export const ProjectOverview = ({
+/** タスク画面（`/t/<id>`）。スレッド・Wiki への入口と関連リンク。 */
+export const TaskOverview = ({
   api,
-  project,
+  task,
   threads,
   onOpenChat,
   onOpenWiki,
@@ -16,10 +16,10 @@ export const ProjectOverview = ({
   onChanged,
 }: {
   api: ApiClient;
-  project: ProjectDto;
-  /** 進捗を保存したあと、プロジェクトを取り直す。 */
+  task: TaskDto;
+  /** 進捗を保存したあと、タスクを取り直す。 */
   onChanged: () => Promise<void>;
-  /** このプロジェクトのスレッド（更新日時の新しい順）。 */
+  /** このタスクのスレッド（更新日時の新しい順）。 */
   threads: ChatDto[];
   onOpenChat: (chatId: string) => void;
   onOpenWiki: () => void;
@@ -28,7 +28,7 @@ export const ProjectOverview = ({
   <div className="flex-1 overflow-y-auto">
     <div className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6">
       <header className="flex flex-col gap-3">
-        <h1 className="font-bold text-2xl">{project.name}</h1>
+        <h1 className="font-bold text-2xl">{task.name}</h1>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={onNewChat}>
             <MessageSquare className="size-4" />
@@ -41,16 +41,13 @@ export const ProjectOverview = ({
         </div>
       </header>
 
-      <ProjectProgress api={api} project={project} onChanged={onChanged} />
+      <TaskProgress api={api} task={task} onChanged={onChanged} />
 
-      <ProjectLinks key={project.id} api={api} projectId={project.id} />
+      <TaskLinks key={task.id} api={api} taskId={task.id} />
 
-      <section
-        aria-labelledby="project-threads"
-        className="flex flex-col gap-3"
-      >
+      <section aria-labelledby="task-threads" className="flex flex-col gap-3">
         <h2
-          id="project-threads"
+          id="task-threads"
           className="flex items-center gap-2 font-semibold text-base"
         >
           <MessageSquare className="size-4" />

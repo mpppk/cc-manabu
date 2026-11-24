@@ -20,10 +20,10 @@ import { createClaudeStatus } from "./claude/status.ts";
 import { createChatRepository } from "./db/chat-repository.ts";
 import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
-import { createProjectRepository } from "./db/project-repository.ts";
 import { createQueueRepository } from "./db/queue-repository.ts";
 import { createRateLimitRepository } from "./db/rate-limit-repository.ts";
 import { createSearchRepository } from "./db/search-repository.ts";
+import { createTaskRepository } from "./db/task-repository.ts";
 import { createWikiRepository } from "./db/wiki-repository.ts";
 import { CliExit } from "./errors/index.ts";
 import { createClaudeCode } from "./provider/index.ts";
@@ -48,7 +48,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
     openDatabase(resolveDbPath()),
     Result.andThen(({ db }) => {
       const chats = createChatRepository(db);
-      const projects = createProjectRepository(db);
+      const tasks = createTaskRepository(db);
       const wiki = createWikiRepository(db);
       const queue = createQueueRepository(db);
       const rateLimits = createRateLimitRepository(db);
@@ -89,7 +89,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         ...TERM_EXTRACTION_SETTINGS,
       })(TERM_EXTRACTION_MODEL);
       const writeTermPages = createTermPageWriter({
-        projects,
+        tasks,
         wiki,
         extract: async (prompt) =>
           (await generateText({ model: termModel, prompt, reasoning: "none" }))
@@ -119,8 +119,8 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         approvals,
         languageModel: (modelId, { canUseTool }) =>
           createClaudeCode({ ...providerSettings, canUseTool })(modelId),
-        wikiContext: createWikiContextBuilder(wiki, projects),
-        readWikiPage: createWikiPageReader(wiki, projects),
+        wikiContext: createWikiContextBuilder(wiki, tasks),
+        readWikiPage: createWikiPageReader(wiki, tasks),
         onAnswerComplete: (event) => void writeTermPages(event),
         onAnswerFinish: (event) => void summarizeAnswer(event),
         onRunnerFinish: (chatId, outcome) =>
@@ -139,7 +139,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         development: process.env.NODE_ENV !== "production",
         context: {
           chats,
-          projects,
+          tasks,
           wiki,
           queue,
           queueDispatcher,

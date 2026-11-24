@@ -20,7 +20,7 @@ type SideDraft = {
 type BranchRequest = { kind: "branch"; id: string; draft?: SideDraft };
 type WikiRequest = {
   kind: "wiki";
-  projectId: string;
+  taskId: string;
   pageId: string;
   title?: string;
 };
@@ -41,7 +41,7 @@ export const SideChat = ({
   onClose: () => void;
 }) => {
   const wiki = request.kind === "wiki" ? request : undefined;
-  const projectId = wiki?.projectId;
+  const taskId = wiki?.taskId;
   const pageId = wiki?.pageId;
   const draft = request.kind === "branch" ? request.draft : undefined;
   const branchId = request.kind === "branch" ? request.id : undefined;
@@ -63,8 +63,8 @@ export const SideChat = ({
       const result =
         chatId !== undefined
           ? await api.chats.get({ id: chatId })
-          : projectId !== undefined && pageId !== undefined
-            ? await api.wiki.chat({ projectId, pageId })
+          : taskId !== undefined && pageId !== undefined
+            ? await api.wiki.chat({ taskId, pageId })
             : null;
       setConversation(
         result === null
@@ -77,7 +77,7 @@ export const SideChat = ({
     } catch {
       setError("サイドチャットを読み込めませんでした。");
     }
-  }, [api, chatId, pageId, projectId]);
+  }, [api, chatId, pageId, taskId]);
 
   useEffect(() => {
     if (chatId !== undefined || pageId !== undefined) void loadConversation();
@@ -100,7 +100,7 @@ export const SideChat = ({
       const result =
         wiki !== undefined
           ? await api.wiki.ask({
-              projectId: wiki.projectId,
+              taskId: wiki.taskId,
               pageId: wiki.pageId,
               message,
             })

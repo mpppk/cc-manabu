@@ -21,9 +21,9 @@ export class DatabaseError extends ErrorFactory({
   message: "A database error occurred",
 }) {}
 
-export class WikiChatProjectError extends ErrorFactory({
-  name: "WikiChatProjectError",
-  message: "Wiki ページの会話は別のプロジェクトに移動できません。",
+export class WikiChatTaskError extends ErrorFactory({
+  name: "WikiChatTaskError",
+  message: "Wiki ページの会話は別のタスクに移動できません。",
 }) {}
 
 const run = <T>(fn: () => T): Result.Result<T, DatabaseError> =>
@@ -54,16 +54,16 @@ export const createChatRepository = (db: Db) => {
   const findChat = (chatId: string) =>
     run(() => db.select().from(chats).where(eq(chats.id, chatId)).get());
 
-  const wikiChatWhere = (projectId: string, pageId: string) =>
+  const wikiChatWhere = (taskId: string, pageId: string) =>
     and(
-      eq(chats.projectId, projectId),
+      eq(chats.taskId, taskId),
       eq(chats.wikiPageId, pageId),
       isNull(chats.parentId),
     );
 
   const newChatValues = (input: {
     cwd: string;
-    projectId?: string | null;
+    taskId?: string | null;
     wikiPageId?: string;
     model?: string;
     effort?: string | null;
@@ -75,7 +75,7 @@ export const createChatRepository = (db: Db) => {
     return {
       id,
       groupId: id,
-      projectId: input.projectId ?? null,
+      taskId: input.taskId ?? null,
       wikiPageId: input.wikiPageId ?? null,
       cwd: input.cwd,
       model: input.model ?? "default",
@@ -94,15 +94,15 @@ export const createChatRepository = (db: Db) => {
         db.insert(chats).values(newChatValues(input)).returning().get(),
       ),
 
-    getWikiChat: (projectId: string, pageId: string) =>
+    getWikiChat: (taskId: string, pageId: string) =>
       run(() =>
-        db.select().from(chats).where(wikiChatWhere(projectId, pageId)).get(),
+        db.select().from(chats).where(wikiChatWhere(taskId, pageId)).get(),
       ),
 
-    /** 複数のタブで初回送信しても、同じプロジェクトとページの会話は 1 つにする。 */
+    /** 複数のタブで初回送信しても、同じタスクとページの会話は 1 つにする。 */
     getOrCreateWikiChat: (input: {
       id: string;
-      projectId: string;
+      taskId: string;
       wikiPageId: string;
       title: string;
       cwd: string;
@@ -113,7 +113,7 @@ export const createChatRepository = (db: Db) => {
             tx
               .select()
               .from(chats)
-              .where(wikiChatWhere(input.projectId, input.wikiPageId))
+              .where(wikiChatWhere(input.taskId, input.wikiPageId))
               .get() ??
             tx.insert(chats).values(newChatValues(input)).returning().get(),
           { behavior: "immediate" },
@@ -173,7 +173,7 @@ export const createChatRepository = (db: Db) => {
     /**
      * 分岐を作る（#76）。分岐元の seq ≤ upToSeq のメッセージを新しい id でコピーし、
      * 分岐元が後で編集・再生成されても分岐の履歴が残るようにする。
-     * タイトル・プロジェクト・作業ディレクトリは会話で共有する。
+     * タイトル・タスク・作業ディレクトリは会話で共有する。
      */
     createBranch: (input: {
       id: string;
@@ -212,7 +212,7 @@ export const createChatRepository = (db: Db) => {
               branchTitle: input.branchTitle,
               forkSessionId: input.forkSessionId,
               forkFromUuid: input.forkFromUuid,
-              projectId: input.parent.projectId,
+              taskId: input.parent.taskId,
               wikiPageId: input.parent.wikiPageId,
               title: input.parent.title,
               cwd: input.parent.cwd,
@@ -265,14 +265,14 @@ export const createChatRepository = (db: Db) => {
           .run();
       }),
 
-    /** 会話の所属プロジェクトを、すべての分岐で変える（更新日時は動かさない）。 */
-    setGroupProject: (
+    /** 会話の所属タスクを、すべての分岐で変える（更新日時は動かさない）。 */
+    setGroupTask: (
       groupId: string,
-      projectId: string | null,
+      taskId: string | null,
     ): Result.Result<void, DatabaseError> =>
       run(() => {
         db.update(chats)
-          .set({ projectId })
+          .set({ taskId })
           .where(eq(chats.groupId, groupId))
           .run();
       }),
@@ -298,18 +298,18 @@ export const createChatRepository = (db: Db) => {
       }),
 
     /**
-     * 会話の所属プロジェクトを変える（null で未所属）。
+     * 会話の所属タスクを変える（null で未所属）。
      * 一覧の並びが変わらないよう updatedAt は動かさない。
      */
-    setProject: (
+    setTask: (
       chatId: string,
-      projectId: string | null,
+      taskId: string | null,
     ): Result.Result<ChatRow, ChatNotFoundError | DatabaseError> =>
       Result.pipe(
         run(() =>
           db
             .update(chats)
-            .set({ projectId })
+            .set({ taskId })
             .where(eq(chats.id, chatId))
             .returning()
             .get(),

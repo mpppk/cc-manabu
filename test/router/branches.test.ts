@@ -44,9 +44,9 @@ const textsOf = async (client: Client, chatId: string) =>
   );
 
 /** 2 往復した会話を作る。 */
-const twoTurns = async (client: Client, projectId?: string) => {
+const twoTurns = async (client: Client, taskId?: string) => {
   const chat = await client.chats.create(
-    projectId === undefined ? {} : { projectId },
+    taskId === undefined ? {} : { taskId },
   );
   await send(client, chat.id, "設計案は？");
   await send(client, chat.id, "同期で進めて");
@@ -123,10 +123,10 @@ describe("分岐（#76）", () => {
     expect(calls[4]?.resume).toBe(rootSession);
   });
 
-  test("分岐からさらに分岐でき、会話は 1 つのまま。名前・プロジェクト・削除は会話ごと", async () => {
+  test("分岐からさらに分岐でき、会話は 1 つのまま。名前・タスク・削除は会話ごと", async () => {
     const { client } = setup();
-    const project = await client.projects.create({ name: "p" });
-    const root = await twoTurns(client, project.id);
+    const task = await client.tasks.create({ name: "p" });
+    const root = await twoTurns(client, task.id);
     const b1 = await branchFrom(client, root.id, 1, "分岐1");
     const b2 = await branchFrom(client, b1, 3, "分岐2");
 
@@ -135,7 +135,7 @@ describe("分岐（#76）", () => {
     expect(list).toHaveLength(3);
     expect((await client.chats.get({ id: b2 })).chat).toMatchObject({
       parentId: b1,
-      projectId: project.id,
+      taskId: task.id,
       inheritedCount: 4,
     });
 
@@ -146,8 +146,8 @@ describe("分岐（#76）", () => {
       "API 設計",
     ]);
 
-    await client.chats.setProject({ id: b1, projectId: null });
-    expect((await client.chats.list()).map((c) => c.projectId)).toEqual([
+    await client.chats.setTask({ id: b1, taskId: null });
+    expect((await client.chats.list()).map((c) => c.taskId)).toEqual([
       null,
       null,
       null,
@@ -240,16 +240,16 @@ describe("分岐（#76）", () => {
     expect((await client.chat.stop({ chatId: branchId })).stopped).toBe(true);
   });
 
-  test("プロジェクトの進捗は分岐しても変わらない", async () => {
+  test("タスクの進捗は分岐しても変わらない", async () => {
     const { client } = setup();
-    const project = await client.projects.create({ name: "p" });
-    const progressed = await client.projects.updateProgress({
-      id: project.id,
+    const task = await client.tasks.create({ name: "p" });
+    const progressed = await client.tasks.updateProgress({
+      id: task.id,
       status: "in_progress",
     });
-    const root = await twoTurns(client, project.id);
+    const root = await twoTurns(client, task.id);
     await branchFrom(client, root.id, 1, "分岐");
-    const [after] = await client.projects.list();
+    const [after] = await client.tasks.list();
     expect(after?.status).toBe("in_progress");
     expect(after?.progressUpdatedAt).toEqual(progressed.progressUpdatedAt);
   });
