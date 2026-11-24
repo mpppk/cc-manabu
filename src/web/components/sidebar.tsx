@@ -5,6 +5,7 @@ import {
   FileText,
   FolderMinus,
   FolderPlus,
+  FolderTree,
   GitBranch,
   LayoutDashboard,
   LayoutList,
@@ -239,6 +240,25 @@ const saveExpanded = (expanded: Expanded) => {
   }
 };
 
+const GROUP_KEY = "cc-manabu.sidebarGroupByWiki";
+
+/** タスクを参照している Wiki ごとにまとめるか（ブラウザに覚える。既定はまとめる）。 */
+const loadGroupByWiki = (): boolean => {
+  try {
+    return localStorage.getItem(GROUP_KEY) !== "0";
+  } catch {
+    return true;
+  }
+};
+
+const saveGroupByWiki = (value: boolean) => {
+  try {
+    localStorage.setItem(GROUP_KEY, value ? "1" : "0");
+  } catch {
+    // 覚えられなくても切り替えはできる
+  }
+};
+
 const isExpanded = (expanded: Expanded, key: string): boolean =>
   expanded[key] ?? !key.startsWith("task:");
 
@@ -392,6 +412,7 @@ export const Sidebar = ({
   const searching = query.trim() !== "";
   const search = useSearch(query, onSearch);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [groupByWiki, setGroupByWiki] = useState(loadGroupByWiki);
   const searchId = useId();
   const searchButton = useRef<HTMLButtonElement>(null);
   const closeSearch = (restoreFocus: boolean) => {
@@ -582,6 +603,23 @@ export const Sidebar = ({
             <FolderPlus />
           </Button>
           <Button
+            variant={groupByWiki ? "secondary" : "ghost"}
+            size="icon"
+            aria-label="Wiki ごとにまとめる"
+            title={
+              groupByWiki
+                ? "Wiki ごとにまとめる（オン）"
+                : "Wiki ごとにまとめる（オフ）"
+            }
+            aria-pressed={groupByWiki}
+            onClick={() => {
+              setGroupByWiki(!groupByWiki);
+              saveGroupByWiki(!groupByWiki);
+            }}
+          >
+            <FolderTree />
+          </Button>
+          <Button
             ref={searchButton}
             variant={searchOpen ? "secondary" : "ghost"}
             size="icon"
@@ -625,49 +663,51 @@ export const Sidebar = ({
       ) : (
         <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
           <ul className="flex flex-col gap-0.5">
-            {wikiGroups.map(({ wiki, members }) => {
-              const key = `wiki:${wiki.id}`;
-              const open = isExpanded(expanded, key);
-              const first = members[0];
-              return (
-                <li key={wiki.id}>
-                  <TreeRow
-                    level={0}
-                    expanded={open}
-                    onToggle={() => toggle(key)}
-                    icon={<BookOpen />}
-                    label={wiki.name}
-                    selected={openWikiId === wiki.id}
-                    actions={
-                      <>
-                        {first !== undefined && (
+            {!groupByWiki && tasks.map((item) => renderTask(item, 0))}
+            {groupByWiki &&
+              wikiGroups.map(({ wiki, members }) => {
+                const key = `wiki:${wiki.id}`;
+                const open = isExpanded(expanded, key);
+                const first = members[0];
+                return (
+                  <li key={wiki.id}>
+                    <TreeRow
+                      level={0}
+                      expanded={open}
+                      onToggle={() => toggle(key)}
+                      icon={<BookOpen />}
+                      label={wiki.name}
+                      selected={openWikiId === wiki.id}
+                      actions={
+                        <>
+                          {first !== undefined && (
+                            <RowAction
+                              label={`Wiki「${wiki.name}」のページを開く`}
+                              onClick={() => onOpenWiki(first.id)}
+                            >
+                              <FileText className="size-3.5" />
+                            </RowAction>
+                          )}
                           <RowAction
-                            label={`Wiki「${wiki.name}」のページを開く`}
-                            onClick={() => onOpenWiki(first.id)}
+                            label={`Wiki「${wiki.name}」で新しいタスク`}
+                            onClick={() =>
+                              setTaskDialog({ kind: "create", wikiId: wiki.id })
+                            }
                           >
-                            <FileText className="size-3.5" />
+                            <FolderPlus className="size-3.5" />
                           </RowAction>
-                        )}
-                        <RowAction
-                          label={`Wiki「${wiki.name}」で新しいタスク`}
-                          onClick={() =>
-                            setTaskDialog({ kind: "create", wikiId: wiki.id })
-                          }
-                        >
-                          <FolderPlus className="size-3.5" />
-                        </RowAction>
-                      </>
-                    }
-                  />
-                  {open && (
-                    <ul className="flex flex-col gap-0.5">
-                      {members.map((member) => renderTask(member, 1))}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-            {orphans.map((orphan) => renderTask(orphan, 0))}
+                        </>
+                      }
+                    />
+                    {open && (
+                      <ul className="flex flex-col gap-0.5">
+                        {members.map((member) => renderTask(member, 1))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            {groupByWiki && orphans.map((orphan) => renderTask(orphan, 0))}
             <li data-unassigned>
               <TreeRow
                 level={0}

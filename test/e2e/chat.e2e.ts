@@ -1692,6 +1692,25 @@ test("既存の Wiki を共有するタスクを作り、サイドバーで Wiki
   await createTask(page, "別の Wiki");
   await expect(taskNames("別の Wiki")).toHaveText(["別の Wiki"]);
 
+  // まとめるのをやめると、タスクが Wiki の下ではなく平らに並ぶ（リロードしても保たれる）
+  const groupToggle = page.getByRole("button", { name: "Wiki ごとにまとめる" });
+  await expect(groupToggle).toHaveAttribute("aria-pressed", "true");
+  await groupToggle.click();
+  await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(wikiRow(page, "共有元")).toHaveCount(0);
+  for (const name of ["共有元", "共有先", "別の Wiki"]) {
+    await expect(
+      sidebarTree(page)
+        .locator(":scope > ul > li[data-task-id]")
+        .filter({ has: rowMatching(page, `「${name}」の概要を開く`) }),
+    ).toHaveCount(1);
+  }
+  await page.reload();
+  await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
+  await expect(taskRow(page, "共有先")).toBeVisible();
+  await groupToggle.click();
+  await expect(taskNames("共有元")).toHaveText(["共有元", "共有先"]);
+
   // Wiki の行を押すと、その下のタスクを開閉する（リロードしても保たれる）
   const sharedToggle = wikiRow(page, "共有元").locator(
     ":scope > button[aria-expanded]",
