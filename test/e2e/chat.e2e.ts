@@ -1113,7 +1113,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
 
 test("保存済みの分岐をサイドで開き直し、メインの現在地を保って続けられる", async ({
   page,
-}) => {
+}, testInfo) => {
   await open(page);
   await newChat(page);
   const main = page.getByRole("region", { name: "メインのチャット" });
@@ -1138,8 +1138,9 @@ test("保存済みの分岐をサイドで開き直し、メインの現在地�
       .click();
   };
 
-  await send(page, "保存分岐の起点");
-  await expect(main.getByText("了解: 保存分岐の起点")).toBeVisible();
+  const firstQuestion = `保存分岐の起点 ${testInfo.repeatEachIndex}`;
+  await send(page, firstQuestion);
+  await expect(main.getByText(`了解: ${firstQuestion}`)).toBeVisible();
   await idle(page);
   const rootUrl = page.url();
   await selectLastAnswerParagraph(page);
@@ -1190,7 +1191,7 @@ test("保存済みの分岐をサイドで開き直し、メインの現在地�
   await newChat(page);
   await page
     .getByRole("navigation", { name: "会話一覧" })
-    .getByText("保存分岐の起点")
+    .getByText(firstQuestion, { exact: true })
     .click();
   await expect(page).toHaveURL(rootUrl);
   await expect(main.getByText("了解: 元の会話で進めた話題")).toBeVisible();
