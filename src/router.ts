@@ -31,6 +31,8 @@ import {
 import type { WikiRepository } from "./db/wiki-repository.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
 import { version } from "./version.ts";
+import type { WikiPageGenerator } from "./wiki/page-generation.ts";
+import { MAX_PAGE_TERM_LENGTH } from "./wiki/terms.ts";
 
 /** oRPC ハンドラに渡すコンテキスト。 */
 export type RouterContext = {
@@ -44,6 +46,8 @@ export type RouterContext = {
   chatService: ChatService;
   approvals: ApprovalBroker;
   claude: ClaudeStatusHolder;
+  /** 回答の中の語句から Wiki のページを Claude に書かせる。 */
+  generateWikiPage: WikiPageGenerator;
   /** 新しい会話の作業ディレクトリ（起動時のカレントディレクトリ）。 */
   cwd: string;
 };
@@ -58,6 +62,9 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   WikiPageNotFoundError: "NOT_FOUND",
   WikiPageUnavailableError: "NOT_FOUND",
   WikiChatTaskError: "BAD_REQUEST",
+  ChatWithoutTaskError: "BAD_REQUEST",
+  AnswerNotFoundError: "NOT_FOUND",
+  InvalidPageTermError: "BAD_REQUEST",
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
   ApprovalNotFoundError: "NOT_FOUND",
@@ -545,6 +552,25 @@ export const router = {
           ),
         ),
       ),
+    /**
+     * 回答の中で選んだ語句のページを Claude に書かせて保存する。
+     * 同じ名前のページがすでにあれば作らずに返す（created: false）。
+     */
+    generate: base
+      .input(
+        z.object({
+          chatId: z.string().min(1),
+          messageId: z.string().min(1),
+          term: z.string().trim().min(1).max(MAX_PAGE_TERM_LENGTH),
+        }),
+      )
+      .handler(async ({ context, input }) => {
+        const { page, created } = await unwrapForOrpc(
+          context.generateWikiPage(input),
+          ERROR_CODES,
+        );
+        return { page: toWikiPageDto(page), created };
+      }),
     update: base
       .input(wikiPageInput.extend({ id: z.string().min(1) }))
       .handler(async ({ context, input }) =>

@@ -100,3 +100,54 @@
     @apply bg-background text-foreground antialiased;
   }
 }
+
+/* 回答の選択範囲から Wiki のページを AI で作っている最中の語句。下線と背景の光が流れる */
+.wiki-term-generating {
+  border-radius: 2px;
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: var(--color-sky-500);
+  text-underline-offset: 2px;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in oklab, var(--color-sky-400) 35%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  animation: wiki-term-generating 1.4s ease-in-out infinite;
+}
+
+@keyframes wiki-term-generating {
+  0% {
+    background-position: 150% 0;
+    text-decoration-color: color-mix(
+      in oklab,
+      var(--color-sky-500) 30%,
+      transparent
+    );
+  }
+  50% {
+    text-decoration-color: var(--color-sky-500);
+  }
+  100% {
+    background-position: -50% 0;
+    text-decoration-color: color-mix(
+      in oklab,
+      var(--color-sky-500) 30%,
+      transparent
+    );
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wiki-term-generating {
+    animation: none;
+    background-color: color-mix(
+      in oklab,
+      var(--color-sky-400) 20%,
+      transparent
+    );
+  }
+}

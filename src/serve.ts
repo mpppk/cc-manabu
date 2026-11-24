@@ -38,6 +38,11 @@ import {
   createWikiPageReader,
 } from "./wiki/context.ts";
 import {
+  createWikiPageGenerator,
+  PAGE_GENERATION_MODEL,
+  PAGE_GENERATION_SETTINGS,
+} from "./wiki/page-generation.ts";
+import {
   TERM_EXTRACTION_MODEL,
   TERM_EXTRACTION_SETTINGS,
 } from "./wiki/terms.ts";
@@ -95,6 +100,21 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           (await generateText({ model: termModel, prompt, reasoning: "none" }))
             .text,
       });
+      // 回答の選択範囲からのページ作成も同じく軽い呼び出し
+      const pageModel = createClaudeCode({
+        ...providerSettings,
+        ...PAGE_GENERATION_SETTINGS,
+      })(PAGE_GENERATION_MODEL);
+      const generateWikiPage = createWikiPageGenerator({
+        tasks,
+        chats,
+        wiki,
+        generate: async (prompt) =>
+          (await generateText({ model: pageModel, prompt, reasoning: "none" }))
+            .text,
+        onError: (error) =>
+          console.warn("Wiki のページを生成できませんでした:", error),
+      });
       // 回答の要約も同じく軽い呼び出し（閉じた回答に出す）
       const summaryModel = createClaudeCode({
         ...providerSettings,
@@ -148,6 +168,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           chatService,
           approvals,
           claude,
+          generateWikiPage,
           cwd: process.cwd(),
         },
       });

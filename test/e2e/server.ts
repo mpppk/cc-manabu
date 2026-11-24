@@ -39,6 +39,11 @@ import {
   createWikiPageReader,
 } from "../../src/wiki/context.ts";
 import {
+  createWikiPageGenerator,
+  PAGE_GENERATION_MODEL,
+  PAGE_GENERATION_SETTINGS,
+} from "../../src/wiki/page-generation.ts";
+import {
   TERM_EXTRACTION_MODEL,
   TERM_EXTRACTION_SETTINGS,
 } from "../../src/wiki/terms.ts";
@@ -85,6 +90,18 @@ const summarizeAnswer = createAnswerSummarizer({
   chats,
   summarize: async (prompt) =>
     (await generateText({ model: summaryModel, prompt })).text,
+});
+const pageModel = createClaudeCode({
+  cwd: "/e2e",
+  query,
+  ...PAGE_GENERATION_SETTINGS,
+})(PAGE_GENERATION_MODEL);
+const generateWikiPage = createWikiPageGenerator({
+  tasks,
+  chats,
+  wiki,
+  generate: async (prompt) =>
+    (await generateText({ model: pageModel, prompt })).text,
 });
 const registry = new RunnerRegistry();
 const chatService = createChatService({
@@ -138,6 +155,7 @@ const started = startServer({
     chatService,
     approvals,
     claude,
+    generateWikiPage,
     cwd: "/e2e",
   },
 });

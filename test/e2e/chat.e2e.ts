@@ -1507,13 +1507,36 @@ test("回答のあとに、サブスクリプションの利用枠とリセッ�
   await expect(badge).toHaveAttribute("title", /5 時間枠: 62%/);
 });
 
-test("回答の選択範囲から Wiki のページを作り、回答に戻れる", async ({
+/** 回答の中の text と一致する文字だけを選ぶ。 */
+const selectAnswerText = (answer: Locator, text: string) =>
+  answer.evaluate((root, target) => {
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (
+      let node = walker.nextNode();
+      node !== null;
+      node = walker.nextNode()
+    ) {
+      const at = node.textContent?.indexOf(target) ?? -1;
+      if (at < 0) continue;
+      const range = document.createRange();
+      range.setStart(node, at);
+      range.setEnd(node, at + target.length);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      return;
+    }
+    throw new Error(`text not found: ${target}`);
+  }, text);
+
+test("回答の選択範囲から AI で Wiki のページを作り、チャットに留まったまま用語として表示する", async ({
   page,
 }) => {
   await open(page);
   const main = page.getByRole("main");
   const popup = main.getByRole("toolbar", { name: "選択範囲の操作" });
   const createPage = popup.getByRole("button", { name: "ページを作成" });
+  const lastAnswer = page.locator("[data-assistant-message]").last();
 
   // タスクに属さない会話では押せない
   await newChat(page);
@@ -1524,50 +1547,68 @@ test("回答の選択範囲から Wiki のページを作り、回答に戻れ�
 
   await createTask(page, "ページ作成の検証");
   await newChat(page);
-  await send(page, "冪等性キー");
-  await expect(main.getByText("了解: 冪等性キー")).toBeVisible();
-  await idle(page);
-  await send(page, "重複の検知");
-  await expect(main.getByText("了解: 重複の検知")).toBeVisible();
+  await send(page, "冪等性キーの使い方");
+  await expect(main.getByText("了解: 冪等性キーの使い方")).toBeVisible();
   await idle(page);
   const chatPath = new URL(page.url()).pathname;
-  await main.getByRole("button", { name: "回答を開く" }).click();
-  await main.getByRole("button", { name: "ここから分岐" }).first().click();
   const messageInput = main.getByRole("textbox", {
     name: "メッセージ",
     exact: true,
   });
   await messageInput.fill("まだ送っていない質問");
 
-  // 1 行の短い選択はタイトルに入る
-  await selectLastAnswerParagraph(page);
+  // 語句を選んで作ると、画面を移らずに生成中の表示になり、できたら用語になる
+  await selectAnswerText(lastAnswer, "冪等性キー");
   await createPage.click();
-  await expect(page).toHaveURL(/\/wiki$/);
-  await expect(
-    page.getByRole("textbox", { name: "ページのタイトル" }),
-  ).toHaveValue("了解: 冪等性キー");
-  await page
-    .getByRole("textbox", { name: "本文（Markdown）" })
-    .fill("同じ要求を何度送っても結果が変わらないようにするキー。");
-  await page.getByRole("button", { name: "保存", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "了解: 冪等性キー" }),
-  ).toBeVisible();
-
-  // 作ったページから元の回答に戻れる
-  await page.getByRole("button", { name: /回答に戻る/ }).click();
+  const generating = main.locator("[data-wiki-term-pending]", {
+    hasText: "冪等性キー",
+  });
+  await expect(generating).toBeVisible();
   await expect(page).toHaveURL(new RegExp(`${chatPath}$`));
-  await expect(main.getByText("了解: 冪等性キー")).toBeVisible();
-  await expect(
-    main.getByText("この応答の続きとして分岐を作ります。"),
-  ).toBeVisible();
+  const term = main.locator("button[data-wiki-term]", {
+    hasText: "冪等性キー",
+  });
+  await expect(term).toBeVisible();
+  await expect(generating).toHaveCount(0);
   await expect(messageInput).toHaveValue("まだ送っていない質問");
+  await term.click();
+  const card = page.getByRole("dialog", { name: "用語の説明" });
+  await expect(card).toContainText("冪等性キー は回答に出てきた語。");
+  await page.keyboard.press("Escape");
 
-  // 取り消すと、ページを作らずに回答に戻る
-  await selectLastAnswerParagraph(page);
+  // 同じ名前のページがあれば、作らずに知らせる
+  await selectAnswerText(lastAnswer, "冪等性キー");
   await createPage.click();
-  await page.getByRole("button", { name: "キャンセル" }).click();
-  await expect(page).toHaveURL(new RegExp(`${chatPath}$`));
+  await expect(
+    main.getByRole("status").filter({
+      hasText: "「冪等性キー」のページはすでにあります。",
+    }),
+  ).toBeVisible();
+
+  // 生成に失敗したら、生成中の表示を消してエラーを出す
+  await send(page, "失敗する語句");
+  await expect(main.getByText("了解: 失敗する語句")).toBeVisible();
+  await idle(page);
+  await selectAnswerText(lastAnswer, "失敗する語句");
+  await createPage.click();
+  await expect(
+    main.getByRole("alert").filter({
+      hasText: "「失敗する語句」のページを作成できませんでした。",
+    }),
+  ).toBeVisible();
+  await expect(main.locator("[data-wiki-term-pending]")).toHaveCount(0);
+  await expect(
+    main.locator("button[data-wiki-term]", { hasText: "失敗する語句" }),
+  ).toHaveCount(0);
+
+  // 作ったページは Wiki に、元の回答から自動で作成したページとして載っている
+  await openWiki(page, "ページ作成の検証");
+  await page.getByRole("button", { name: "冪等性キー", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "冪等性キー" })).toBeVisible();
+  await expect(
+    page.getByText("回答から自動で作成したページです"),
+  ).toBeVisible();
+  await expect(page.getByText("生成したページ。")).toBeVisible();
 });
 
 test("Wiki の個別ページで質問し、リロードやページ削除のあとも履歴を開ける", async ({

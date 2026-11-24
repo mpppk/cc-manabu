@@ -27,6 +27,7 @@ import {
   createWikiContextBuilder,
   createWikiPageReader,
 } from "../../src/wiki/context.ts";
+import { createWikiPageGenerator } from "../../src/wiki/page-generation.ts";
 
 /**
  * インメモリ DB と、差し替えた query() を使うルータのコンテキストを作る。
@@ -40,6 +41,8 @@ export const createTestContext = (
     extract?: (prompt: string) => Promise<string>;
     /** 回答の要約のモデル呼び出し。指定すると回答後に要約を作る。 */
     summarize?: (prompt: string) => Promise<string>;
+    /** 選択範囲からのページ生成のモデル呼び出し。省略すると、呼ばれたら失敗する。 */
+    generatePage?: (prompt: string) => Promise<string>;
   } = {},
 ) => {
   const opened = openDatabase(":memory:");
@@ -137,6 +140,16 @@ export const createTestContext = (
     chatService,
     approvals,
     claude,
+    generateWikiPage: createWikiPageGenerator({
+      tasks,
+      chats,
+      wiki,
+      generate:
+        options.generatePage ??
+        (() => {
+          throw new Error("generatePage is not configured in this test");
+        }),
+    }),
     cwd: "/work",
   };
   return {

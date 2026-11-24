@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildTermExtractionPrompt,
+  isPageTerm,
   MAX_NEW_TERMS,
   normalizeTerm,
   parseTermCandidates,
@@ -74,4 +75,16 @@ test("抽出のプロンプトに既存の語・質問・回答を区切って�
   expect(prompt).toContain("<existing-terms>\nx\ny\n</existing-terms>");
   expect(prompt).toContain("<question>\nQ\n</question>");
   expect(prompt).toContain("<answer>\nA\n</answer>");
+});
+
+describe("isPageTerm", () => {
+  test("1 行で 2〜40 文字の語句だけをページのタイトルにできる", () => {
+    expect(isPageTerm("  関係タプル \n")).toBe(true);
+    expect(isPageTerm("OpenFGA")).toBe(true);
+    expect(isPageTerm("あ".repeat(40))).toBe(true);
+    expect(isPageTerm("鍵")).toBe(false);
+    expect(isPageTerm("  ")).toBe(false);
+    expect(isPageTerm("一行目\n二行目")).toBe(false);
+    expect(isPageTerm("あ".repeat(41))).toBe(false);
+  });
 });

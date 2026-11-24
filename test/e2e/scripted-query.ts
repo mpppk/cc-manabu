@@ -11,6 +11,8 @@ import type { QueryFunction } from "../../src/provider/types.ts";
  * - 「ゆっくり」を含む: 1〜40 を 1 行ずつ、150ms 間隔で流す（リロード・停止の確認用）
  * - 用語抽出（<term-extraction>）: 回答の中の「」で囲まれた語を用語として JSON で返す
  * - 回答の要約（<answer-summary>）: 「要約（<回答の文字数> 文字の回答）」と返す
+ * - 選択範囲からのページ生成（<wiki-page-generation>）: 1 秒待ってから「<語句> は…」の本文を返す。
+ *   語句に「失敗」を含むと空の本文を返す（生成の失敗）
  * - Wiki の参照資料付き: 「参照: [タイトル](wiki:ID)…」と、渡していないページへの偽の引用を返す
  * - 画像付き: 「画像 <枚数> 枚: <テキスト>」と返す
  * - それ以外: 「了解: <プロンプト>」と返す
@@ -138,6 +140,18 @@ export const createScriptedQuery = (): QueryFunction => {
           ([, term]) => ({ term, aliases: [], summary: `${term} の説明。` }),
         );
         yield* textMessage([JSON.stringify(terms)], 0);
+      } else if (text.includes("<wiki-page-generation>")) {
+        const term = /<term>\n([\s\S]*?)\n<\/term>/.exec(text)?.[1] ?? "";
+        // 生成中の表示を確かめられるように、少し待つ
+        await sleep(1000);
+        yield* textMessage(
+          [
+            term.includes("失敗")
+              ? ""
+              : `${term} は回答に出てきた語。\n\n## 補足\n\n生成したページ。`,
+          ],
+          0,
+        );
       } else if (text.includes("<answer-summary>")) {
         const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(text)?.[1] ?? "";
         // 回答の文言を繰り返すと、画面上で回答の本文と区別できなくなるので文字数だけ使う
