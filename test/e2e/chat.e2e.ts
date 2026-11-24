@@ -110,7 +110,8 @@ test("生成中にリロードしても、同じ会話が開いて続きが表�
 test("回答を質問ごとに開閉でき、生成中の開閉状態を保つ", async ({ page }) => {
   await open(page);
   await newChat(page);
-  const main = page.getByRole("main");
+  // ヘッダーにも会話の名前（最初の質問）が出るので、チャットの中だけを見る
+  const main = page.getByRole("region", { name: "メインのチャット" });
   // 閉じた回答は要約を出すので、名前は「回答を開く: <要約>」になる
   const toggles = main.getByRole("button", { name: /^回答を(開く|閉じる)/ });
   const firstAnswer = main.getByText("了解: 最初の質問");
@@ -1744,4 +1745,33 @@ test("既存の Wiki を共有するタスクを作り、サイドバーで Wiki
   await expect(taskNames("共通用語集")).toHaveText(["共有元"]);
   await openWiki(page, "共通用語集");
   await expect(page.getByRole("button", { name: "共有用語" })).toBeVisible();
+});
+
+test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロードしても保たれる", async ({
+  page,
+}) => {
+  await open(page);
+  const sidebar = page.getByRole("complementary", { name: "サイドバー" });
+  await expect(sidebar).toBeVisible();
+  await page.getByRole("button", { name: "サイドバーを閉じる" }).click();
+  await expect(sidebar).toBeHidden();
+  const reopen = page.getByRole("button", { name: "サイドバーを開く" });
+  await expect(reopen).toHaveAttribute("aria-expanded", "false");
+  await page.reload();
+  await expect(sidebar).toBeHidden();
+  await page.keyboard.press("ControlOrMeta+B");
+  await expect(sidebar).toBeVisible();
+
+  // 入力欄で書いている途中でも効き、ヘッダーに開いている会話の名前が出る
+  await newChat(page);
+  await expect(page.getByRole("main").locator("header")).toContainText(
+    "新しい会話",
+  );
+  const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  await box.fill("下書き");
+  await box.press("ControlOrMeta+B");
+  await expect(sidebar).toBeHidden();
+  await expect(box).toHaveValue("下書き");
+  await box.press("ControlOrMeta+B");
+  await expect(sidebar).toBeVisible();
 });
