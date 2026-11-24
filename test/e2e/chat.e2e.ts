@@ -1020,3 +1020,24 @@ test("生成中に予約したメッセージは回答のあとに順に送ら�
   await idle(page);
   await expect(page.getByText("了解: 止めたあと")).toHaveCount(0);
 });
+
+test("プロンプトキャッシュの推定残り時間を表示し、モデルを変えると不明になる", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const cache = page.getByTestId("prompt-cache");
+  await expect(cache).toHaveCount(0);
+  await send(page, "キャッシュ");
+  await idle(page);
+  await expect(cache).toHaveText(/キャッシュ 残り約 (59|60):\d\d/);
+  const first = await cache.textContent();
+  await expect(cache).not.toHaveText(first ?? "", { timeout: 3_000 });
+
+  // 期限は時刻で持つので、リロードしても数え直す
+  await page.reload();
+  await expect(cache).toHaveText(/キャッシュ 残り約 (59|60):\d\d/);
+
+  await page.getByRole("combobox", { name: "モデル" }).selectOption("haiku");
+  await expect(cache).toHaveText("キャッシュ 不明");
+});

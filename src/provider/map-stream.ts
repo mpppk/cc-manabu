@@ -13,6 +13,23 @@ import { PROVIDER_NAME } from "./types.ts";
 
 type BlockKind = "text" | "reasoning" | "tool-input";
 
+/**
+ * メインのスレッドで最後に送ったモデルリクエストの、プロンプトキャッシュの観測値（#103）。
+ * 残り時間の推定は表示側で行う。
+ */
+export type PromptCacheObservation = {
+  /**
+   * リクエストを送った時刻（エポックミリ秒）の下限。message_start の直前に届いたメッセージの時刻を使う
+   * （キャッシュの期限はリクエストの開始から数えるので、遅い方に見積もらない）。
+   */
+  requestStartedAt: number;
+  cacheReadTokens: number;
+  /** TTL 5 分で書き込んだトークン。 */
+  cacheWrite5mTokens: number;
+  /** TTL 1 時間で書き込んだトークン。 */
+  cacheWrite1hTokens: number;
+};
+
 /** finish の providerMetadata["claude-code"] に入れる値。 */
 export type ClaudeCodeProviderMetadata = {
   sessionId: string | undefined;
@@ -23,6 +40,17 @@ export type ClaudeCodeProviderMetadata = {
   numTurns: number | undefined;
   /** canUseTool や設定で拒否されたツール呼び出し。 */
   permissionDenials: { toolName: string; toolUseId: string }[];
+  /** 最後のモデルリクエストのキャッシュ（観測できなければ undefined）。 */
+  promptCache?: PromptCacheObservation;
+};
+
+type MessageStartUsage = {
+  cache_read_input_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number;
+    ephemeral_1h_input_tokens?: number;
+  } | null;
 };
 
 export const mapFinishReason = (
@@ -127,8 +155,28 @@ export class StreamMapper {
   private readonly toolNames = new Map<string, string>();
   private sessionId: string | undefined;
   private lastAssistantUuid: string | undefined;
+  private promptCache: PromptCacheObservation | undefined;
+  /** 直前にメッセージが届いた時刻（最初は query を始める前）。 */
+  private lastEventAt: number;
+
+  constructor(private readonly now: () => number = Date.now) {
+    this.lastEventAt = now();
+  }
 
   map(message: SDKMessage): LanguageModelV4StreamPart[] {
+    const previousEventAt = this.lastEventAt;
+    this.lastEventAt = this.now();
+    if (
+      message.type === "stream_event" &&
+      message.event.type === "message_start" &&
+      (message.parent_tool_use_id === null ||
+        message.parent_tool_use_id === undefined)
+    ) {
+      this.observeCache(
+        (message.event.message as { usage?: MessageStartUsage }).usage,
+        previousEventAt,
+      );
+    }
     if (
       "parent_tool_use_id" in message &&
       message.parent_tool_use_id !== null &&
@@ -188,6 +236,29 @@ export class StreamMapper {
         toolName: denial.tool_name,
         toolUseId: denial.tool_use_id,
       })),
+      ...(this.promptCache === undefined
+        ? {}
+        : { promptCache: this.promptCache }),
+    };
+  }
+
+  private observeCache(
+    usage: MessageStartUsage | undefined,
+    requestStartedAt: number,
+  ) {
+    if (usage === undefined) {
+      this.promptCache = undefined;
+      return;
+    }
+    const write = usage.cache_creation_input_tokens ?? 0;
+    const write5m = usage.cache_creation?.ephemeral_5m_input_tokens;
+    const write1h = usage.cache_creation?.ephemeral_1h_input_tokens;
+    this.promptCache = {
+      requestStartedAt,
+      cacheReadTokens: usage.cache_read_input_tokens ?? 0,
+      // 内訳が無ければ TTL を決めない（5 分・1 時間の両方に入れて「混在」扱いにする）
+      cacheWrite5mTokens: write5m ?? (write1h === undefined ? write : 0),
+      cacheWrite1hTokens: write1h ?? (write5m === undefined ? write : 0),
     };
   }
 

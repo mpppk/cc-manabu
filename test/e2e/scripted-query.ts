@@ -45,7 +45,21 @@ export const createScriptedQuery = (): QueryFunction => {
         ...base,
         type: "stream_event",
         uuid: crypto.randomUUID(),
-        event: { type: "message_start", message: {} },
+        // 実機の Claude サブスクリプションと同じく、1 時間の TTL でキャッシュに書き込む
+        event: {
+          type: "message_start",
+          message: {
+            usage: {
+              input_tokens: 10,
+              cache_read_input_tokens: 0,
+              cache_creation_input_tokens: 100,
+              cache_creation: {
+                ephemeral_5m_input_tokens: 0,
+                ephemeral_1h_input_tokens: 100,
+              },
+            },
+          },
+        },
       } as unknown as SDKMessage;
       yield {
         ...base,
