@@ -59,6 +59,7 @@ const branchFrom = async (
   parentId: string,
   messageIndex: number,
   text: string,
+  selectBranch = true,
 ) => {
   const { messages } = await client.chats.get({ id: parentId });
   const branchId = crypto.randomUUID();
@@ -67,6 +68,7 @@ const branchFrom = async (
     messageId: messages[messageIndex]?.id ?? "",
     branchId,
     message: userMessage(text),
+    ...(selectBranch ? {} : { selectBranch }),
   });
   expect(result.chatId).toBe(branchId);
   await drain(await client.chat.reconnect({ chatId: branchId }));
@@ -194,6 +196,26 @@ describe("分岐（#76）", () => {
     ).toBeGreaterThanOrEqual(
       new Date(branchRow?.lastSelectedAt ?? 0).getTime(),
     );
+  });
+
+  test("サイドチャットの分岐を作ってもメインで最後に開いた分岐は変わらない", async () => {
+    const { client, calls } = setup();
+    const root = await twoTurns(client);
+    await client.chats.select({ id: root.id });
+    const before = (await client.chats.get({ id: root.id })).chat
+      .lastSelectedAt;
+    const side = await branchFrom(client, root.id, 1, "脇道の質問", false);
+    expect(
+      (await client.chats.get({ id: side })).chat.lastSelectedAt,
+    ).toBeNull();
+    expect(
+      (await client.chats.get({ id: root.id })).chat.lastSelectedAt,
+    ).toEqual(before);
+    await send(client, root.id, "メインの続き");
+    await send(client, side, "脇道の続き");
+    expect(calls[3]?.resume).toBe(calls[1]?.resume);
+    expect(calls[4]?.resume).not.toBe(calls[3]?.resume);
+    expect(await textsOf(client, side)).not.toContain("同期で進めて");
   });
 
   test("生成と停止は分岐ごと", async () => {

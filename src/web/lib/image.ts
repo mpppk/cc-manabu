@@ -16,6 +16,14 @@ export type ImageAttachment = {
   url: string;
 };
 
+export const imageFileParts = (images: ImageAttachment[]) =>
+  images.map(({ mediaType, filename, url }) => ({
+    type: "file" as const,
+    mediaType,
+    filename,
+    url,
+  }));
+
 export class ImageAttachError extends ErrorFactory({
   name: "ImageAttachError",
   message: (fields) => fields.reason,

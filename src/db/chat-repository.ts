@@ -144,6 +144,7 @@ export const createChatRepository = (db: Db) => {
       forkFromUuid: string;
       model: string;
       effort: string | null;
+      selectBranch: boolean;
     }): Result.Result<ChatRow, DatabaseError> =>
       run(() =>
         db.transaction((tx) => {
@@ -175,7 +176,7 @@ export const createChatRepository = (db: Db) => {
               cwd: input.parent.cwd,
               model: input.model,
               effort: input.effort,
-              lastSelectedAt: now,
+              lastSelectedAt: input.selectBranch ? now : null,
               createdAt: now,
               updatedAt: now,
             })
