@@ -394,6 +394,7 @@ export const App = ({ api }: { api: ApiClient }) => {
                 (chat) => chat.groupId === workspace.chat.groupId,
               )}
               onSelectBranch={select}
+              onOpenChat={select}
               onCreateWikiPage={(taskId, draft) =>
                 navigate(pathForWiki(taskId), { returnTo: path, draft })
               }
