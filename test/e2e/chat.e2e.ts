@@ -899,7 +899,8 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
 }) => {
   await open(page);
   const main = page.getByRole("main");
-  const ask = main.getByRole("button", { name: "選択範囲について質問" });
+  const popup = main.getByRole("toolbar", { name: "選択範囲の操作" });
+  const ask = popup.getByRole("button", { name: "質問", exact: true });
 
   // 用語ページのあるプロジェクトで、用語の説明と選択による質問を使い分ける
   await createProject(page, "引用の検証");
@@ -924,10 +925,31 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   );
   await page.keyboard.press("Escape");
 
-  // 選択して「選択範囲について質問」、取り消すと分岐はできない
+  // 選択すると、選択範囲のすぐ近くにポップアップが出る
   await selectLastAnswerParagraph(page);
   await expect(ask).toBeVisible();
+  const selected = await page.evaluate(() => {
+    const rect = window.getSelection()?.getRangeAt(0).getBoundingClientRect();
+    return rect === undefined
+      ? null
+      : { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+  });
+  const box = await popup.boundingBox();
+  expect(selected).not.toBeNull();
+  expect(box).not.toBeNull();
+  if (selected !== null && box !== null) {
+    // 選択範囲の上（余白が無ければ下）に、離れずに出る
+    const gap =
+      box.y + box.height <= selected.y
+        ? selected.y - (box.y + box.height)
+        : box.y - (selected.y + selected.height);
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(gap).toBeLessThan(24);
+  }
+
+  // 「質問」を押し、取り消すと分岐はできない
   await ask.click();
+  await expect(popup).toHaveCount(0);
   const draft = main
     .getByRole("status")
     .filter({ hasText: "選んだ部分について質問" });
@@ -1064,7 +1086,9 @@ test("会話をタイトルと本文で検索し、一致した発言へ移動�
   await results
     .getByRole("button", { name: /回答.*了解: 細胞小器官の一覧も/ })
     .click();
-  await expect(page.getByText("了解: 細胞小器官の一覧も")).toBeVisible();
+  await expect(
+    page.getByRole("main").getByText("了解: 細胞小器官の一覧も"),
+  ).toBeVisible();
   await expect(
     page
       .locator("[data-message-id]")
@@ -1098,4 +1122,52 @@ test("回答のあとに、サブスクリプションの利用枠とリセッ�
   const badge = page.getByTestId("rate-limit");
   await expect(badge).toHaveText(/7 日間枠 67%・\d+\/\d+ \d+:\d\d にリセット/);
   await expect(badge).toHaveAttribute("title", /5 時間枠: 62%/);
+});
+
+test("回答の選択範囲から Wiki のページを作り、回答に戻れる", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("main");
+  const popup = main.getByRole("toolbar", { name: "選択範囲の操作" });
+  const createPage = popup.getByRole("button", { name: "ページを作成" });
+
+  // プロジェクトに属さない会話では押せない
+  await newChat(page);
+  await send(page, "分散トランザクション");
+  await idle(page);
+  await selectLastAnswerParagraph(page);
+  await expect(createPage).toBeDisabled();
+
+  await createProject(page, "ページ作成の検証");
+  await newChat(page);
+  await send(page, "冪等性キー");
+  await idle(page);
+  const chatPath = new URL(page.url()).pathname;
+
+  // 1 行の短い選択はタイトルに入る
+  await selectLastAnswerParagraph(page);
+  await createPage.click();
+  await expect(page).toHaveURL(/\/wiki$/);
+  await expect(
+    page.getByRole("textbox", { name: "ページのタイトル" }),
+  ).toHaveValue("了解: 冪等性キー");
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("同じ要求を何度送っても結果が変わらないようにするキー。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "了解: 冪等性キー" }),
+  ).toBeVisible();
+
+  // 作ったページから元の回答に戻れる
+  await page.getByRole("button", { name: /回答に戻る/ }).click();
+  await expect(page).toHaveURL(new RegExp(`${chatPath}$`));
+  await expect(main.getByText("了解: 冪等性キー")).toBeVisible();
+
+  // 取り消すと、ページを作らずに回答に戻る
+  await selectLastAnswerParagraph(page);
+  await createPage.click();
+  await page.getByRole("button", { name: "キャンセル" }).click();
+  await expect(page).toHaveURL(new RegExp(`${chatPath}$`));
 });

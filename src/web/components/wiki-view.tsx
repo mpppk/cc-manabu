@@ -1,5 +1,11 @@
 import { ArrowLeft, FilePlus, Pencil, Search, Trash2 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import type { WikiPageDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
 import type { ApiClient } from "../lib/orpc.ts";
@@ -99,7 +105,10 @@ export const WikiView = ({
   onOpenChat,
   returnTo,
   onReturn,
+  initialDraft,
 }: {
+  /** 回答の選択範囲から作るときの下書き（#121）。あれば作成画面で開く。 */
+  initialDraft?: { title: string; body: string } | undefined;
   api: ApiClient;
   projectId: string;
   projectName: string;
@@ -117,7 +126,9 @@ export const WikiView = ({
   const [pages, setPages] = useState<WikiPageDto[]>();
   const [loadError, setLoadError] = useState<string>();
   const [query, setQuery] = useState("");
-  const [mode, setMode] = useState<"view" | "new" | "edit">("view");
+  const [mode, setMode] = useState<"view" | "new" | "edit">(
+    initialDraft === undefined ? "view" : "new",
+  );
   const [deleting, setDeleting] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -133,9 +144,11 @@ export const WikiView = ({
     void refresh();
   }, [refresh]);
 
-  // ページを移ったら閲覧に戻す
-  // biome-ignore lint/correctness/useExhaustiveDependencies: pageId が変わったときだけ戻す
+  // ページを移ったら閲覧に戻す（開いたときは下書きの作成画面のまま）
+  const openedPageId = useRef(pageId);
   useEffect(() => {
+    if (openedPageId.current === pageId) return;
+    openedPageId.current = pageId;
     setMode("view");
   }, [pageId]);
 
@@ -175,8 +188,17 @@ export const WikiView = ({
     if (mode === "new") {
       return (
         <PageEditor
-          initial={toDraft()}
-          onCancel={() => setMode("view")}
+          initial={
+            initialDraft === undefined
+              ? toDraft()
+              : { ...initialDraft, aliases: "" }
+          }
+          onCancel={() =>
+            // 回答から開いた作成画面は、取り消したら回答に戻る
+            initialDraft !== undefined && returnTo !== undefined
+              ? onReturn(returnTo)
+              : setMode("view")
+          }
           onSave={async (draft) => {
             const created = await api.wiki.create({
               projectId,

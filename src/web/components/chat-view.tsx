@@ -1,6 +1,13 @@
 import { useChat } from "@ai-sdk/react";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
-import { GitBranch, Pencil, RotateCcw, TextQuote, X } from "lucide-react";
+import {
+  FilePlus,
+  GitBranch,
+  Pencil,
+  RotateCcw,
+  TextQuote,
+  X,
+} from "lucide-react";
 import {
   Fragment,
   useCallback,
@@ -23,6 +30,7 @@ import { branchLabel } from "../lib/groups.ts";
 import type { ImageAttachment } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { type PageDraft, pageDraftFromSelection } from "../lib/page-draft.ts";
 import { pathForWiki } from "../lib/route.ts";
 import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { cn } from "../lib/utils.ts";
@@ -138,7 +146,6 @@ const MessageView = ({
   onOpenWikiPage,
   termMatcher,
   onBranch,
-  onAskSelection,
 }: {
   message: ChatUIMessage;
   streaming: boolean;
@@ -157,8 +164,6 @@ const MessageView = ({
   termMatcher?: (text: string) => TermMatch[];
   /** この応答から分岐する（完了した応答だけ）。 */
   onBranch?: () => void;
-  /** この応答の中を選択しているとき、選択範囲を引用して質問する（#91）。 */
-  onAskSelection?: () => void;
 }) => {
   if (message.role === "user") {
     return (
@@ -278,20 +283,6 @@ const MessageView = ({
             ここから分岐
           </Button>
         )}
-        {canAct && onAskSelection !== undefined && (
-          <Button
-            variant="secondary"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            // 押したときに選択が外れないようにする
-            onMouseDown={(event) => event.preventDefault()}
-            onPointerDown={(event) => event.preventDefault()}
-            onClick={onAskSelection}
-          >
-            <TextQuote className="size-3.5" />
-            選択範囲について質問
-          </Button>
-        )}
       </div>
     </div>
   );
@@ -319,15 +310,19 @@ const QuoteBlock = ({ text }: { text: string }) => (
   </blockquote>
 );
 
+/** 回答の中の選択範囲と、その画面上の位置（ポップアップを出す場所）。 */
+type AnswerSelection = {
+  messageId: string;
+  text: string;
+  rect: { top: number; bottom: number; left: number; right: number };
+};
+
 /**
  * 回答の中の選択範囲。1 つの完了した回答の中だけを対象にする（#91）。
- * 選択が無い・複数の回答にまたがるときは undefined。
+ * 選択が無い・複数の回答にまたがるときは undefined。スクロールしたら位置を取り直す。
  */
 const useAnswerSelection = (enabled: boolean) => {
-  const [selection, setSelection] = useState<{
-    messageId: string;
-    text: string;
-  }>();
+  const [selection, setSelection] = useState<AnswerSelection>();
   useEffect(() => {
     if (!enabled) {
       setSelection(undefined);
@@ -336,7 +331,12 @@ const useAnswerSelection = (enabled: boolean) => {
     const update = () => {
       const current = window.getSelection();
       const text = current?.toString() ?? "";
-      if (current === null || current.isCollapsed || text.trim() === "") {
+      if (
+        current === null ||
+        current.isCollapsed ||
+        current.rangeCount === 0 ||
+        text.trim() === ""
+      ) {
         setSelection(undefined);
         return;
       }
@@ -347,20 +347,108 @@ const useAnswerSelection = (enabled: boolean) => {
       const anchor = answerOf(current.anchorNode);
       const focus = answerOf(current.focusNode);
       const messageId = anchor?.getAttribute("data-assistant-message");
-      setSelection(
-        anchor !== undefined &&
-          anchor !== null &&
-          anchor === focus &&
-          messageId !== null &&
-          messageId !== undefined
-          ? { messageId, text: text.replace(/\n{3,}/g, "\n\n").trim() }
-          : undefined,
-      );
+      if (
+        anchor === undefined ||
+        anchor === null ||
+        anchor !== focus ||
+        messageId === null ||
+        messageId === undefined
+      ) {
+        setSelection(undefined);
+        return;
+      }
+      const { top, bottom, left, right } = current
+        .getRangeAt(0)
+        .getBoundingClientRect();
+      setSelection({
+        messageId,
+        text: text.replace(/\n{3,}/g, "\n\n").trim(),
+        rect: { top, bottom, left, right },
+      });
     };
     document.addEventListener("selectionchange", update);
-    return () => document.removeEventListener("selectionchange", update);
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("resize", update);
+    return () => {
+      document.removeEventListener("selectionchange", update);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("resize", update);
+    };
   }, [enabled]);
   return selection;
+};
+
+const POPUP_HEIGHT = 36;
+const POPUP_GAP = 8;
+const POPUP_WIDTH = 200;
+
+/** 回答の選択範囲のすぐ上（上に余白が無ければ下）に出す操作（#121）。 */
+const SelectionPopup = ({
+  selection,
+  onAsk,
+  onCreatePage,
+}: {
+  selection: AnswerSelection;
+  /** 質問する（分岐できる回答だけ）。 */
+  onAsk: (() => void) | undefined;
+  /** Wiki のページを作る（プロジェクトの会話だけ）。 */
+  onCreatePage: (() => void) | undefined;
+}) => {
+  const { rect } = selection;
+  const above = rect.top - POPUP_HEIGHT - POPUP_GAP;
+  const top = above >= 56 ? above : rect.bottom + POPUP_GAP;
+  const center = (rect.left + rect.right) / 2;
+  const left = Math.min(
+    Math.max(8, center - POPUP_WIDTH / 2),
+    window.innerWidth - POPUP_WIDTH - 8,
+  );
+  // 押したときに選択が外れないようにする
+  const keepSelection = {
+    onMouseDown: (event: { preventDefault: () => void }) =>
+      event.preventDefault(),
+    onPointerDown: (event: { preventDefault: () => void }) =>
+      event.preventDefault(),
+  };
+  return (
+    <div
+      role="toolbar"
+      aria-label="選択範囲の操作"
+      className="fixed z-40 flex items-center gap-1 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
+      style={{ top, left }}
+      {...keepSelection}
+    >
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        disabled={onAsk === undefined}
+        title={
+          onAsk === undefined
+            ? "この回答からは分岐できません"
+            : "選んだ部分を引用して質問します（分岐ができます）"
+        }
+        onClick={onAsk}
+      >
+        <TextQuote className="size-3.5" />
+        質問
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 px-2 text-xs"
+        disabled={onCreatePage === undefined}
+        title={
+          onCreatePage === undefined
+            ? "プロジェクトの会話でだけ、Wiki のページを作れます"
+            : "選んだ部分から Wiki のページを作ります"
+        }
+        onClick={onCreatePage}
+      >
+        <FilePlus className="size-3.5" />
+        ページを作成
+      </Button>
+    </div>
+  );
 };
 
 /** 同じ会話の分岐を切り替えるメニュー（#76）。 */
@@ -522,7 +610,10 @@ export const ChatView = ({
   branches = [],
   onSelectBranch,
   focusMessageId,
+  onCreateWikiPage,
 }: {
+  /** 選択範囲から Wiki のページを作る（プロジェクトの会話だけ、#121）。 */
+  onCreateWikiPage?: (projectId: string, draft: PageDraft) => void;
   /** 検索結果から開いたときに移動する発言（#115）。 */
   focusMessageId?: string;
   api: ApiClient;
@@ -631,6 +722,35 @@ export const ChatView = ({
     setQuote(undefined);
     setBranchError(undefined);
   };
+  const selectedAnswer =
+    selection === undefined
+      ? undefined
+      : messages.find(
+          (m) => m.id === selection.messageId && m.role === "assistant",
+        );
+  const askSelection =
+    selection !== undefined &&
+    selectedAnswer?.metadata?.claudeCode?.lastAssistantUuid !== undefined
+      ? () => {
+          setBranchError(undefined);
+          setQuote({
+            text: selection.text,
+            sourceMessageId: selection.messageId,
+          });
+          setBranchFrom(selection.messageId);
+          window.getSelection()?.removeAllRanges();
+        }
+      : undefined;
+  const projectId = chat.projectId;
+  const createPageFromSelection =
+    selection !== undefined &&
+    projectId !== null &&
+    onCreateWikiPage !== undefined
+      ? () => {
+          onCreateWikiPage(projectId, pageDraftFromSelection(selection.text));
+          window.getSelection()?.removeAllRanges();
+        }
+      : undefined;
   const branchIndex =
     branchFrom === undefined
       ? -1
@@ -741,6 +861,13 @@ export const ChatView = ({
 
   return (
     <WikiTermsContext.Provider value={wikiTerms}>
+      {selection !== undefined && selectedAnswer !== undefined && (
+        <SelectionPopup
+          selection={selection}
+          onAsk={askSelection}
+          onCreatePage={createPageFromSelection}
+        />
+      )}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
@@ -781,19 +908,6 @@ export const ChatView = ({
                             setQuote(undefined);
                             setBranchFrom(message.id);
                           },
-                          ...(selection?.messageId === message.id
-                            ? {
-                                onAskSelection: () => {
-                                  setBranchError(undefined);
-                                  setQuote({
-                                    text: selection.text,
-                                    sourceMessageId: message.id,
-                                  });
-                                  setBranchFrom(message.id);
-                                  window.getSelection()?.removeAllRanges();
-                                },
-                              }
-                            : {}),
                         }
                       : {})}
                     onEdit={(messageId, text) => {
