@@ -1,8 +1,15 @@
-import { FolderPlus, Pencil, Settings, Trash2 } from "lucide-react";
+import {
+  FolderPlus,
+  Pencil,
+  Settings,
+  SlidersHorizontal,
+  Trash2,
+} from "lucide-react";
 import { type FormEvent, useState } from "react";
 import type { ProjectDto, WikiDto } from "../../router.ts";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
+import { DropdownMenu } from "./ui/dropdown-menu.tsx";
 
 /** 未所属の会話を表す select の値。 */
 const UNASSIGNED = "";
@@ -313,50 +320,38 @@ export const ProjectSwitcher = ({
             projects.map(optionOf)
           )}
         </select>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-8"
-          aria-label="新しいプロジェクト"
-          title="新しいプロジェクト"
-          onClick={() => setDialog("create")}
-        >
-          <FolderPlus className="size-4" />
-        </Button>
-        {current !== undefined && (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label="プロジェクトの設定"
-              title="プロジェクトの設定"
-              onClick={() => setDialog("settings")}
-            >
-              <Settings className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label="プロジェクトの名前を変える"
-              title="プロジェクトの名前を変える"
-              onClick={() => setDialog("rename")}
-            >
-              <Pencil className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8"
-              aria-label="プロジェクトを削除"
-              title="プロジェクトを削除"
-              onClick={() => setDialog("delete")}
-            >
-              <Trash2 className="size-3.5" />
-            </Button>
-          </>
-        )}
+        <DropdownMenu
+          label="プロジェクトのメニュー"
+          icon={<Settings className="size-3.5" />}
+          items={[
+            {
+              label: "新しいプロジェクト",
+              icon: <FolderPlus />,
+              onSelect: () => setDialog("create"),
+            },
+            ...(current === undefined
+              ? []
+              : [
+                  {
+                    label: "プロジェクトの設定",
+                    icon: <SlidersHorizontal />,
+                    onSelect: () => setDialog("settings"),
+                    separatorBefore: true,
+                  },
+                  {
+                    label: "プロジェクトの名前を変える",
+                    icon: <Pencil />,
+                    onSelect: () => setDialog("rename"),
+                  },
+                  {
+                    label: "プロジェクトを削除",
+                    icon: <Trash2 />,
+                    onSelect: () => setDialog("delete"),
+                    variant: "destructive" as const,
+                  },
+                ]),
+          ]}
+        />
       </div>
       {projects.length > 0 && (
         <label className="flex items-center gap-1.5 text-muted-foreground text-xs">

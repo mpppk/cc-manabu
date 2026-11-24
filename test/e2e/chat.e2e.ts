@@ -324,8 +324,14 @@ test("画像だけでも送れて、タイトルは「画像」になる", async
   ).toBeVisible();
 });
 
+/** プロジェクトのメニュー（歯車）を開いて項目を選ぶ。 */
+const openProjectMenu = async (page: Page, item: string) => {
+  await page.getByRole("button", { name: "プロジェクトのメニュー" }).click();
+  await page.getByRole("menuitem", { name: item }).click();
+};
+
 const createProject = async (page: Page, name: string) => {
-  await page.getByRole("button", { name: "新しいプロジェクト" }).click();
+  await openProjectMenu(page, "新しいプロジェクト");
   await page.getByRole("textbox", { name: "プロジェクトの名前" }).fill(name);
   await page.getByRole("button", { name: "作成" }).click();
   await expect(page).toHaveURL(/\/p\/.+/);
@@ -395,13 +401,11 @@ test("プロジェクトでスレッドをまとめ、既存のスレッドを�
   await expect(list.getByText("あとで追加する会話")).toHaveCount(0);
 
   // 名前を変えて、削除するとスレッドは未所属に戻る
-  await page
-    .getByRole("button", { name: "プロジェクトの名前を変える" })
-    .click();
+  await openProjectMenu(page, "プロジェクトの名前を変える");
   await page.getByRole("textbox", { name: "プロジェクトの名前" }).fill("認可");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(projectSelect.locator("option:checked")).toHaveText("認可");
-  await page.getByRole("button", { name: "プロジェクトを削除" }).click();
+  await openProjectMenu(page, "プロジェクトを削除");
   await page.getByRole("button", { name: "削除", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(projectSelect.locator("option:checked")).toHaveText(
@@ -551,7 +555,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await expect(page.getByText("利用者が書いた説明")).toBeVisible();
 
   // 設定で止めると、新しい用語のページは作られない
-  await page.getByRole("button", { name: "プロジェクトの設定" }).click();
+  await openProjectMenu(page, "プロジェクトの設定");
   const toggle = page.getByRole("checkbox", {
     name: /回答から用語ページを自動で作る/,
   });
@@ -1488,7 +1492,7 @@ test("既存の Wiki を共有するプロジェクトを作り、一覧を Wiki
   await expect(page.getByRole("heading", { name: "共有用語" })).toBeVisible();
 
   // 2 つ目は既存の Wiki を選んで作る
-  await page.getByRole("button", { name: "新しいプロジェクト" }).click();
+  await openProjectMenu(page, "新しいプロジェクト");
   await page
     .getByRole("textbox", { name: "プロジェクトの名前" })
     .fill("共有先");
@@ -1527,7 +1531,7 @@ test("既存の Wiki を共有するプロジェクトを作り、一覧を Wiki
 
   // 設定で Wiki の名前を変えると、まとめの見出しにも反映される
   await switcher.selectOption({ label: "共有先" });
-  await page.getByRole("button", { name: "プロジェクトの設定" }).click();
+  await openProjectMenu(page, "プロジェクトの設定");
   await page.getByRole("textbox", { name: "Wiki の名前" }).fill("共通用語集");
   await page.getByRole("button", { name: "名前を保存" }).click();
   await expect(page.getByRole("button", { name: "名前を保存" })).toBeDisabled();
@@ -1537,7 +1541,7 @@ test("既存の Wiki を共有するプロジェクトを作り、一覧を Wiki
   ).toHaveText(["共有元", "共有先"]);
 
   // 共有している Wiki は、プロジェクトを消しても残る
-  await page.getByRole("button", { name: "プロジェクトを削除" }).click();
+  await openProjectMenu(page, "プロジェクトを削除");
   await expect(
     page.getByText(
       "Wiki「共通用語集」はほかのプロジェクトでも使っているので残ります。",
