@@ -1,18 +1,7 @@
-import {
-  FolderPlus,
-  Pencil,
-  Settings,
-  SlidersHorizontal,
-  Trash2,
-} from "lucide-react";
 import { type FormEvent, useState } from "react";
 import type { TaskDto, WikiDto } from "../../router.ts";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
-import { DropdownMenu } from "./ui/dropdown-menu.tsx";
-
-/** 未所属の会話を表す select の値。 */
-const UNASSIGNED = "";
 
 /** タスクの名前を入力するダイアログ（作成・名前変更）。 */
 const NameDialog = ({
@@ -79,11 +68,14 @@ const NameDialog = ({
 const CreateTaskDialog = ({
   open,
   wikis,
+  initialWikiId,
   onClose,
   onSubmit,
 }: {
   open: boolean;
   wikis: WikiDto[];
+  /** 既存の Wiki を選んだ状態で開く（Wiki の行から作るとき）。 */
+  initialWikiId?: string | undefined;
   onClose: () => void;
   onSubmit: (name: string, wikiId: string | undefined) => Promise<void>;
 }) => {
@@ -96,8 +88,8 @@ const CreateTaskDialog = ({
     setPrevOpen(open);
     if (open) {
       setName("");
-      setUseExisting(false);
-      setWikiId(wikis[0]?.id ?? "");
+      setUseExisting(initialWikiId !== undefined);
+      setWikiId(initialWikiId ?? wikis[0]?.id ?? "");
     }
   }
   const chosen = useExisting ? wikis.find((w) => w.id === wikiId) : undefined;
@@ -228,85 +220,43 @@ const WikiNameField = ({
   );
 };
 
-const GROUP_KEY = "cc-manabu.groupTasksByWiki";
+/** タスクの操作で開くダイアログ。 */
+export type TaskDialog =
+  | { kind: "create"; wikiId?: string }
+  | { kind: "rename" | "delete" | "settings"; taskId: string };
 
-const loadGroupByWiki = (): boolean => {
-  try {
-    return localStorage.getItem(GROUP_KEY) === "1";
-  } catch {
-    return false;
-  }
-};
-
-/** タスクの一覧を参照している Wiki ごとにまとめるか（ブラウザに覚える）。 */
-export const useGroupByWiki = () => {
-  const [groupByWiki, setGroupByWiki] = useState(loadGroupByWiki);
-  const set = (next: boolean) => {
-    setGroupByWiki(next);
-    try {
-      localStorage.setItem(GROUP_KEY, next ? "1" : "0");
-    } catch {
-      // 覚えられなくても表示は切り替える
-    }
-  };
-  return [groupByWiki, set] as const;
-};
-
-/** 「参照している Wiki ごとにまとめる」のチェックボックス。 */
-export const GroupByWikiToggle = ({
-  checked,
-  onChange,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) => (
-  <label className="flex items-center gap-1.5 px-3 pb-2 text-muted-foreground text-xs">
-    <input
-      type="checkbox"
-      className="size-3.5"
-      checked={checked}
-      onChange={(event) => onChange(event.target.checked)}
-    />
-    参照している Wiki ごとにまとめる
-  </label>
-);
-
-/** サイドバー上部のタスク選択（作成・名前変更・削除）。 */
-export const TaskSwitcher = ({
+/** タスクの作成・名前変更・設定・削除のダイアログ（サイドバーの行の操作から開く）。 */
+export const TaskDialogs = ({
+  dialog,
+  onClose,
   tasks,
-  taskId,
-  onSelect,
+  wikis,
   onCreate,
   onRename,
   onDelete,
   onSetAutoTerms,
-  wikis,
   onRenameWiki,
-  groupByWiki,
 }: {
+  dialog: TaskDialog | undefined;
+  onClose: () => void;
   tasks: TaskDto[];
-  /** 一覧を参照している Wiki ごとにまとめるか。 */
-  groupByWiki: boolean;
   /** Wiki（複数のタスクで共有できる）。 */
   wikis: WikiDto[];
-  onRenameWiki: (wikiId: string, name: string) => Promise<void>;
-  /** 選択中のタスク。null は未所属の会話。 */
-  taskId: string | null;
-  onSelect: (taskId: string | null) => void;
   /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
   onCreate: (name: string, wikiId?: string) => Promise<void>;
   onRename: (taskId: string, name: string) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
   onSetAutoTerms: (taskId: string, enabled: boolean) => Promise<void>;
+  onRenameWiki: (wikiId: string, name: string) => Promise<void>;
 }) => {
-  const [dialog, setDialog] = useState<
-    "create" | "rename" | "delete" | "settings"
-  >();
-  const current = tasks.find((p) => p.id === taskId);
+  const current =
+    dialog === undefined || dialog.kind === "create"
+      ? undefined
+      : tasks.find((p) => p.id === dialog.taskId);
   /** 保存中の自動作成の設定（保存が終わるまで表示に使う）。 */
   const [autoTerms, setAutoTerms] = useState<boolean>();
   const currentWiki = wikis.find((wiki) => wiki.id === current?.wikiId);
-  /** 今のタスクと同じ Wiki を使う、ほかのタスク。 */
+  /** 対象のタスクと同じ Wiki を使う、ほかのタスク。 */
   const sharing = tasks.filter(
     (p) =>
       current !== undefined &&
@@ -314,99 +264,29 @@ export const TaskSwitcher = ({
       p.id !== current.id,
   );
 
-  const optionOf = (task: TaskDto) => (
-    <option key={task.id} value={task.id}>
-      {task.status === "done" ? `${task.name}（完了）` : task.name}
-    </option>
-  );
-  const grouped = wikis.flatMap((wiki) => {
-    const members = tasks.filter((p) => p.wikiId === wiki.id);
-    return members.length === 0 ? [] : [{ wiki, members }];
-  });
-  const ungrouped = tasks.filter(
-    (p) => !wikis.some((wiki) => wiki.id === p.wikiId),
-  );
-
   return (
-    <div className="flex flex-col gap-1 px-3 pb-2">
-      <div className="flex items-center gap-1">
-        <select
-          className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-sm"
-          aria-label="タスク"
-          value={taskId ?? UNASSIGNED}
-          onChange={(event) =>
-            onSelect(
-              event.target.value === UNASSIGNED ? null : event.target.value,
-            )
-          }
-        >
-          <option value={UNASSIGNED}>未所属のスレッド</option>
-          {groupByWiki ? (
-            <>
-              {grouped.map(({ wiki, members }) => (
-                <optgroup key={wiki.id} label={`Wiki: ${wiki.name}`}>
-                  {members.map(optionOf)}
-                </optgroup>
-              ))}
-              {ungrouped.map(optionOf)}
-            </>
-          ) : (
-            tasks.map(optionOf)
-          )}
-        </select>
-        <DropdownMenu
-          label="タスクのメニュー"
-          icon={<Settings className="size-3.5" />}
-          items={[
-            {
-              label: "新しいタスク",
-              icon: <FolderPlus />,
-              onSelect: () => setDialog("create"),
-            },
-            ...(current === undefined
-              ? []
-              : [
-                  {
-                    label: "タスクの設定",
-                    icon: <SlidersHorizontal />,
-                    onSelect: () => setDialog("settings"),
-                    separatorBefore: true,
-                  },
-                  {
-                    label: "タスクの名前を変える",
-                    icon: <Pencil />,
-                    onSelect: () => setDialog("rename"),
-                  },
-                  {
-                    label: "タスクを削除",
-                    icon: <Trash2 />,
-                    onSelect: () => setDialog("delete"),
-                    variant: "destructive" as const,
-                  },
-                ]),
-          ]}
-        />
-      </div>
+    <>
       <CreateTaskDialog
-        open={dialog === "create"}
+        open={dialog?.kind === "create"}
         wikis={wikis}
-        onClose={() => setDialog(undefined)}
+        initialWikiId={dialog?.kind === "create" ? dialog.wikiId : undefined}
+        onClose={onClose}
         onSubmit={(name, wikiId) => onCreate(name, wikiId)}
       />
       <NameDialog
-        open={dialog === "rename"}
+        open={dialog?.kind === "rename"}
         title="タスクの名前を変える"
         initial={current?.name ?? ""}
         submitLabel="保存"
-        onClose={() => setDialog(undefined)}
+        onClose={onClose}
         onSubmit={async (name) => {
           if (current !== undefined) await onRename(current.id, name);
         }}
       />
       <Dialog
-        open={dialog === "settings"}
+        open={dialog?.kind === "settings"}
         onOpenChange={(open) => {
-          if (!open) setDialog(undefined);
+          if (!open) onClose();
         }}
         title="タスクの設定"
         description={current?.name}
@@ -453,15 +333,15 @@ export const TaskSwitcher = ({
           </section>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={() => setDialog(undefined)}>
+          <Button variant="outline" onClick={onClose}>
             閉じる
           </Button>
         </DialogFooter>
       </Dialog>
       <Dialog
-        open={dialog === "delete"}
+        open={dialog?.kind === "delete"}
         onOpenChange={(open) => {
-          if (!open) setDialog(undefined);
+          if (!open) onClose();
         }}
         title="タスクを削除しますか？"
         description={`「${current?.name ?? ""}」を削除します。所属しているスレッドは削除されず、未所属に戻ります。${
@@ -471,21 +351,21 @@ export const TaskSwitcher = ({
         }`}
       >
         <DialogFooter>
-          <Button variant="outline" onClick={() => setDialog(undefined)}>
+          <Button variant="outline" onClick={onClose}>
             キャンセル
           </Button>
           <Button
             variant="destructive"
             onClick={async () => {
               if (current !== undefined) await onDelete(current.id);
-              setDialog(undefined);
+              onClose();
             }}
           >
             削除
           </Button>
         </DialogFooter>
       </Dialog>
-    </div>
+    </>
   );
 };
 

@@ -83,8 +83,8 @@ const PageEditor = ({
   );
 };
 
-/** サイドバーに出す Wiki のページ一覧（検索つき）。 */
-export const WikiPageList = ({
+/** Wiki のページ一覧（検索つき）。Wiki 画面の左に出す。 */
+const WikiPageList = ({
   pages,
   loadError,
   pageId,
@@ -146,8 +146,8 @@ export const WikiPageList = ({
                 <button
                   type="button"
                   className={cn(
-                    "flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-sidebar-accent",
-                    p.id === pageId && "bg-sidebar-accent font-medium",
+                    "flex w-full flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent",
+                    p.id === pageId && "bg-accent font-medium",
                   )}
                   aria-current={p.id === pageId ? "page" : undefined}
                   onClick={() => onNavigate(p.id)}
@@ -168,7 +168,7 @@ export const WikiPageList = ({
   );
 };
 
-/** タスクの Wiki（閲覧・作成・編集・削除）。ページの一覧はサイドバーに出す。 */
+/** タスクの Wiki（ページの一覧・検索・閲覧・作成・編集・削除）。 */
 export const WikiView = ({
   api,
   pages,
@@ -425,10 +425,20 @@ export const WikiView = ({
   })();
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
-        {header}
-        {body}
+    <div className="flex min-h-0 flex-1">
+      <aside className="flex w-60 shrink-0 flex-col border-r pt-3">
+        <WikiPageList
+          pages={pages}
+          loadError={loadError}
+          pageId={pageId}
+          onNavigate={onNavigate}
+        />
+      </aside>
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
+          {header}
+          {body}
+        </div>
       </div>
     </div>
   );

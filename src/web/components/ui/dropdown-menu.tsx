@@ -24,11 +24,13 @@ export const DropdownMenu = ({
   label,
   icon,
   items,
+  triggerClassName = "size-8",
 }: {
   /** ボタンの名前（aria-label / title）。 */
   label: string;
   icon: ReactNode;
   items: DropdownMenuItem[];
+  triggerClassName?: string;
 }) => {
   const [open, setOpen] = useState(false);
   const menuId = useId();
@@ -94,7 +96,7 @@ export const DropdownMenu = ({
         ref={triggerRef}
         variant="ghost"
         size="icon"
-        className="size-8"
+        className={triggerClassName}
         aria-label={label}
         title={label}
         aria-haspopup="menu"

@@ -8,7 +8,7 @@ import { Sidebar } from "./components/sidebar.tsx";
 import { TaskList } from "./components/task-list.tsx";
 import { TaskOverview } from "./components/task-overview.tsx";
 import { Button } from "./components/ui/button.tsx";
-import { WikiPageList, WikiView } from "./components/wiki-view.tsx";
+import { WikiView } from "./components/wiki-view.tsx";
 import { groupChats } from "./lib/groups.ts";
 import {
   newlyAwaiting,
@@ -255,8 +255,8 @@ export const App = ({ api }: { api: ApiClient }) => {
     chats.find((chat) => chat.id === chatViewId)?.groupId ??
     workspace?.chat.groupId;
 
-  const newChat = async () => {
-    const chat = await api.chats.create({ taskId });
+  const newChat = async (owner: string | null) => {
+    const chat = await api.chats.create({ taskId: owner });
     await refreshChats();
     select(chat.id);
   };
@@ -279,7 +279,8 @@ export const App = ({ api }: { api: ApiClient }) => {
   const deleteTask = async (id: string) => {
     await api.tasks.delete({ id });
     await Promise.all([refreshTasks(), refreshChats()]);
-    navigate(pathForTask(null));
+    // 開いているタスク（またはその会話）を消したときだけ移動する
+    if (id === taskId) navigate(pathForTask(null));
   };
 
   const renameWiki = async (id: string, name: string) => {
@@ -319,32 +320,27 @@ export const App = ({ api }: { api: ApiClient }) => {
       <Sidebar
         chats={chats}
         tasks={tasks ?? []}
+        wikis={wikis}
         taskId={taskId}
         selectedId={selectedId}
-        onNew={() => void newChat()}
+        openTaskId={
+          selectedId === undefined && wikiRoute === undefined
+            ? task?.id
+            : undefined
+        }
+        openWikiTaskId={showWiki ? task.id : undefined}
+        onNew={() => void newChat(taskId)}
+        onNewInTask={(id) => void newChat(id)}
         onSelect={select}
         onRename={rename}
         onDelete={remove}
-        onSelectTask={(id) => navigate(pathForTask(id))}
+        onOpenTask={(id) => navigate(pathForTask(id))}
+        onOpenWiki={(id) => navigate(pathForWiki(id))}
         onCreateTask={createTask}
-        wikis={wikis}
         onRenameWiki={renameWiki}
         onRenameTask={renameTask}
         onDeleteTask={deleteTask}
         onSetTask={setTask}
-        view={showWiki ? "wiki" : "threads"}
-        onOpenWiki={() => {
-          if (taskId !== null) navigate(pathForWiki(taskId));
-        }}
-        wikiPanel={
-          <WikiPageList
-            key={task?.id}
-            pages={wiki.pages}
-            loadError={wiki.loadError}
-            pageId={wikiRoute?.pageId}
-            onNavigate={navigateWiki}
-          />
-        }
         onSetAutoTerms={setAutoTerms}
         onOpenTaskList={() => navigate(TASK_LIST_PATH)}
         onSearch={searchChats}
@@ -449,7 +445,7 @@ export const App = ({ api }: { api: ApiClient }) => {
               .map((group) => group.primary)}
             onOpenChat={select}
             onOpenWiki={() => navigate(pathForWiki(task.id))}
-            onNewChat={() => void newChat()}
+            onNewChat={() => void newChat(task.id)}
             onChanged={refreshTasks}
           />
         ) : (

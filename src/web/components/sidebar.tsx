@@ -1,19 +1,26 @@
 import {
   BookOpen,
   Check,
+  ChevronRight,
+  FileText,
   FolderMinus,
+  FolderPlus,
   GitBranch,
+  LayoutDashboard,
   LayoutList,
   ListPlus,
   Loader2,
   MessageSquarePlus,
+  MessagesSquare,
   Pencil,
+  Settings,
+  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import type { ChatDto, TaskDto, WikiDto } from "../../router.ts";
-import { groupChats } from "../lib/groups.ts";
+import { type ChatGroup, groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
 import {
   SearchBox,
@@ -23,12 +30,12 @@ import {
 } from "./search-results.tsx";
 import {
   AddThreadsDialog,
-  GroupByWikiToggle,
-  TaskSwitcher,
-  useGroupByWiki,
-} from "./task-switcher.tsx";
+  type TaskDialog,
+  TaskDialogs,
+} from "./task-dialogs.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
+import { DropdownMenu } from "./ui/dropdown-menu.tsx";
 
 const StatusBadge = ({ status }: { status: ChatDto["status"] }) => {
   switch (status) {
@@ -188,55 +195,186 @@ const ChatItem = ({
   );
 };
 
+const EXPANDED_KEY = "cc-manabu.sidebarExpanded";
+
+/**
+ * 行（`wiki:<id>` / `task:<id>` / `unassigned`）を開閉した記録。ブラウザに覚える。
+ * 記録の無い行は、Wiki と未所属は開き、タスクは閉じる。
+ */
+type Expanded = Record<string, boolean>;
+
+const loadExpanded = (): Expanded => {
+  try {
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(EXPANDED_KEY) ?? "{}",
+    );
+    return typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+      ? Object.fromEntries(
+          Object.entries(parsed).filter(
+            (entry): entry is [string, boolean] =>
+              typeof entry[1] === "boolean",
+          ),
+        )
+      : {};
+  } catch {
+    return {};
+  }
+};
+
+const saveExpanded = (expanded: Expanded) => {
+  try {
+    localStorage.setItem(EXPANDED_KEY, JSON.stringify(expanded));
+  } catch {
+    // 覚えられなくても開閉はできる
+  }
+};
+
+const isExpanded = (expanded: Expanded, key: string): boolean =>
+  expanded[key] ?? !key.startsWith("task:");
+
+/**
+ * スレッドの行の字下げ。親の行（Wiki・タスク・未所属）の名前の位置にそろえる
+ * （親の字下げ＋開閉の矢印とアイコンの幅。行の内側の余白 extra を足す）。
+ */
+const threadIndent = (level: number, extra = 0): string =>
+  `${0.25 + (level - 1) * 0.75 + 1.75 + extra}rem`;
+
+/** 行の右端に出す操作（ホバー・フォーカス中だけ表示）。 */
+const RowAction = ({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) => (
+  <Button
+    variant="ghost"
+    size="icon"
+    className="size-6"
+    aria-label={label}
+    title={label}
+    onClick={onClick}
+  >
+    {children}
+  </Button>
+);
+
+/** 開閉できる行（Wiki・タスク・未所属）。行を押すと開閉する。 */
+const TreeRow = ({
+  level,
+  expanded,
+  onToggle,
+  icon,
+  label,
+  badge,
+  selected = false,
+  actions,
+}: {
+  level: number;
+  expanded: boolean;
+  onToggle: () => void;
+  icon: ReactNode;
+  label: string;
+  badge?: ReactNode;
+  selected?: boolean;
+  actions?: ReactNode;
+}) => (
+  <div
+    className={cn(
+      "group flex items-center gap-1 rounded-md py-1 pr-1 text-sm hover:bg-sidebar-accent",
+      selected && "bg-sidebar-accent",
+    )}
+    style={{ paddingLeft: `${0.25 + level * 0.75}rem` }}
+  >
+    <button
+      type="button"
+      className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+      aria-expanded={expanded}
+      onClick={onToggle}
+    >
+      <ChevronRight
+        aria-hidden
+        className={cn(
+          "size-3.5 shrink-0 text-muted-foreground transition-transform",
+          expanded && "rotate-90",
+        )}
+      />
+      <span
+        aria-hidden
+        className="shrink-0 text-muted-foreground [&_svg]:size-3.5"
+      >
+        {icon}
+      </span>
+      <span className={cn("truncate", selected && "font-medium")}>{label}</span>
+      {badge}
+    </button>
+    {actions !== undefined && (
+      <div className="hidden shrink-0 items-center group-focus-within:flex group-hover:flex">
+        {actions}
+      </div>
+    )}
+  </div>
+);
+
 export const Sidebar = ({
   chats,
   tasks,
+  wikis,
   taskId,
   selectedId,
+  openTaskId,
+  openWikiTaskId,
   onNew,
+  onNewInTask,
   onSelect,
   onRename,
   onDelete,
-  onSelectTask,
+  onOpenTask,
+  onOpenWiki,
   onCreateTask,
-  wikis,
   onRenameWiki,
   onRenameTask,
   onDeleteTask,
   onSetTask,
-  view,
-  onOpenWiki,
-  wikiPanel,
   onSetAutoTerms,
   onOpenTaskList,
   onSearch,
   onOpenSearchHit,
 }: {
-  /** すべての会話（表示は選択中のタスクで絞る）。 */
+  /** すべての会話。 */
   chats: ChatDto[];
   tasks: TaskDto[];
-  /** 選択中のタスク。null は未所属の会話。 */
+  /** Wiki（タスクで共有できる）。サイドバーでは Wiki → タスク → スレッドの順に入れ子にする。 */
+  wikis: WikiDto[];
+  /** いま開いている会話・画面の所属先のタスク（null は未所属）。 */
   taskId: string | null;
   selectedId: string | undefined;
+  /** メインに概要を出しているタスク。 */
+  openTaskId: string | undefined;
+  /** メインに Wiki を出しているタスク（その Wiki の行を強調する）。 */
+  openWikiTaskId: string | undefined;
+  /** 今のタスク（無ければ未所属）に新しい会話を作る。 */
   onNew: () => void;
+  /** タスク（null は未所属）に新しい会話を作る。 */
+  onNewInTask: (taskId: string | null) => void;
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onSelectTask: (taskId: string | null) => void;
+  /** タスクの概要を開く。 */
+  onOpenTask: (taskId: string) => void;
+  /** タスクの Wiki（ページ一覧）を開く。 */
+  onOpenWiki: (taskId: string) => void;
   /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
   onCreateTask: (name: string, wikiId?: string) => Promise<void>;
-  /** Wiki（タスクで共有できる）。 */
-  wikis: WikiDto[];
   onRenameWiki: (wikiId: string, name: string) => Promise<void>;
   onRenameTask: (taskId: string, name: string) => Promise<void>;
   onDeleteTask: (taskId: string) => Promise<void>;
   /** 会話の所属を変える（null で未所属に戻す）。 */
   onSetTask: (chatId: string, taskId: string | null) => Promise<void>;
-  /** メイン画面に出しているもの（タスク選択時のタブの状態）。 */
-  view: "threads" | "wiki";
-  onOpenWiki: () => void;
-  /** Wiki を表示しているとき、会話一覧の代わりに出すページ一覧。 */
-  wikiPanel?: ReactNode;
   onSetAutoTerms: (taskId: string, enabled: boolean) => Promise<void>;
   onOpenTaskList: () => void;
   /** 会話を検索する（#115）。 */
@@ -248,26 +386,63 @@ export const Sidebar = ({
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
   const search = useSearch(query, onSearch);
-  const [adding, setAdding] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  /** 既存のスレッドを追加する先のタスク。 */
+  const [addingTo, setAddingTo] = useState<TaskDto>();
+  const [taskDialog, setTaskDialog] = useState<TaskDialog>();
   // 分岐は会話ごとに 1 行にまとめる（#76）
   const groups = groupChats(chats);
-  const visible = groups.filter((group) => group.primary.taskId === taskId);
   const task = tasks.find((p) => p.id === taskId);
-  const showWikiPanel = task !== undefined && view === "wiki";
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [groupByWiki, setGroupByWiki] = useGroupByWiki();
 
-  const threadList =
-    visible.length === 0 ? (
-      <p className="px-2 py-4 text-muted-foreground text-sm">
-        {task === undefined
+  const [expanded, setExpanded] = useState<Expanded>(loadExpanded);
+  const toggle = (key: string) =>
+    setExpanded((current) => {
+      const next = { ...current, [key]: !isExpanded(current, key) };
+      saveExpanded(next);
+      return next;
+    });
+  // 開いた会話・タスクが見えるように、その親を開く
+  const wikiOfTask = task?.wikiId;
+  useEffect(() => {
+    const keys =
+      taskId === null
+        ? selectedId === undefined
+          ? []
+          : ["unassigned"]
+        : [
+            `task:${taskId}`,
+            ...(wikiOfTask === undefined ? [] : [`wiki:${wikiOfTask}`]),
+          ];
+    setExpanded((current) => {
+      if (keys.every((key) => isExpanded(current, key))) return current;
+      const next = { ...current };
+      for (const key of keys) next[key] = true;
+      saveExpanded(next);
+      return next;
+    });
+  }, [taskId, wikiOfTask, selectedId]);
+
+  const threadsOf = (owner: string | null) =>
+    groups.filter((group) => group.primary.taskId === owner);
+
+  const renderThreads = (
+    items: ChatGroup[],
+    level: number,
+    owner: TaskDto | undefined,
+  ) =>
+    items.length === 0 ? (
+      <p
+        className="py-1 text-muted-foreground text-xs"
+        style={{ paddingLeft: threadIndent(level, 0.5) }}
+      >
+        {owner === undefined
           ? "未所属の会話はありません。"
-          : "このタスクにはまだ会話がありません。"}
+          : "まだスレッドがありません。"}
       </p>
     ) : (
       <ul className="flex flex-col gap-0.5">
-        {visible.map(({ groupId, primary, branches, status }) => (
-          <li key={groupId}>
+        {items.map(({ groupId, primary, branches, status }) => (
+          <li key={groupId} style={{ paddingLeft: threadIndent(level) }}>
             <ChatItem
               chat={{ ...primary, status }}
               branchCount={branches.length}
@@ -275,7 +450,7 @@ export const Sidebar = ({
               onSelect={() => onSelect(primary.id)}
               onRename={(title) => onRename(primary.id, title)}
               onDelete={() => setDeleting(primary)}
-              {...(task === undefined
+              {...(owner === undefined
                 ? {}
                 : {
                     onRemoveFromTask: () => void onSetTask(primary.id, null),
@@ -285,6 +460,91 @@ export const Sidebar = ({
         ))}
       </ul>
     );
+
+  const renderTask = (item: TaskDto, level: number) => {
+    const key = `task:${item.id}`;
+    const open = isExpanded(expanded, key);
+    return (
+      <li key={item.id}>
+        <TreeRow
+          level={level}
+          expanded={open}
+          onToggle={() => toggle(key)}
+          icon={<LayoutDashboard />}
+          label={item.name}
+          selected={openTaskId === item.id}
+          {...(item.status === "done"
+            ? {
+                badge: (
+                  <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">
+                    完了
+                  </span>
+                ),
+              }
+            : {})}
+          actions={
+            <>
+              <RowAction
+                label={`「${item.name}」の概要を開く`}
+                onClick={() => onOpenTask(item.id)}
+              >
+                <FileText className="size-3.5" />
+              </RowAction>
+              <RowAction
+                label={`「${item.name}」に新しいスレッド`}
+                onClick={() => onNewInTask(item.id)}
+              >
+                <MessageSquarePlus className="size-3.5" />
+              </RowAction>
+              <DropdownMenu
+                label={`「${item.name}」のメニュー`}
+                triggerClassName="size-6"
+                icon={<Settings className="size-3.5" />}
+                items={[
+                  {
+                    label: "既存のスレッドを追加",
+                    icon: <ListPlus />,
+                    onSelect: () => setAddingTo(item),
+                  },
+                  {
+                    label: "タスクの設定",
+                    icon: <SlidersHorizontal />,
+                    onSelect: () =>
+                      setTaskDialog({ kind: "settings", taskId: item.id }),
+                    separatorBefore: true,
+                  },
+                  {
+                    label: "タスクの名前を変える",
+                    icon: <Pencil />,
+                    onSelect: () =>
+                      setTaskDialog({ kind: "rename", taskId: item.id }),
+                  },
+                  {
+                    label: "タスクを削除",
+                    icon: <Trash2 />,
+                    onSelect: () =>
+                      setTaskDialog({ kind: "delete", taskId: item.id }),
+                    variant: "destructive",
+                  },
+                ]}
+              />
+            </>
+          }
+        />
+        {open && renderThreads(threadsOf(item.id), level + 1, item)}
+      </li>
+    );
+  };
+
+  const openWikiId = tasks.find((p) => p.id === openWikiTaskId)?.wikiId;
+  const wikiGroups = wikis.flatMap((wiki) => {
+    const members = tasks.filter((p) => p.wikiId === wiki.id);
+    return members.length === 0 ? [] : [{ wiki, members }];
+  });
+  const orphans = tasks.filter(
+    (p) => !wikis.some((wiki) => wiki.id === p.wikiId),
+  );
+  const unassignedOpen = isExpanded(expanded, "unassigned");
 
   return (
     <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
@@ -303,6 +563,15 @@ export const Sidebar = ({
           <Button
             variant="ghost"
             size="icon"
+            aria-label="新しいタスク"
+            title="新しいタスク"
+            onClick={() => setTaskDialog({ kind: "create" })}
+          >
+            <FolderPlus />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
             aria-label="新しい会話"
             title={
               task === undefined ? "新しい会話" : `「${task.name}」に新しい会話`
@@ -313,108 +582,115 @@ export const Sidebar = ({
           </Button>
         </div>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col">
-        <TaskSwitcher
-          tasks={tasks}
-          taskId={taskId}
-          onSelect={onSelectTask}
-          onCreate={onCreateTask}
-          wikis={wikis}
-          onRenameWiki={onRenameWiki}
-          onRename={onRenameTask}
-          onDelete={onDeleteTask}
-          onSetAutoTerms={onSetAutoTerms}
-          groupByWiki={groupByWiki}
+      <div className="flex px-3 pb-2">
+        <SearchBox
+          value={query}
+          onChange={setQuery}
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
         />
-        {task !== undefined && (
-          <nav className="flex gap-1 px-3 pb-2" aria-label="タスクの表示">
-            <Button
-              variant={view === "threads" ? "secondary" : "ghost"}
-              size="sm"
-              className="flex-1"
-              aria-pressed={view === "threads"}
-              onClick={() => onSelectTask(task.id)}
-            >
-              スレッド
-            </Button>
-            <Button
-              variant={view === "wiki" ? "secondary" : "ghost"}
-              size="sm"
-              className="flex-1"
-              aria-pressed={view === "wiki"}
-              onClick={onOpenWiki}
-            >
-              <BookOpen className="size-3.5" />
-              Wiki
-            </Button>
-          </nav>
-        )}
-        {showWikiPanel ? (
-          wikiPanel
-        ) : (
-          <>
-            <div className="flex items-center gap-1 px-3 pb-2">
-              <SearchBox
-                value={query}
-                onChange={setQuery}
-                open={searchOpen}
-                onOpenChange={setSearchOpen}
-              />
-              {task !== undefined && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="ml-auto size-8"
-                  aria-label="既存のスレッドを追加"
-                  title="既存のスレッドを追加"
-                  onClick={() => setAdding(true)}
-                >
-                  <ListPlus className="size-4" />
-                </Button>
-              )}
-            </div>
-            {searching ? (
-              <nav
-                className="flex-1 overflow-y-auto px-2 pb-2"
-                aria-label="会話の検索結果"
-              >
-                <SearchResults
-                  chats={chats}
-                  query={query}
-                  result={search.result}
-                  error={search.error}
-                  onOpen={onOpenSearchHit}
-                />
-              </nav>
-            ) : (
-              <>
-                {tasks.length > 0 && (
-                  <GroupByWikiToggle
-                    checked={groupByWiki}
-                    onChange={setGroupByWiki}
-                  />
-                )}
-                <nav
-                  className="flex-1 overflow-y-auto px-2 pb-2"
-                  aria-label="会話一覧"
-                >
-                  {threadList}
-                </nav>
-              </>
-            )}
-          </>
-        )}
       </div>
+      {searching ? (
+        <nav
+          className="flex-1 overflow-y-auto px-2 pb-2"
+          aria-label="会話の検索結果"
+        >
+          <SearchResults
+            chats={chats}
+            query={query}
+            result={search.result}
+            error={search.error}
+            onOpen={onOpenSearchHit}
+          />
+        </nav>
+      ) : (
+        <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
+          <ul className="flex flex-col gap-0.5">
+            {wikiGroups.map(({ wiki, members }) => {
+              const key = `wiki:${wiki.id}`;
+              const open = isExpanded(expanded, key);
+              const first = members[0];
+              return (
+                <li key={wiki.id}>
+                  <TreeRow
+                    level={0}
+                    expanded={open}
+                    onToggle={() => toggle(key)}
+                    icon={<BookOpen />}
+                    label={wiki.name}
+                    selected={openWikiId === wiki.id}
+                    actions={
+                      <>
+                        {first !== undefined && (
+                          <RowAction
+                            label={`Wiki「${wiki.name}」のページを開く`}
+                            onClick={() => onOpenWiki(first.id)}
+                          >
+                            <FileText className="size-3.5" />
+                          </RowAction>
+                        )}
+                        <RowAction
+                          label={`Wiki「${wiki.name}」で新しいタスク`}
+                          onClick={() =>
+                            setTaskDialog({ kind: "create", wikiId: wiki.id })
+                          }
+                        >
+                          <FolderPlus className="size-3.5" />
+                        </RowAction>
+                      </>
+                    }
+                  />
+                  {open && (
+                    <ul className="flex flex-col gap-0.5">
+                      {members.map((member) => renderTask(member, 1))}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+            {orphans.map((orphan) => renderTask(orphan, 0))}
+            <li>
+              <TreeRow
+                level={0}
+                expanded={unassignedOpen}
+                onToggle={() => toggle("unassigned")}
+                icon={<MessagesSquare />}
+                label="未所属のスレッド"
+                actions={
+                  <RowAction
+                    label="未所属に新しいスレッド"
+                    onClick={() => onNewInTask(null)}
+                  >
+                    <MessageSquarePlus className="size-3.5" />
+                  </RowAction>
+                }
+              />
+              {unassignedOpen && renderThreads(threadsOf(null), 1, undefined)}
+            </li>
+          </ul>
+        </nav>
+      )}
+      <TaskDialogs
+        dialog={taskDialog}
+        onClose={() => setTaskDialog(undefined)}
+        tasks={tasks}
+        wikis={wikis}
+        onCreate={onCreateTask}
+        onRename={onRenameTask}
+        onDelete={onDeleteTask}
+        onSetAutoTerms={onSetAutoTerms}
+        onRenameWiki={onRenameWiki}
+      />
       <AddThreadsDialog
-        open={adding}
-        taskName={task?.name ?? ""}
+        open={addingTo !== undefined}
+        taskName={addingTo?.name ?? ""}
         candidates={groups
           .filter((group) => group.primary.taskId === null)
           .map((group) => group.primary)}
         onAdd={async (chatId) => {
-          if (task !== undefined) await onSetTask(chatId, task.id);
+          if (addingTo !== undefined) await onSetTask(chatId, addingTo.id);
         }}
-        onClose={() => setAdding(false)}
+        onClose={() => setAddingTo(undefined)}
       />
       <Dialog
         open={deleting !== undefined}
