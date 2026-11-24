@@ -21,8 +21,9 @@ export class UnsupportedPlatformError extends ErrorFactory({
 
 export class UpdateFetchError extends ErrorFactory({
   name: "UpdateFetchError",
-  message: (fields) => `ダウンロードに失敗しました: ${fields.url}`,
-  fields: ErrorFactory.fields<{ url: string }>(),
+  message: (fields) =>
+    `ダウンロードに失敗しました: ${fields.url}（${fields.reason}）`,
+  fields: ErrorFactory.fields<{ url: string; reason: string }>(),
 }) {}
 
 export class ChecksumMismatchError extends ErrorFactory({
@@ -109,6 +110,9 @@ export const sha256 = (data: ArrayBuffer): string =>
 export const isRunningFromSource = (execPath: string): boolean =>
   /(^|[/\\])bun(\.exe)?$/.test(execPath);
 
+const reasonOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
 type Fetch = (url: string) => Promise<Response>;
 
 const fetchOk = (
@@ -118,7 +122,8 @@ const fetchOk = (
   Result.pipe(
     Result.try({
       try: () => fetchFn(url),
-      catch: (cause) => new UpdateFetchError({ url, cause }),
+      catch: (cause) =>
+        new UpdateFetchError({ url, reason: reasonOf(cause), cause }),
     }),
     Result.andThen((response) =>
       response.ok
@@ -126,6 +131,7 @@ const fetchOk = (
         : Result.fail(
             new UpdateFetchError({
               url,
+              reason: `HTTP ${response.status}`,
               cause: new Error(`HTTP ${response.status}`),
             }),
           ),
@@ -139,7 +145,11 @@ export type LatestRelease = {
   assetName: string;
 };
 
-/** 最新リリースと、このプラットフォーム向けの成果物の URL を調べる。 */
+/**
+ * 最新リリースと、このプラットフォーム向けの成果物の URL を調べる。
+ * GitHub API（未認証だと 60 回/時の制限がある）は使わず、
+ * /releases/latest のリダイレクト先（/releases/tag/<tag>）からタグを読む。
+ */
 export const findLatestRelease = (deps: {
   fetch: Fetch;
   platform: string;
@@ -150,47 +160,31 @@ export const findLatestRelease = (deps: {
 > =>
   Result.pipe(
     assetNameFor(deps.platform, deps.arch),
-    Result.andThen((assetName) =>
-      Result.pipe(
-        fetchOk(
-          deps.fetch,
-          `https://api.github.com/repos/${REPOSITORY}/releases/latest`,
-        ),
-        Result.andThen((response) =>
-          Result.try({
-            try: () =>
-              response.json() as Promise<{
-                tag_name: string;
-                assets: { name: string; browser_download_url: string }[];
-              }>,
-            catch: (cause) =>
-              new UpdateFetchError({ url: response.url, cause }),
-          }),
-        ),
-        Result.andThen((release) => {
-          const asset = release.assets.find((a) => a.name === assetName);
-          const checksums = release.assets.find(
-            (a) => a.name === "checksums.txt",
-          );
-          if (asset === undefined || checksums === undefined) {
+    Result.andThen((assetName) => {
+      const latestUrl = `https://github.com/${REPOSITORY}/releases/latest`;
+      return Result.pipe(
+        fetchOk(deps.fetch, latestUrl),
+        Result.andThen((response) => {
+          const tag = /\/releases\/tag\/([^/?#]+)/.exec(response.url)?.[1];
+          if (tag === undefined) {
             return Result.fail(
               new UpdateFetchError({
-                url: `release ${release.tag_name}`,
-                cause: new Error(
-                  `${assetName} または checksums.txt がありません`,
-                ),
+                url: latestUrl,
+                reason: "最新リリースのタグを特定できませんでした",
+                cause: new Error("最新リリースのタグを特定できませんでした"),
               }),
             );
           }
+          const base = `https://github.com/${REPOSITORY}/releases/download/${tag}`;
           return Result.succeed({
-            version: release.tag_name.replace(/^v/, ""),
-            assetUrl: asset.browser_download_url,
-            checksumsUrl: checksums.browser_download_url,
+            version: decodeURIComponent(tag).replace(/^v/, ""),
+            assetUrl: `${base}/${assetName}`,
+            checksumsUrl: `${base}/checksums.txt`,
             assetName,
           });
         }),
-      ),
-    ),
+      );
+    }),
   );
 
 /** 成果物をダウンロードし、チェックサムを確かめる。 */
@@ -204,7 +198,11 @@ export const downloadVerified = (
       Result.try({
         try: () => response.text(),
         catch: (cause) =>
-          new UpdateFetchError({ url: release.checksumsUrl, cause }),
+          new UpdateFetchError({
+            url: release.checksumsUrl,
+            reason: reasonOf(cause),
+            cause,
+          }),
       }),
     ),
     Result.andThen((checksums) =>
@@ -214,7 +212,11 @@ export const downloadVerified = (
           Result.try({
             try: () => response.arrayBuffer(),
             catch: (cause) =>
-              new UpdateFetchError({ url: release.assetUrl, cause }),
+              new UpdateFetchError({
+                url: release.assetUrl,
+                reason: reasonOf(cause),
+                cause,
+              }),
           }),
         ),
         Result.andThen((data) => {
