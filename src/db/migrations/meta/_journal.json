@@ -78,6 +78,13 @@
       "when": 1795509916054,
       "tag": "0010_wiki_page_chats",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1795524650593,
+      "tag": "0011_tasks",
+      "breakpoints": true
     }
   ]
 }

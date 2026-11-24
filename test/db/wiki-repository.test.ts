@@ -156,6 +156,7 @@ test("移行: 既存のタスクはそれぞれ同じ ID・名前の Wiki を持
   expect(runMigrations(sqlite)).toEqual([
     "0009_shared_wikis",
     "0010_wiki_page_chats",
+    "0011_tasks",
   ]);
   const db = drizzle(sqlite, { schema });
   const repoTasks = createTaskRepository(db);
@@ -170,7 +171,7 @@ test("移行: 既存のタスクはそれぞれ同じ ID・名前の Wiki を持
   ]);
   expect(
     sqlite
-      .query("SELECT project_id, wiki_page_id FROM chats WHERE id = 'c1'")
+      .query("SELECT task_id, wiki_page_id FROM chats WHERE id = 'c1'")
       .get(),
-  ).toEqual({ project_id: "p1", wiki_page_id: null });
+  ).toEqual({ task_id: "p1", wiki_page_id: null });
 });

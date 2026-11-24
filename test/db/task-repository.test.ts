@@ -79,6 +79,49 @@ describe("tasks", () => {
   });
 });
 
+describe("migration 0011_tasks", () => {
+  test("プロジェクト・会話の所属・関連リンクは、タスクとしてそのまま残る", () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    runMigrations(
+      sqlite,
+      MIGRATIONS.filter((m) => m.name < "0011"),
+    );
+    sqlite.exec("INSERT INTO wikis (id, name) VALUES ('p1', '認可基盤')");
+    sqlite.exec(
+      "INSERT INTO projects (id, name, wiki_id) VALUES ('p1', '認可基盤', 'p1')",
+    );
+    sqlite.exec(
+      "INSERT INTO chats (id, title, cwd, project_id) VALUES ('c1', '会話', '/w', 'p1')",
+    );
+    sqlite.exec(
+      "INSERT INTO project_links (id, project_id, url, label) VALUES ('l1', 'p1', 'https://example.com', '設計資料')",
+    );
+
+    expect(runMigrations(sqlite)).toEqual(["0011_tasks"]);
+    const db = drizzle(sqlite, { schema });
+    expect(unwrap(createTaskRepository(db).getTask("p1"))).toMatchObject({
+      name: "認可基盤",
+      wikiId: "p1",
+    });
+    expect(unwrap(createChatRepository(db).getChat("c1")).chat.taskId).toBe(
+      "p1",
+    );
+    expect(sqlite.query("SELECT task_id, label FROM task_links").all()).toEqual(
+      [{ task_id: "p1", label: "設計資料" }],
+    );
+
+    // 外部キーも新しい名前を指す（タスクを消すと会話は未所属に、リンクは消える）
+    sqlite.exec("DELETE FROM tasks WHERE id = 'p1'");
+    expect(sqlite.query("SELECT task_id FROM chats").all()).toEqual([
+      { task_id: null },
+    ]);
+    expect(sqlite.query("SELECT count(*) AS n FROM task_links").get()).toEqual({
+      n: 0,
+    });
+  });
+});
+
 describe("migration 0001_projects", () => {
   test("既存の会話とメッセージは未所属のまま残る", () => {
     const sqlite = new Database(":memory:");

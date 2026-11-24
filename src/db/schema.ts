@@ -40,7 +40,7 @@ export const wikis = sqliteTable("wikis", {
 });
 
 /** 複数の会話と、参照する Wiki をまとめる単位。 */
-export const tasks = sqliteTable("projects", {
+export const tasks = sqliteTable("tasks", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   /**
@@ -73,7 +73,7 @@ export const chats = sqliteTable(
   {
     id: text("id").primaryKey(),
     /** 所属するタスク。未所属なら null。タスクを消すと未所属に戻る。 */
-    taskId: text("project_id").references(() => tasks.id, {
+    taskId: text("task_id").references(() => tasks.id, {
       onDelete: "set null",
     }),
     /** ページを削除した後も履歴を開けるよう、外部キーにはしない。 */
@@ -119,9 +119,9 @@ export const chats = sqliteTable(
   },
   (table) => [
     index("chats_updated_at_idx").on(table.updatedAt),
-    index("chats_project_id_idx").on(table.taskId),
+    index("chats_task_id_idx").on(table.taskId),
     index("chats_group_id_idx").on(table.groupId),
-    uniqueIndex("chats_project_wiki_page_idx")
+    uniqueIndex("chats_task_wiki_page_idx")
       .on(table.taskId, table.wikiPageId)
       .where(
         sql`${table.parentId} IS NULL AND ${table.wikiPageId} IS NOT NULL`,
@@ -194,10 +194,10 @@ export const wikiPages = sqliteTable(
 
 /** タスクの関連リンク（GitHub リポジトリ・設計資料など、繰り返し開く URL）。 */
 export const taskLinks = sqliteTable(
-  "project_links",
+  "task_links",
   {
     id: text("id").primaryKey(),
-    taskId: text("project_id")
+    taskId: text("task_id")
       .notNull()
       .references(() => tasks.id, { onDelete: "cascade" }),
     /** http / https の URL。 */
@@ -211,7 +211,7 @@ export const taskLinks = sqliteTable(
       .notNull()
       .default(sql`(unixepoch('subsec') * 1000)`),
   },
-  (table) => [index("project_links_project_id_idx").on(table.taskId)],
+  (table) => [index("task_links_task_id_idx").on(table.taskId)],
 );
 
 export const QUEUE_STATUSES = ["pending", "sending", "held"] as const;

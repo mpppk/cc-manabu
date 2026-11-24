@@ -57,7 +57,7 @@ const requireTask = (
     ? Result.fail(new TaskNotFoundError({ taskId }))
     : Result.succeed(row);
 
-/** タスクの永続化。会話の所属は chats.project_id に持つ。 */
+/** タスクの永続化。会話の所属は chats.task_id に持つ。 */
 export const createTaskRepository = (db: Db) => ({
   /**
    * タスクを作る。wikiId があればその Wiki を共有し、無ければ同じ名前の Wiki を新しく作る。
