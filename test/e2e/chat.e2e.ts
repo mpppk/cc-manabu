@@ -53,6 +53,29 @@ test("トークンが無ければ案内を表示する", async ({ browser }) => 
   await context.close();
 });
 
+test("保存済みの回答に含まれる Cosense リンクをキーボードで開ける", async ({
+  page,
+  context,
+}) => {
+  await context.route("https://cosen.se/**", (route) =>
+    route.fulfill({ body: "Cosense" }),
+  );
+  await open(page);
+  await newChat(page);
+  await send(page, "参照先は [/Nota/日本語 ページ#1]");
+  const link = page.getByRole("link", {
+    name: "[/Nota/日本語 ページ#1]",
+    exact: true,
+  });
+  const url = `https://cosen.se/Nota/${encodeURIComponent("日本語 ページ#1")}`;
+  await expect(link).toHaveAttribute("href", url);
+  await idle(page);
+  await page.reload();
+  const opened = page.waitForEvent("popup");
+  await link.press("Enter");
+  await expect(await opened).toHaveURL(url);
+});
+
 test("生成中にリロードしても、同じ会話が開いて続きが表示される", async ({
   page,
 }) => {

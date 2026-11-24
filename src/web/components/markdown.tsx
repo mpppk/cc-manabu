@@ -13,6 +13,7 @@ import {
 } from "streamdown";
 import { pageIdFromHref } from "../../wiki/citations.ts";
 import type { TermMatch } from "../../wiki/term-matcher.ts";
+import { rehypeCosenseLinks } from "../lib/rehype-cosense-links.ts";
 import { rehypeWikiTerms } from "../lib/rehype-wiki-terms.ts";
 import { WikiTerm } from "./wiki-term.tsx";
 
@@ -66,11 +67,13 @@ const DefaultLink = defaultComponents.a as (
 export const Markdown = ({
   text,
   streaming = false,
+  cosenseLinks = false,
   wikiLinks,
   termMatcher,
 }: {
   text: string;
   streaming?: boolean;
+  cosenseLinks?: boolean;
   wikiLinks?: WikiLinks;
   termMatcher?: (text: string) => TermMatch[];
 }) => {
@@ -81,13 +84,39 @@ export const Markdown = ({
   const hasLinks = wikiLinks !== undefined;
   const hasTerms = termMatcher !== undefined;
   const components = useMemo<Components | undefined>(() => {
-    if (!hasLinks && !hasTerms) {
+    if (!hasLinks && !hasTerms && !cosenseLinks) {
       return undefined;
     }
     return {
-      ...(hasLinks
+      ...(hasLinks || cosenseLinks
         ? {
-            a: (props: ComponentProps<"a">) => {
+            a: (
+              props: ComponentProps<"a"> & { "data-cosense-link"?: boolean },
+            ) => {
+              if (
+                cosenseLinks &&
+                props["data-cosense-link"] &&
+                props.href?.startsWith("https://cosen.se/")
+              ) {
+                return (
+                  <a
+                    href={props.href}
+                    className="wrap-anywhere font-medium text-primary underline"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    {props.children}
+                  </a>
+                );
+              }
+              if (
+                cosenseLinks &&
+                props.href === "streamdown:incomplete-link" &&
+                typeof props.children === "string" &&
+                /^\/[\w-]+\//.test(props.children)
+              ) {
+                return `[${props.children}`;
+              }
               const pageId = pageIdFromHref(props.href);
               const links = linksRef.current;
               if (pageId === undefined || links === undefined) {
@@ -111,21 +140,24 @@ export const Markdown = ({
         : {}),
       ...(hasTerms ? { span: TermSpan } : {}),
     };
-  }, [hasLinks, hasTerms]);
+  }, [cosenseLinks, hasLinks, hasTerms]);
   const rehypePlugins = useMemo(
     () =>
-      termMatcher === undefined
+      termMatcher === undefined && !cosenseLinks
         ? undefined
         : [
             ...Object.values(defaultRehypePlugins),
-            rehypeWikiTerms(termMatcher),
+            ...(cosenseLinks ? [rehypeCosenseLinks] : []),
+            ...(termMatcher === undefined
+              ? []
+              : [rehypeWikiTerms(termMatcher)]),
           ],
-    [termMatcher],
+    [cosenseLinks, termMatcher],
   );
   return (
     <Streamdown
       // Streamdown は rehypePlugins の変化では描き直さないので、用語の一覧が変わったら作り直す
-      key={termMatcher === undefined ? "plain" : matcherKey(termMatcher)}
+      key={`${cosenseLinks}-${termMatcher === undefined ? "plain" : matcherKey(termMatcher)}`}
       plugins={plugins}
       remarkPlugins={remarkPlugins}
       isAnimating={streaming}

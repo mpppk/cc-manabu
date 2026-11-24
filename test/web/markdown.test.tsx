@@ -36,6 +36,52 @@ describe("Markdown", () => {
     expect(html).toContain('data-wiki-page="p1"');
     expect(html).toContain('data-streamdown="link"');
   });
+
+  test("回答内の Cosense リンクは元の記法で表示し、ページ名を URL エンコードする", () => {
+    const title = "日本語 ページ#1?率%/続き";
+    const html = renderToString(
+      <Markdown
+        text={`[/Nota/xxx] と [/other-project/${title}]`}
+        cosenseLinks
+      />,
+    );
+    expect(html).toContain('href="https://cosen.se/Nota/xxx"');
+    expect(html).toContain(">[/Nota/xxx]</a>");
+    expect(html).toContain(
+      `href="https://cosen.se/other-project/${encodeURIComponent(title)}"`,
+    );
+    expect(html).toContain(`>[/other-project/${title}]</a>`);
+  });
+
+  test("未完成の Cosense リンクとコード・数式・既存リンクを変換しない", () => {
+    const html = renderToString(
+      <Markdown
+        text={[
+          "[/Nota/別の記法](https://example.com) と `[/Nota/コード]`",
+          "",
+          "```",
+          "[/Nota/ブロック]",
+          "```",
+          "",
+          "$$\\text{[/Nota/数式]}$$",
+          "",
+          "[/Nota] と [/Nota/] と [/Nota/書きかけ",
+        ].join("\n")}
+        streaming
+        cosenseLinks
+      />,
+    );
+    expect(html).not.toContain('href="https://cosen.se/');
+    expect(html).toContain('data-streamdown="link"');
+    expect(html).toContain("[/Nota/書きかけ</p>");
+    expect(html).toContain("katex");
+    const complete = renderToString(
+      <Markdown text="[/Nota/書きかけ]" streaming cosenseLinks />,
+    );
+    expect(complete).toContain(
+      `href="https://cosen.se/Nota/${encodeURIComponent("書きかけ")}"`,
+    );
+  });
 });
 
 describe("Markdown の用語（#81）", () => {
@@ -47,7 +93,7 @@ describe("Markdown の用語（#81）", () => {
       <WikiTermsContext.Provider
         value={{ load: async () => undefined, open: () => {} }}
       >
-        <Markdown text={text} termMatcher={termMatcher} />
+        <Markdown text={text} termMatcher={termMatcher} cosenseLinks />
       </WikiTermsContext.Provider>,
     );
   const terms = (html: string) =>
@@ -79,6 +125,12 @@ describe("Markdown の用語（#81）", () => {
 
   test("用語が無い本文はそのまま", () => {
     expect(terms(render("関係のない文"))).toBe(0);
+  });
+
+  test("Cosense リンクの中に Wiki の用語リンクを重ねない", () => {
+    const html = render("[/Nota/関係タプル] と 関係タプル");
+    expect(terms(html)).toBe(1);
+    expect(html).toContain(">[/Nota/関係タプル]</a>");
   });
 });
 

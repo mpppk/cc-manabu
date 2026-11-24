@@ -252,6 +252,7 @@ const MessageView = ({
                 key={i}
                 text={linkWikiCitations(part.text, wikiIds)}
                 streaming={streaming}
+                cosenseLinks
                 {...(wikiLinks === undefined ? {} : { wikiLinks })}
                 {...(termMatcher === undefined ? {} : { termMatcher })}
               />
