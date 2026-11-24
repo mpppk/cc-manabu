@@ -76,6 +76,30 @@ describe("startServer", () => {
     expect(response.headers.get("content-type")).toContain("text/html");
   });
 
+  test("マニフェストとアイコンを公開し、アプリの起動 URL にトークンを入れない", async () => {
+    const s = start();
+    const response = await fetch(new URL("/manifest.webmanifest", s.url));
+    expect(response.headers.get("content-type")).toBe(
+      "application/manifest+json",
+    );
+    const text = await response.text();
+    expect(text).not.toContain(TOKEN);
+    expect(JSON.parse(text)).toMatchObject({
+      id: "/",
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+    });
+    for (const size of [192, 512]) {
+      const icon = await fetch(new URL(`/pwa/icon-${size}.png`, s.url));
+      expect(icon.headers.get("content-type")).toBe("image/png");
+      const bytes = new DataView(await icon.arrayBuffer());
+      expect(bytes.getUint32(0)).toBe(0x89504e47);
+      expect(bytes.getUint32(16)).toBe(size);
+      expect(bytes.getUint32(20)).toBe(size);
+    }
+  });
+
   test("使用中のポートなら PortInUseError", () => {
     const s = start();
     const result = startServer({

@@ -79,10 +79,30 @@ cc-manabu --help
 | 環境変数 | 説明 |
 | --- | --- |
 | `CC_MANABU_PORT` | 待ち受けるポート（既定: 空いているポート） |
-| `CC_MANABU_NO_OPEN=1` | 起動時にブラウザを開かない |
+| `CC_MANABU_NO_OPEN=1` | 起動時にブラウザや PWA を開かない |
+| `CC_MANABU_CHROME_PROFILE` | `--pwa` で使う Chrome のプロファイルディレクトリ（既定値は `Default`） |
+| `CC_MANABU_CHROME_APP_ID` | `--pwa` で使う Chrome のアプリ ID（省略時は起動 URL から算出） |
 | `CC_MANABU_CLAUDE_PATH` | 使う `claude` のパス（既定: PATH から探す） |
-| `CC_MANABU_NO_AUTH=1` | API にアクセストークンを要求しない（デバッグ用。下記「セキュリティ」を参照） |
+| `CC_MANABU_NO_AUTH=1` | API にアクセストークンを要求しない（デバッグ用。`--pwa` では常にトークンを要求） |
 | `CC_MANABU_DB` | 会話を保存する SQLite のパス（既定: `$XDG_DATA_HOME/cc-manabu/db.sqlite`、未設定なら `~/.local/share/cc-manabu/db.sqlite`） |
+
+### macOS の Chrome で PWA として開く
+
+1. `CC_MANABU_PORT=4000 CC_MANABU_NO_OPEN=1 cc-manabu` で起動します。ターミナルに表示された起動 URL を、PWA を使う Chrome プロファイルで開きます。
+2. Chrome のメニューで「キャスト、保存、共有」→「ページをアプリとしてインストール」を選びます。[Chrome のインストール手順](https://support.google.com/chrome/answer/9658361?hl=ja)
+3. Ctrl+C でサーバーを止め、以降は同じポートで起動します。
+
+   ```sh
+   CC_MANABU_PORT=4000 cc-manabu --pwa
+   ```
+
+Chrome の別プロファイルでインストールした場合は、`chrome://version` に表示される「プロフィール パス」の末尾（例 `Profile 2`）を指定します。アプリ ID は起動 URL から求めます。明示的に指定する場合は、`chrome://web-app-internals` で `http://127.0.0.1:4000/` の `app_id` を確認して `CC_MANABU_CHROME_APP_ID` に渡します。
+
+```sh
+CC_MANABU_PORT=4000 CC_MANABU_CHROME_PROFILE='Profile 2' cc-manabu --pwa
+```
+
+`--pwa` は起動ごとに新しいアクセストークンを渡します。Chrome や PWA が見つからない場合は、理由を表示して同じサーバーを既定のブラウザで開きます。ポートが使用中なら、先に使用中のプロセスを止めてください。別のポートを使う場合は、その URL で PWA をインストールし直します。`CC_MANABU_NO_OPEN=1` を指定するとサーバーだけ起動します。
 
 ## セキュリティ
 

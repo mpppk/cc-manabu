@@ -43,13 +43,23 @@ test("トークンを URL から消し、送信した発話に応答がストリ
   ).toBeVisible();
 });
 
-test("トークンが無ければ案内を表示する", async ({ browser }) => {
+test("開いているページに起動トークンが渡されたら認証する", async ({
+  browser,
+}) => {
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto("/");
   await expect(
     page.getByText("アクセス用のトークンがありません"),
   ).toBeVisible();
+  await page.evaluate((token) => {
+    window.location.hash = `token=${token}`;
+  }, TOKEN);
+  await expect(page.getByText("Claude Code 0.0.0-e2e")).toBeVisible();
+  await expect(page).not.toHaveURL(/token=/);
+  await newChat(page);
+  await send(page, "PWA で再起動");
+  await expect(page.getByText("了解: PWA で再起動")).toBeVisible();
   await context.close();
 });
 
