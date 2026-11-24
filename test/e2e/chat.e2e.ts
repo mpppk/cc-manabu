@@ -1111,6 +1111,91 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   await expect(main.locator("blockquote")).toHaveCount(0);
 });
 
+test("保存済みの分岐をサイドで開き直し、メインの現在地を保って続けられる", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const sideInput = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  const sideAnswers = side.locator("[data-assistant-message]");
+  const closeSide = side.getByRole("button", {
+    name: "サイドチャットを閉じる",
+  });
+  const branchSelect = main.getByRole("combobox", { name: "分岐" });
+  const openSavedBranch = async () => {
+    await main.getByText("サイドで開く", { exact: true }).press("Enter");
+    await main
+      .getByRole("list", { name: "サイドで開く分岐" })
+      .getByRole("button", { name: "あとで再開する質問（元の会話 から分岐）" })
+      .click();
+  };
+
+  await send(page, "保存分岐の起点");
+  await expect(main.getByText("了解: 保存分岐の起点")).toBeVisible();
+  await idle(page);
+  const rootUrl = page.url();
+  await selectLastAnswerParagraph(page);
+  await main.getByRole("button", { name: "質問", exact: true }).click();
+  await sideInput.fill("あとで再開する質問");
+  await sideInput.press("Enter");
+  await expect(
+    sideAnswers.getByText("あとで再開する質問", { exact: true }),
+  ).toBeVisible();
+  await closeSide.click();
+  await send(page, "元の会話で進めた話題");
+  await expect(main.getByText("了解: 元の会話で進めた話題")).toBeVisible();
+  await idle(page);
+
+  await page.reload();
+  await expect(branchSelect.locator("option:checked")).toHaveText("元の会話");
+  await main.getByRole("button", { name: "回答を開く" }).click();
+  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await mainInput.fill("メインで編集中の下書き");
+
+  await openSavedBranch();
+  await expect(
+    sideAnswers.getByText("あとで再開する質問", { exact: true }),
+  ).toBeVisible();
+  await expect(mainInput).toHaveValue("メインで編集中の下書き");
+  await expect(branchSelect).toBeDisabled();
+  await expect(page).toHaveURL(rootUrl);
+  await sideInput.fill("承認が必要な操作をして");
+  await sideInput.press("Enter");
+  const approval = side.getByRole("region", { name: "ツール実行の承認" });
+  await expect(approval).toBeVisible();
+
+  // 承認待ちの分岐を閉じてから開き直しても、同じ分岐の生成に戻れる。
+  await closeSide.click();
+  await openSavedBranch();
+  await approval.getByRole("button", { name: "許可" }).click();
+  await expect(
+    sideAnswers.getByText("許可されました", { exact: true }),
+  ).toBeVisible();
+  await closeSide.click();
+  await expect(mainInput).toHaveValue("メインで編集中の下書き");
+  await expect(
+    main.getByText("この応答の続きとして分岐を作ります。"),
+  ).toBeVisible();
+  await expect(branchSelect.locator("option")).toHaveCount(2);
+  await expect(page).toHaveURL(rootUrl);
+
+  await newChat(page);
+  await page
+    .getByRole("navigation", { name: "会話一覧" })
+    .getByText("保存分岐の起点")
+    .click();
+  await expect(page).toHaveURL(rootUrl);
+  await expect(main.getByText("了解: 元の会話で進めた話題")).toBeVisible();
+});
+
 test("過去の回答をサイドで質問し、狭い画面でもメインの現在地と下書きを保つ", async ({
   page,
 }) => {

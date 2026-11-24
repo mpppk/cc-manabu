@@ -1,9 +1,10 @@
 import { X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../../chat/chat-service.ts";
 import type { QuoteData } from "../../chat/quote.ts";
 import type { ChatDto } from "../../router.ts";
 import type { SendSettings } from "../lib/chat-transport.ts";
+import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
 import { cn } from "../lib/utils.ts";
@@ -11,15 +12,15 @@ import { ChatView, type ChatViewProps, QuoteBlock } from "./chat-view.tsx";
 import { Composer } from "./composer.tsx";
 import { Button } from "./ui/button.tsx";
 
-type SideRequest = {
-  id: string;
+type SideDraft = {
   parentId: string;
   quote: QuoteData;
   settings: SendSettings;
 };
+type SideRequest = { id: string; draft?: SideDraft };
 type SideBranch = { chat: ChatDto; messages: ChatUIMessage[] };
 
-/** 選択した回答を起点に、独立した分岐を作って続ける。 */
+/** 選択した回答から分岐を作るか、保存済みの分岐を開いて続ける。 */
 const SideChat = ({
   request,
   onClose,
@@ -33,7 +34,8 @@ const SideChat = ({
   request: SideRequest;
   onClose: () => void;
 }) => {
-  const [created, setCreated] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const draft = submitted ? undefined : request.draft;
   const [creating, setCreating] = useState(false);
   const [branch, setBranch] = useState<SideBranch>();
   const [error, setError] = useState<string>();
@@ -42,7 +44,7 @@ const SideChat = ({
     panel.current?.focus();
   }, []);
 
-  const loadBranch = async () => {
+  const loadBranch = useCallback(async () => {
     setError(undefined);
     try {
       const { chat, messages } = await api.chats.get({ id: request.id });
@@ -50,28 +52,32 @@ const SideChat = ({
     } catch {
       setError("サイドチャットを読み込めませんでした。");
     }
-  };
+  }, [api, request.id]);
+
+  useEffect(() => {
+    if (draft === undefined) void loadBranch();
+  }, [draft, loadBranch]);
 
   const submit = async (text: string, images: ImageAttachment[]) => {
-    if (creating) return false;
+    if (creating || draft === undefined) return false;
     requestNotificationPermission();
     setCreating(true);
     setError(undefined);
     try {
       await api.chat.branch({
-        parentId: request.parentId,
-        messageId: request.quote.sourceMessageId,
+        parentId: draft.parentId,
+        messageId: draft.quote.sourceMessageId,
         branchId: request.id,
         message: {
           id: crypto.randomUUID(),
           role: "user",
           parts: [
-            { type: "data-quote", data: request.quote },
+            { type: "data-quote", data: draft.quote },
             ...imageFileParts(images),
             ...(text === "" ? [] : [{ type: "text" as const, text }]),
           ],
         },
-        ...request.settings,
+        ...draft.settings,
         selectBranch: false,
       });
     } catch (failure) {
@@ -82,9 +88,8 @@ const SideChat = ({
     } finally {
       setCreating(false);
     }
-    setCreated(true);
+    setSubmitted(true);
     callbacks.onActivity?.();
-    await loadBranch();
     return true;
   };
 
@@ -96,7 +101,17 @@ const SideChat = ({
       className="flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none max-lg:fixed max-lg:inset-0 max-lg:z-30 lg:w-[42%] lg:min-w-80 lg:max-w-xl lg:flex-none lg:border-l"
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
-        <h2 className="font-medium text-sm">サイドチャット</h2>
+        <div className="min-w-0">
+          <h2 className="font-medium text-sm">サイドチャット</h2>
+          {branch !== undefined && (
+            <p
+              className="truncate text-muted-foreground text-xs"
+              title={branchLabel(branch.chat)}
+            >
+              {branchLabel(branch.chat)}
+            </p>
+          )}
+        </div>
         <Button
           variant="ghost"
           size="icon"
@@ -115,7 +130,7 @@ const SideChat = ({
           side
           {...callbacks}
         />
-      ) : created ? (
+      ) : draft === undefined ? (
         <div className="flex flex-1 flex-col items-start gap-2 p-4 text-sm">
           {error === undefined ? (
             <p role="status">サイドチャットを読み込み中…</p>
@@ -137,7 +152,7 @@ const SideChat = ({
       ) : (
         <>
           <div className="flex-1 overflow-y-auto p-4">
-            <QuoteBlock text={request.quote.text} />
+            <QuoteBlock text={draft.quote.text} />
           </div>
           <div className="border-t p-4">
             {error !== undefined && (
@@ -197,11 +212,10 @@ export const ChatWorkspace = ({
             onAskSelection={(quote, settings) =>
               setSide({
                 id: crypto.randomUUID(),
-                parentId: props.chat.id,
-                quote,
-                settings,
+                draft: { parentId: props.chat.id, quote, settings },
               })
             }
+            onOpenSideBranch={(id) => setSide({ id })}
           />
         )}
       </section>
