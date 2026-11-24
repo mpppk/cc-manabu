@@ -178,12 +178,13 @@ test("停止・再生成・編集", async ({ page }) => {
   await open(page);
   await newChat(page);
 
-  // 停止
+  // 停止（ヘッダーの利用枠のリセット時刻に数字が出るので、チャットの中だけを見る）
+  const chat = page.getByRole("region", { name: "メインのチャット" });
   await send(page, "ゆっくり数えて");
-  await expect(page.locator("main")).toContainText("2");
+  await expect(chat).toContainText("2");
   await page.getByRole("button", { name: "停止" }).click();
   await idle(page);
-  await expect(page.locator("main")).not.toContainText("40");
+  await expect(chat).not.toContainText("40");
 
   // 再生成
   await send(page, "一回目");
