@@ -13,12 +13,20 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   Pencil,
+  Search,
   Settings,
   SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import type { ChatDto, TaskDto, WikiDto } from "../../router.ts";
 import { type ChatGroup, groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
@@ -328,7 +336,6 @@ export const Sidebar = ({
   selectedId,
   openTaskId,
   openWikiTaskId,
-  onNew,
   onNewInTask,
   onSelect,
   onRename,
@@ -357,8 +364,6 @@ export const Sidebar = ({
   openTaskId: string | undefined;
   /** メインに Wiki を出しているタスク（その Wiki の行を強調する）。 */
   openWikiTaskId: string | undefined;
-  /** 今のタスク（無ければ未所属）に新しい会話を作る。 */
-  onNew: () => void;
   /** タスク（null は未所属）に新しい会話を作る。 */
   onNewInTask: (taskId: string | null) => void;
   onSelect: (id: string) => void;
@@ -387,6 +392,13 @@ export const Sidebar = ({
   const searching = query.trim() !== "";
   const search = useSearch(query, onSearch);
   const [searchOpen, setSearchOpen] = useState(false);
+  const searchId = useId();
+  const searchButton = useRef<HTMLButtonElement>(null);
+  const closeSearch = (restoreFocus: boolean) => {
+    setQuery("");
+    setSearchOpen(false);
+    if (restoreFocus) searchButton.current?.focus();
+  };
   /** 既存のスレッドを追加する先のタスク。 */
   const [addingTo, setAddingTo] = useState<TaskDto>();
   const [taskDialog, setTaskDialog] = useState<TaskDialog>();
@@ -465,7 +477,7 @@ export const Sidebar = ({
     const key = `task:${item.id}`;
     const open = isExpanded(expanded, key);
     return (
-      <li key={item.id}>
+      <li key={item.id} data-task-id={item.id}>
         <TreeRow
           level={level}
           expanded={open}
@@ -570,26 +582,33 @@ export const Sidebar = ({
             <FolderPlus />
           </Button>
           <Button
-            variant="ghost"
+            ref={searchButton}
+            variant={searchOpen ? "secondary" : "ghost"}
             size="icon"
-            aria-label="新しい会話"
-            title={
-              task === undefined ? "新しい会話" : `「${task.name}」に新しい会話`
+            aria-label="会話を検索"
+            title="会話を検索"
+            aria-expanded={searchOpen}
+            aria-controls={searchOpen ? searchId : undefined}
+            // 開いているときは、押しても検索欄からフォーカスを外さない（外れると先に閉じてしまう）
+            onMouseDown={(event) => {
+              if (searchOpen) event.preventDefault();
+            }}
+            onClick={() =>
+              searchOpen ? closeSearch(false) : setSearchOpen(true)
             }
-            onClick={onNew}
           >
-            <MessageSquarePlus />
+            <Search />
           </Button>
         </div>
       </div>
-      <div className="flex px-3 pb-2">
+      {searchOpen && (
         <SearchBox
+          id={searchId}
           value={query}
           onChange={setQuery}
-          open={searchOpen}
-          onOpenChange={setSearchOpen}
+          onClose={closeSearch}
         />
-      </div>
+      )}
       {searching ? (
         <nav
           className="flex-1 overflow-y-auto px-2 pb-2"
@@ -649,7 +668,7 @@ export const Sidebar = ({
               );
             })}
             {orphans.map((orphan) => renderTask(orphan, 0))}
-            <li>
+            <li data-unassigned>
               <TreeRow
                 level={0}
                 expanded={unassignedOpen}

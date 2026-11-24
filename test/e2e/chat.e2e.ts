@@ -8,9 +8,28 @@ const open = async (page: Page) => {
   await expect(page.getByText("Claude Code 0.0.0-e2e")).toBeVisible();
 };
 
+/**
+ * 今開いている画面のタスク（無ければ未所属）に、サイドバーの行の操作で新しいスレッドを作る。
+ * タスクの概要・Wiki（`/t/<id>`）ならそのタスク、スレッドならその所属先。
+ */
 const newChat = async (page: Page) => {
-  // 無題の会話もサイドバーに「新しい会話」と表示されるので、aria-label で作成ボタンを指す
-  await page.getByLabel("新しい会話", { exact: true }).click();
+  const before = page.url();
+  const path = new URL(before).pathname;
+  const tree = page.getByRole("navigation", { name: "会話一覧" });
+  const taskId = /^\/t\/([^/]+)/.exec(path)?.[1];
+  const owner =
+    taskId !== undefined
+      ? tree.locator(`li[data-task-id="${taskId}"]`)
+      : path.startsWith("/c/")
+        ? tree
+            .locator("li[data-task-id], li[data-unassigned]")
+            .filter({ has: page.locator('[aria-current="page"]') })
+            .last()
+        : tree.locator("li[data-unassigned]");
+  const row = owner.locator(":scope > div.group");
+  await row.hover();
+  await row.getByRole("button", { name: /に新しいスレッド$/ }).click();
+  await expect(page).not.toHaveURL(before);
   await expect(page).toHaveURL(/\/c\/.+/);
 };
 
