@@ -65,6 +65,50 @@ test("生成中にリロードしても、同じ会話が開いて続きが表�
   await idle(page);
 });
 
+test("回答を質問ごとに開閉でき、生成中の開閉状態を保つ", async ({ page }) => {
+  await open(page);
+  await newChat(page);
+  const main = page.getByRole("main");
+  const toggles = main.getByRole("button", { name: /^回答を(開く|閉じる)$/ });
+  const firstAnswer = main.getByText("了解: 最初の質問");
+  await send(page, "最初の質問");
+  await idle(page);
+  await expect(toggles.first()).toHaveAttribute("aria-expanded", "true");
+
+  await send(page, "ゆっくり数えて");
+  const streaming = main.locator("[data-assistant-message]").last();
+  await expect(streaming).toContainText("3");
+  await expect(toggles.first()).toHaveAttribute("aria-expanded", "false");
+  await expect(firstAnswer).toBeHidden();
+  await expect(main.getByText("最初の質問", { exact: true })).toBeVisible();
+  await expect(toggles.last()).toHaveAttribute("aria-expanded", "true");
+  await toggles.last().press("Space");
+  await expect(streaming).toBeHidden();
+  await expect(streaming).toContainText("10");
+  await expect(toggles.last()).toHaveAttribute("aria-expanded", "false");
+  await expect(main.getByRole("button", { name: "停止" })).toBeVisible();
+  await toggles.last().press("Enter");
+  await expect(streaming).toBeVisible();
+  await expect(streaming).toContainText("10");
+  await idle(page);
+
+  await toggles.first().click();
+  await expect(firstAnswer).toBeVisible();
+  await expect(
+    main
+      .locator("[data-assistant-message]")
+      .first()
+      .getByText(/入力 10・出力 5 トークン/),
+  ).toBeVisible();
+  await toggles.last().click();
+  await expect(streaming).toBeHidden();
+  await page.reload();
+  await expect(toggles.first()).toHaveAttribute("aria-expanded", "false");
+  await expect(toggles.last()).toHaveAttribute("aria-expanded", "true");
+  await expect(firstAnswer).toBeHidden();
+  await expect(streaming).toBeVisible();
+});
+
 test("承認カードで許可・拒否でき、承認待ちがタブタイトルに出る", async ({
   page,
 }) => {
@@ -74,8 +118,13 @@ test("承認カードで許可・拒否でき、承認待ちがタブタイト�
   await send(page, "承認が必要な操作をして");
   const card = page.getByRole("region", { name: "ツール実行の承認" });
   await expect(card).toContainText("touch e2e.txt");
+  await page.getByRole("button", { name: "回答を閉じる" }).click();
+  await expect(card).toBeVisible();
   await expect(page).toHaveTitle(/承認待ち/);
   await card.getByRole("button", { name: "許可" }).click();
+  await idle(page);
+  await expect(page.getByText("許可されました")).toBeHidden();
+  await page.getByRole("button", { name: "回答を開く" }).click();
   await expect(page.getByText("許可されました")).toBeVisible();
   await expect(page.getByText("Bash の実行を許可しました")).toBeVisible();
   await idle(page);
@@ -126,14 +175,18 @@ test("会話の切り替え・名前変更・削除", async ({ page }) => {
   await open(page);
   await newChat(page);
   await send(page, "一つ目の会話");
+  const firstAnswer = page.getByText("了解: 一つ目の会話");
+  await expect(firstAnswer).toBeVisible();
   await idle(page);
   await newChat(page);
+  await expect(firstAnswer).toHaveCount(0);
   await send(page, "二つ目の会話");
+  await expect(page.getByText("了解: 二つ目の会話")).toBeVisible();
   await idle(page);
 
   const list = page.getByRole("navigation", { name: "会話一覧" });
   await list.getByText("一つ目の会話").click();
-  await expect(page.getByText("了解: 一つ目の会話")).toBeVisible();
+  await expect(firstAnswer).toBeVisible();
 
   const item = list.locator("li").filter({ hasText: "一つ目の会話" });
   await item.hover();
@@ -793,6 +846,7 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   await idle(page);
 
   // 取り消すと元の表示に戻り、分岐は作られない
+  await main.getByRole("button", { name: "回答を開く" }).click();
   await branchButtons.first().click();
   await expect(
     main.getByText("この応答の続きとして分岐を作ります"),
@@ -809,7 +863,7 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   await expect(main.getByText("了解: 非同期だと？")).toBeVisible();
   await idle(page);
   expect(page.url()).not.toBe(rootUrl);
-  await expect(main.getByText("了解: 分岐の設計案は？")).toBeVisible();
+  await expect(main.getByText("了解: 分岐の設計案は？")).toBeHidden();
   await expect(main.getByText("了解: 同期で進めて")).toHaveCount(0);
   await expect(main.getByText(/から引き継いだ履歴/)).toBeVisible();
   await expect(branchSelect.locator("option")).toHaveText([
@@ -842,7 +896,8 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   await expect(main.getByText("了解: 元の続き")).toHaveCount(0);
 
   // 分岐からさらに分岐する
-  await branchButtons.nth(1).click();
+  await main.getByRole("button", { name: "回答を開く" }).nth(1).click();
+  await branchButtons.first().click();
   await send(page, "さらに分岐");
   await expect(main.getByText("了解: さらに分岐")).toBeVisible();
   await idle(page);
@@ -864,6 +919,8 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   await branchSelect.selectOption({
     label: "非同期だと？（元の会話 から分岐）",
   });
+  await expect(main.getByText("了解: 分岐の設計案は？")).toBeHidden();
+  await main.getByRole("button", { name: "回答を開く" }).first().click();
   await expect(main.getByText("了解: 分岐の設計案は？")).toBeVisible();
   await expect(main.getByText("了解: 分岐の続き")).toBeVisible();
 
@@ -1072,6 +1129,8 @@ test("会話をタイトルと本文で検索し、一致した発言へ移動�
   await send(page, "ミトコンドリアについて教えて");
   await idle(page);
   await send(page, "細胞小器官の一覧も");
+  await idle(page);
+  await send(page, "最後に要点をまとめて");
   await idle(page);
   await newChat(page);
   await send(page, "別の話題");

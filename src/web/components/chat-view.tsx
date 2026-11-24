@@ -1,6 +1,7 @@
 import { useChat } from "@ai-sdk/react";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import {
+  ChevronRight,
   FilePlus,
   GitBranch,
   Pencil,
@@ -50,6 +51,55 @@ const textOf = (message: ChatUIMessage): string =>
   message.parts
     .flatMap((part) => (part.type === "text" ? [part.text] : []))
     .join("\n\n");
+
+type Turn = {
+  start: number;
+  question?: ChatUIMessage;
+  answers: ChatUIMessage[];
+};
+
+const groupTurns = (messages: ChatUIMessage[]): Turn[] => {
+  const turns: Turn[] = [];
+  let turn: Turn = { start: 0, answers: [] };
+  for (const [index, message] of messages.entries()) {
+    if (message.role === "user") {
+      if (turn.question !== undefined || turn.answers.length > 0) {
+        turns.push(turn);
+      }
+      turn = { start: index, question: message, answers: [] };
+    } else {
+      turn.answers.push(message);
+    }
+  }
+  if (messages.length > 0) turns.push(turn);
+  return turns;
+};
+
+const useAnswerDisclosure = (latestId: string | undefined) => {
+  const [disclosure, setDisclosure] = useState({
+    latestId,
+    overrides: new Map<string, boolean>(),
+  });
+  if (disclosure.latestId !== latestId) {
+    // 新旧の最新回答は既定の開閉状態に戻し、それ以外の手動操作は保つ。
+    const overrides = new Map(disclosure.overrides);
+    if (disclosure.latestId !== undefined)
+      overrides.delete(disclosure.latestId);
+    if (latestId !== undefined) overrides.delete(latestId);
+    setDisclosure({ latestId, overrides });
+  }
+  const isOpen = (id: string) =>
+    disclosure.overrides.get(id) ?? id === latestId;
+  const setOpen = useCallback((id: string, open: boolean) => {
+    setDisclosure((current) => {
+      const overrides = new Map(current.overrides);
+      if (open === (id === current.latestId)) overrides.delete(id);
+      else overrides.set(id, open);
+      return { ...current, overrides };
+    });
+  }, []);
+  return { isOpen, setOpen };
+};
 
 /** ユーザー発話。生成中でなければ編集できる（それより後ろの会話は消える）。 */
 const UserMessage = ({
@@ -218,7 +268,8 @@ const MessageView = ({
           case "dynamic-tool":
             return <ToolCard key={part.toolCallId} part={part} />;
           case "data-approval":
-            return (
+            // 承認待ちのカードは回答を閉じても操作できる位置に出す。
+            return part.data.status === "pending" ? null : (
               <ApprovalCard
                 key={part.data.approvalId}
                 approval={part.data}
@@ -609,13 +660,13 @@ export const ChatView = ({
   onOpenWikiPage,
   branches = [],
   onSelectBranch,
-  focusMessageId,
+  focusMessage,
   onCreateWikiPage,
 }: {
   /** 選択範囲から Wiki のページを作る（プロジェクトの会話だけ、#121）。 */
   onCreateWikiPage?: (projectId: string, draft: PageDraft) => void;
   /** 検索結果から開いたときに移動する発言（#115）。 */
-  focusMessageId?: string;
+  focusMessage?: { messageId: string };
   api: ApiClient;
   chat: ChatDto;
   /** 同じ会話の分岐（#76）。2 つ以上あれば切り替えメニューを出す。 */
@@ -678,6 +729,13 @@ export const ChatView = ({
     },
   });
   const busy = status === "submitted" || status === "streaming";
+  const turns = useMemo(() => groupTurns(messages), [messages]);
+  const latestTurn = busy
+    ? turns.at(-1)
+    : turns.findLast((turn) =>
+        turn.answers.some((m) => m.role === "assistant"),
+      );
+  const { isOpen, setOpen } = useAnswerDisclosure(latestTurn?.question?.id);
 
   /** サーバが予約を送ったら、保存された会話を読み直して生成の続きを受け取る。 */
   const syncing = useRef(false);
@@ -722,12 +780,13 @@ export const ChatView = ({
     setQuote(undefined);
     setBranchError(undefined);
   };
+  const selectedTurn = turns.find((turn) =>
+    turn.answers.some((m) => m.id === selection?.messageId),
+  );
   const selectedAnswer =
-    selection === undefined
-      ? undefined
-      : messages.find(
-          (m) => m.id === selection.messageId && m.role === "assistant",
-        );
+    selectedTurn?.question === undefined || isOpen(selectedTurn.question.id)
+      ? selectedTurn?.answers.find((m) => m.id === selection?.messageId)
+      : undefined;
   const askSelection =
     selection !== undefined &&
     selectedAnswer?.metadata?.claudeCode?.lastAssistantUuid !== undefined
@@ -755,20 +814,32 @@ export const ChatView = ({
     branchFrom === undefined
       ? -1
       : messages.findIndex((message) => message.id === branchFrom);
-  const shown = branchIndex < 0 ? messages : messages.slice(0, branchIndex + 1);
+  const visibleCount = branchIndex < 0 ? messages.length : branchIndex + 1;
 
   // 検索結果から開いた発言へ移動し、しばらく強調する
-  const [highlighted, setHighlighted] = useState<string>();
-  const focusFound = messages.some((m) => m.id === focusMessageId);
+  const [highlighted, setHighlighted] = useState<typeof focusMessage>();
+  const focusMessageId = focusMessage?.messageId;
+  const focusIndex = messages.findIndex((m) => m.id === focusMessageId);
+  const focusVisible = focusIndex >= 0 && focusIndex < visibleCount;
+  const focusAnswerId = turns.find((turn) =>
+    turn.answers.some((m) => m.id === focusMessageId),
+  )?.question?.id;
   useEffect(() => {
-    if (focusMessageId === undefined || !focusFound) return;
-    document
-      .querySelector(`[data-message-id="${CSS.escape(focusMessageId)}"]`)
-      ?.scrollIntoView({ block: "center" });
-    setHighlighted(focusMessageId);
+    if (focusMessage === undefined || !focusVisible) {
+      setHighlighted(undefined);
+      return;
+    }
+    if (focusAnswerId !== undefined) setOpen(focusAnswerId, true);
+    setHighlighted(focusMessage);
     const timer = setTimeout(() => setHighlighted(undefined), 2500);
     return () => clearTimeout(timer);
-  }, [focusMessageId, focusFound]);
+  }, [focusMessage, focusVisible, focusAnswerId, setOpen]);
+  useEffect(() => {
+    if (highlighted === undefined) return;
+    document
+      .querySelector(`[data-message-id="${CSS.escape(highlighted.messageId)}"]`)
+      ?.scrollIntoView({ block: "center" });
+  }, [highlighted]);
 
   const createBranch = async (
     parentMessageId: string,
@@ -859,6 +930,69 @@ export const ChatView = ({
     await queue.refresh();
   };
 
+  const respond = async (
+    approvalId: string,
+    behavior: "allow" | "deny",
+    reason: string | undefined,
+  ) => {
+    await api.approvals.respond({
+      chatId: chat.id,
+      approvalId,
+      behavior,
+      ...(reason === undefined ? {} : { message: reason }),
+    });
+    onActivity?.();
+  };
+
+  const renderMessage = (message: ChatUIMessage, index: number) => (
+    <Fragment key={message.id}>
+      {chat.inheritedCount > 0 && index === chat.inheritedCount && (
+        <InheritedDivider
+          parent={branches.find((b) => b.id === chat.parentId)}
+        />
+      )}
+      <div
+        data-message-id={message.id}
+        className={cn(
+          "rounded-lg transition-shadow",
+          highlighted?.messageId === message.id &&
+            "ring-2 ring-amber-400 ring-offset-4 ring-offset-background",
+        )}
+      >
+        <MessageView
+          message={message}
+          streaming={busy && index === messages.length - 1}
+          canAct={!busy && branchFrom === undefined}
+          isLast={index === messages.length - 1}
+          {...(message.role === "assistant" &&
+          message.metadata?.claudeCode?.lastAssistantUuid !== undefined
+            ? {
+                onBranch: () => {
+                  setBranchError(undefined);
+                  setQuote(undefined);
+                  setBranchFrom(message.id);
+                },
+              }
+            : {})}
+          onEdit={(messageId, text) => {
+            // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
+            const files = imagePartsOf(message);
+            setOpen(messageId, true);
+            void sendMessage({ text, files, messageId }).then(() =>
+              onActivity?.(),
+            );
+          }}
+          onRegenerate={() => {
+            void regenerate().then(() => onActivity?.());
+          }}
+          {...(onOpenWikiPage === undefined ? {} : { onOpenWikiPage })}
+          {...(termMatcher === undefined ? {} : { termMatcher })}
+          onRespond={respond}
+        />
+      </div>
+    </Fragment>
+  );
+
   return (
     <WikiTermsContext.Provider value={wikiTerms}>
       {selection !== undefined && selectedAnswer !== undefined && (
@@ -879,64 +1013,74 @@ export const ChatView = ({
                 onSelect={(id) => onSelectBranch?.(id)}
               />
             )}
-            {shown.map((message, index) => (
-              <Fragment key={message.id}>
-                {chat.inheritedCount > 0 && index === chat.inheritedCount && (
-                  <InheritedDivider
-                    parent={branches.find((b) => b.id === chat.parentId)}
-                  />
-                )}
-                <div
-                  data-message-id={message.id}
-                  className={cn(
-                    "rounded-lg transition-shadow",
-                    highlighted === message.id &&
-                      "ring-2 ring-amber-400 ring-offset-4 ring-offset-background",
-                  )}
-                >
-                  <MessageView
-                    message={message}
-                    streaming={busy && index === messages.length - 1}
-                    canAct={!busy && branchFrom === undefined}
-                    isLast={index === messages.length - 1}
-                    {...(message.role === "assistant" &&
-                    message.metadata?.claudeCode?.lastAssistantUuid !==
-                      undefined
-                      ? {
-                          onBranch: () => {
-                            setBranchError(undefined);
-                            setQuote(undefined);
-                            setBranchFrom(message.id);
-                          },
+            {turns
+              .filter(({ start }) => start < visibleCount)
+              .map((turn) => {
+                const { question, start } = turn;
+                const answerStart = question === undefined ? start : start + 1;
+                const answers = turn.answers.slice(
+                  0,
+                  visibleCount - answerStart,
+                );
+                const pending = answers.flatMap((message) =>
+                  message.parts.flatMap((part) =>
+                    part.type === "data-approval" &&
+                    part.data.status === "pending"
+                      ? [part.data]
+                      : [],
+                  ),
+                );
+                const open = question === undefined || isOpen(question.id);
+                const answerId = `answer-${question?.id ?? answers[0]?.id}`;
+                const hasAnswer =
+                  answers.length > 0 || (busy && turn === latestTurn);
+                return (
+                  <div
+                    key={question?.id ?? answers[0]?.id}
+                    className="flex flex-col gap-3"
+                  >
+                    {question !== undefined && renderMessage(question, start)}
+                    {question !== undefined && hasAnswer && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="self-end text-muted-foreground"
+                        aria-expanded={open}
+                        aria-controls={answerId}
+                        onClick={() => setOpen(question.id, !open)}
+                      >
+                        <ChevronRight
+                          aria-hidden
+                          className={cn(
+                            "transition-transform",
+                            open && "rotate-90",
+                          )}
+                        />
+                        {open ? "回答を閉じる" : "回答を開く"}
+                      </Button>
+                    )}
+                    {hasAnswer && (
+                      <div id={answerId} hidden={!open}>
+                        <div className="flex flex-col gap-4">
+                          {answers.map((message, index) =>
+                            renderMessage(message, answerStart + index),
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {pending.map((data) => (
+                      <ApprovalCard
+                        key={data.approvalId}
+                        approval={data}
+                        onRespond={(behavior, reason) =>
+                          respond(data.approvalId, behavior, reason)
                         }
-                      : {})}
-                    onEdit={(messageId, text) => {
-                      // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
-                      const files = imagePartsOf(message);
-                      void sendMessage({ text, files, messageId }).then(() =>
-                        onActivity?.(),
-                      );
-                    }}
-                    onRegenerate={() => {
-                      void regenerate().then(() => onActivity?.());
-                    }}
-                    {...(onOpenWikiPage === undefined
-                      ? {}
-                      : { onOpenWikiPage })}
-                    {...(termMatcher === undefined ? {} : { termMatcher })}
-                    onRespond={async (approvalId, behavior, reason) => {
-                      await api.approvals.respond({
-                        chatId: chat.id,
-                        approvalId,
-                        behavior,
-                        ...(reason === undefined ? {} : { message: reason }),
-                      });
-                      onActivity?.();
-                    }}
-                  />
-                </div>
-              </Fragment>
-            ))}
+                      />
+                    ))}
+                  </div>
+                );
+              })}
             {branchFrom !== undefined && (
               <div
                 role="status"
