@@ -19,10 +19,10 @@ import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
-import { createProjectRepository } from "../../src/db/project-repository.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
 import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts";
 import { createSearchRepository } from "../../src/db/search-repository.ts";
+import { createTaskRepository } from "../../src/db/task-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import { createClaudeCode } from "../../src/provider/index.ts";
 import { router } from "../../src/router.ts";
@@ -42,7 +42,7 @@ export const E2E_TOKEN = "e2e-token";
 const opened = openDatabase(":memory:");
 if (Result.isFailure(opened)) throw opened.error;
 const chats = createChatRepository(opened.value.db);
-const projects = createProjectRepository(opened.value.db);
+const tasks = createTaskRepository(opened.value.db);
 const wiki = createWikiRepository(opened.value.db);
 const queue = createQueueRepository(opened.value.db);
 const rateLimits = createRateLimitRepository(opened.value.db);
@@ -61,7 +61,7 @@ const termModel = createClaudeCode({
   ...TERM_EXTRACTION_SETTINGS,
 })(TERM_EXTRACTION_MODEL);
 const writeTermPages = createTermPageWriter({
-  projects,
+  tasks,
   wiki,
   extract: async (prompt) =>
     (await generateText({ model: termModel, prompt })).text,
@@ -73,7 +73,7 @@ const chatService = createChatService({
   approvals,
   languageModel: (modelId, { canUseTool }) =>
     createClaudeCode({ cwd: "/e2e", query, canUseTool, onRateLimit })(modelId),
-  wikiContext: createWikiContextBuilder(wiki, projects),
+  wikiContext: createWikiContextBuilder(wiki, tasks),
   onRunnerFinish: (chatId, outcome) =>
     queueDispatcher?.onRunnerFinish(chatId, outcome),
   onAnswerComplete: (event) => void writeTermPages(event),
@@ -107,7 +107,7 @@ const started = startServer({
   index,
   context: {
     chats,
-    projects,
+    tasks,
     wiki,
     queue,
     queueDispatcher,

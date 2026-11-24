@@ -168,14 +168,14 @@ export const WikiPageList = ({
   );
 };
 
-/** プロジェクトの Wiki（閲覧・作成・編集・削除）。ページの一覧はサイドバーに出す。 */
+/** タスクの Wiki（閲覧・作成・編集・削除）。ページの一覧はサイドバーに出す。 */
 export const WikiView = ({
   api,
   pages,
   loadError,
   refresh,
-  projectId,
-  projectName,
+  taskId,
+  taskName,
   wikiName,
   sharedWith = [],
   autoTerms,
@@ -194,11 +194,11 @@ export const WikiView = ({
   /** 回答の選択範囲から作るときの下書き（#121）。あれば作成画面で開く。 */
   initialDraft?: { title: string; body: string } | undefined;
   api: ApiClient;
-  projectId: string;
-  projectName: string;
-  /** Wiki の名前（無ければプロジェクト名を使う）。 */
+  taskId: string;
+  taskName: string;
+  /** Wiki の名前（無ければタスク名を使う）。 */
   wikiName?: string | undefined;
-  /** 同じ Wiki を使っている、ほかのプロジェクトの名前。 */
+  /** 同じ Wiki を使っている、ほかのタスクの名前。 */
   sharedWith?: string[];
   /** 回答からの用語ページの自動作成が有効か。 */
   autoTerms: boolean;
@@ -230,20 +230,20 @@ export const WikiView = ({
     <div className="flex items-center justify-between gap-2">
       <div className="flex min-w-0 flex-col">
         <h1 className="truncate font-semibold text-lg">
-          {wikiName === undefined || wikiName === projectName
-            ? `${projectName} の Wiki`
+          {wikiName === undefined || wikiName === taskName
+            ? `${taskName} の Wiki`
             : `Wiki: ${wikiName}`}
         </h1>
         {sharedWith.length > 0 && (
           <span className="text-muted-foreground text-xs">
             {sharedWith.map((name) => `「${name}」`).join("")}
             と共有している Wiki
-            です。ページの変更はすべてのプロジェクトに反映されます。
+            です。ページの変更はすべてのタスクに反映されます。
           </span>
         )}
         <span className="text-muted-foreground text-xs">
           回答からの用語ページの自動作成: {autoTerms ? "オン" : "オフ"}
-          （プロジェクトの設定で変更できます）
+          （タスクの設定で変更できます）
         </span>
       </div>
       {mode === "view" && (
@@ -282,7 +282,7 @@ export const WikiView = ({
           }
           onSave={async (draft) => {
             const created = await api.wiki.create({
-              projectId,
+              taskId,
               title: draft.title,
               aliases: parseAliases(draft.aliases),
               body: draft.body,

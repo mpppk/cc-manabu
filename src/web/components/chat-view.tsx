@@ -210,8 +210,8 @@ const MessageView = ({
   ) => Promise<void>;
   onEdit: (messageId: string, text: string) => void;
   onRegenerate: () => void;
-  onOpenWikiPage?: (projectId: string, pageId: string) => void;
-  /** 本文の用語を Wiki の用語ページに結び付ける（プロジェクトの会話だけ）。 */
+  onOpenWikiPage?: (taskId: string, pageId: string) => void;
+  /** 本文の用語を Wiki の用語ページに結び付ける（タスクの会話だけ）。 */
   termMatcher?: (text: string) => TermMatch[];
   /** この応答から分岐する（完了した応答だけ）。 */
   onBranch?: () => void;
@@ -229,12 +229,14 @@ const MessageView = ({
   // このターンで参照資料として渡した Wiki ページ。引用されたものだけをリンクにする
   const wiki = message.metadata?.wiki;
   const wikiIds = new Set(wiki?.pages.map((page) => page.id) ?? []);
+  // 改名前（プロジェクト）に保存した回答は projectId に入っている
+  const wikiTaskId = wiki?.taskId ?? wiki?.projectId;
   const wikiLinks: WikiLinks | undefined =
-    wiki === undefined || onOpenWikiPage === undefined
+    wikiTaskId === undefined || onOpenWikiPage === undefined
       ? undefined
       : {
-          href: (pageId) => pathForWiki(wiki.projectId, pageId),
-          onOpen: (pageId) => onOpenWikiPage(wiki.projectId, pageId),
+          href: (pageId) => pathForWiki(wikiTaskId, pageId),
+          onOpen: (pageId) => onOpenWikiPage(wikiTaskId, pageId),
         };
   const cited = citedPageIds(
     message.parts
@@ -448,7 +450,7 @@ const SelectionPopup = ({
   selection: AnswerSelection;
   /** 質問する（分岐できる回答だけ）。 */
   onAsk: (() => void) | undefined;
-  /** Wiki のページを作る（プロジェクトの会話だけ）。 */
+  /** Wiki のページを作る（タスクの会話だけ）。 */
   onCreatePage: (() => void) | undefined;
 }) => {
   const { rect } = selection;
@@ -496,7 +498,7 @@ const SelectionPopup = ({
         disabled={onCreatePage === undefined}
         title={
           onCreatePage === undefined
-            ? "プロジェクトの会話でだけ、Wiki のページを作れます"
+            ? "タスクの会話でだけ、Wiki のページを作れます"
             : "選んだ部分から Wiki のページを作ります"
         }
         onClick={onCreatePage}
@@ -610,13 +612,13 @@ const InheritedDivider = ({ parent }: { parent: ChatDto | undefined }) => (
 /** 用語の照合を取り直す間隔（自動作成・編集されたページを反映する）。 */
 const TERMS_REFRESH_MS = 10_000;
 
-/** プロジェクトの用語ページ（タイトルと別名）から、本文の用語の照合を作る。 */
-const useProjectTerms = (api: ApiClient, projectId: string | null) => {
+/** タスクの用語ページ（タイトルと別名）から、本文の用語の照合を作る。 */
+const useTaskTerms = (api: ApiClient, taskId: string | null) => {
   const [entries, setEntries] = useState<TermEntry[]>([]);
   const refreshTerms = useCallback(() => {
-    if (projectId === null) return;
+    if (taskId === null) return;
     api.wiki
-      .list({ projectId })
+      .list({ taskId })
       .then((pages) => {
         const next = pages.map((page) => ({
           pageId: page.id,
@@ -628,7 +630,7 @@ const useProjectTerms = (api: ApiClient, projectId: string | null) => {
         );
       })
       .catch(() => {});
-  }, [api, projectId]);
+  }, [api, taskId]);
   useEffect(() => {
     refreshTerms();
     const timer = setInterval(refreshTerms, TERMS_REFRESH_MS);
@@ -636,10 +638,10 @@ const useProjectTerms = (api: ApiClient, projectId: string | null) => {
   }, [refreshTerms]);
   const termMatcher = useMemo(
     () =>
-      projectId === null || entries.length === 0
+      taskId === null || entries.length === 0
         ? undefined
         : createTermMatcher(entries),
-    [projectId, entries],
+    [taskId, entries],
   );
   return { termMatcher, refreshTerms };
 };
@@ -694,8 +696,8 @@ const useQueue = (
 };
 
 export type ChatViewProps = {
-  /** 選択範囲から Wiki のページを作る（プロジェクトの会話だけ、#121）。 */
-  onCreateWikiPage?: (projectId: string, draft: PageDraft) => void;
+  /** 選択範囲から Wiki のページを作る（タスクの会話だけ、#121）。 */
+  onCreateWikiPage?: (taskId: string, draft: PageDraft) => void;
   /** 検索結果から開いたときに移動する発言（#115）。 */
   focusMessage?: { messageId: string };
   api: ApiClient;
@@ -712,7 +714,7 @@ export type ChatViewProps = {
   /** 送信・完了など、一覧の表示（タイトル・状態）が変わりうるときに呼ぶ。 */
   onActivity?: () => void;
   /** 回答から引用された Wiki ページを開く。 */
-  onOpenWikiPage?: (projectId: string, pageId: string) => void;
+  onOpenWikiPage?: (taskId: string, pageId: string) => void;
   side?: boolean;
   onAskSelection?: (quote: QuoteData, settings: SendSettings) => void;
 };
@@ -740,18 +742,18 @@ export const ChatView = ({
   // transport は作り直さず、送信時に最新の設定を読む
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
-  const { termMatcher, refreshTerms } = useProjectTerms(api, chat.projectId);
+  const { termMatcher, refreshTerms } = useTaskTerms(api, chat.taskId);
   const wikiTerms = useMemo<WikiTermsContextValue | undefined>(
     () =>
-      chat.projectId === null || onOpenWikiPage === undefined
+      chat.taskId === null || onOpenWikiPage === undefined
         ? undefined
         : {
             load: (pageId) =>
               api.wiki.get({ id: pageId }).catch(() => undefined),
             open: (pageId) =>
-              chat.projectId !== null && onOpenWikiPage(chat.projectId, pageId),
+              chat.taskId !== null && onOpenWikiPage(chat.taskId, pageId),
           },
-    [api, chat.projectId, onOpenWikiPage],
+    [api, chat.taskId, onOpenWikiPage],
   );
   const transport = useMemo(
     () => new OrpcChatTransport(api, () => settingsRef.current),
@@ -860,13 +862,11 @@ export const ChatView = ({
           window.getSelection()?.removeAllRanges();
         }
       : undefined;
-  const projectId = chat.projectId;
+  const taskId = chat.taskId;
   const createPageFromSelection =
-    selection !== undefined &&
-    projectId !== null &&
-    onCreateWikiPage !== undefined
+    selection !== undefined && taskId !== null && onCreateWikiPage !== undefined
       ? () => {
-          onCreateWikiPage(projectId, pageDraftFromSelection(selection.text));
+          onCreateWikiPage(taskId, pageDraftFromSelection(selection.text));
           window.getSelection()?.removeAllRanges();
         }
       : undefined;

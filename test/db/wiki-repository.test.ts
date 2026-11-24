@@ -4,12 +4,12 @@ import { Result } from "@praha/byethrow";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { openDatabase } from "../../src/db/index.ts";
 import { MIGRATIONS, runMigrations } from "../../src/db/migrate.ts";
-import {
-  createProjectRepository,
-  type ProjectRepository,
-  wikiIdOf,
-} from "../../src/db/project-repository.ts";
 import * as schema from "../../src/db/schema.ts";
+import {
+  createTaskRepository,
+  type TaskRepository,
+  wikiIdOf,
+} from "../../src/db/task-repository.ts";
 import {
   createWikiRepository,
   type WikiRepository,
@@ -22,18 +22,18 @@ const unwrap = <T>(result: Result.Result<T, unknown>): T => {
   return result.value;
 };
 
-let projects: ProjectRepository;
+let tasks: TaskRepository;
 let wiki: WikiRepository;
 
 beforeEach(() => {
   const { db } = unwrap(openDatabase(":memory:"));
-  projects = createProjectRepository(db);
+  tasks = createTaskRepository(db);
   wiki = createWikiRepository(db);
 });
 
-test("ページの作成・一覧（タイトル順、プロジェクトごと）・更新・削除", () => {
-  const a = unwrap(projects.createProject({ name: "a" }));
-  const b = unwrap(projects.createProject({ name: "b" }));
+test("ページの作成・一覧（タイトル順、タスクごと）・更新・削除", () => {
+  const a = unwrap(tasks.createTask({ name: "a" }));
+  const b = unwrap(tasks.createTask({ name: "b" }));
   const tuple = unwrap(
     wiki.createPage({
       wikiId: wikiIdOf(a),
@@ -89,23 +89,23 @@ test("ページの作成・一覧（タイトル順、プロジェクトごと�
   }
 });
 
-test("プロジェクトを消すとページも消える", () => {
-  const project = unwrap(projects.createProject({ name: "p" }));
+test("タスクを消すとページも消える", () => {
+  const task = unwrap(tasks.createTask({ name: "p" }));
   unwrap(
     wiki.createPage({
-      wikiId: wikiIdOf(project),
+      wikiId: wikiIdOf(task),
       title: "t",
       aliases: [],
       body: "",
     }),
   );
-  unwrap(projects.deleteProject(project.id));
-  expect(unwrap(wiki.listPages(wikiIdOf(project)))).toEqual([]);
+  unwrap(tasks.deleteTask(task.id));
+  expect(unwrap(wiki.listPages(wikiIdOf(task)))).toEqual([]);
 });
 
-test("既存の Wiki を共有してプロジェクトを作り、最後のプロジェクトを消すまで Wiki は残る", () => {
-  const a = unwrap(projects.createProject({ name: "a" }));
-  const b = unwrap(projects.createProject({ name: "b", wikiId: wikiIdOf(a) }));
+test("既存の Wiki を共有してタスクを作り、最後のタスクを消すまで Wiki は残る", () => {
+  const a = unwrap(tasks.createTask({ name: "a" }));
+  const b = unwrap(tasks.createTask({ name: "b", wikiId: wikiIdOf(a) }));
   expect(wikiIdOf(b)).toBe(wikiIdOf(a));
   unwrap(
     wiki.createPage({
@@ -115,32 +115,32 @@ test("既存の Wiki を共有してプロジェクトを作り、最後のプ�
       body: "",
     }),
   );
-  expect(unwrap(projects.listWikis())).toMatchObject([
-    { id: wikiIdOf(a), name: "a", projectCount: 2 },
+  expect(unwrap(tasks.listWikis())).toMatchObject([
+    { id: wikiIdOf(a), name: "a", taskCount: 2 },
   ]);
 
-  unwrap(projects.deleteProject(a.id));
+  unwrap(tasks.deleteTask(a.id));
   expect(unwrap(wiki.listPages(wikiIdOf(b))).map((p) => p.title)).toEqual([
     "共有ページ",
   ]);
-  unwrap(projects.deleteProject(b.id));
-  expect(unwrap(projects.listWikis())).toEqual([]);
+  unwrap(tasks.deleteTask(b.id));
+  expect(unwrap(tasks.listWikis())).toEqual([]);
   expect(unwrap(wiki.listPages(wikiIdOf(b)))).toEqual([]);
 });
 
-test("無い Wiki を指定するとプロジェクトを作らない", () => {
-  const result = projects.createProject({ name: "x", wikiId: "missing" });
+test("無い Wiki を指定するとタスクを作らない", () => {
+  const result = tasks.createTask({ name: "x", wikiId: "missing" });
   expect(Result.isFailure(result)).toBe(true);
-  expect(unwrap(projects.listProjects())).toEqual([]);
+  expect(unwrap(tasks.listTasks())).toEqual([]);
 });
 
 test("Wiki の名前を変えられる", () => {
-  const a = unwrap(projects.createProject({ name: "a" }));
-  unwrap(projects.renameWiki(wikiIdOf(a), "共通用語集"));
-  expect(unwrap(projects.listWikis())[0]?.name).toBe("共通用語集");
+  const a = unwrap(tasks.createTask({ name: "a" }));
+  unwrap(tasks.renameWiki(wikiIdOf(a), "共通用語集"));
+  expect(unwrap(tasks.listWikis())[0]?.name).toBe("共通用語集");
 });
 
-test("移行: 既存のプロジェクトはそれぞれ同じ ID・名前の Wiki を持ち、ページと会話の所属は残る", () => {
+test("移行: 既存のタスクはそれぞれ同じ ID・名前の Wiki を持ち、ページと会話の所属は残る", () => {
   const sqlite = new Database(":memory:");
   sqlite.exec("PRAGMA foreign_keys = ON;");
   const before = MIGRATIONS.filter((m) => m.name < "0009");
@@ -155,12 +155,12 @@ test("移行: 既存のプロジェクトはそれぞれ同じ ID・名前の Wi
 
   expect(runMigrations(sqlite)).toEqual(["0009_shared_wikis"]);
   const db = drizzle(sqlite, { schema });
-  const repoProjects = createProjectRepository(db);
+  const repoTasks = createTaskRepository(db);
   const repoWiki = createWikiRepository(db);
-  const project = unwrap(repoProjects.getProject("p1"));
-  expect(project.wikiId).toBe("p1");
-  expect(unwrap(repoProjects.listWikis())).toMatchObject([
-    { id: "p1", name: "認可基盤", projectCount: 1 },
+  const task = unwrap(repoTasks.getTask("p1"));
+  expect(task.wikiId).toBe("p1");
+  expect(unwrap(repoTasks.listWikis())).toMatchObject([
+    { id: "p1", name: "認可基盤", taskCount: 1 },
   ]);
   expect(unwrap(repoWiki.listPages("p1"))).toMatchObject([
     { id: "w1", title: "関係タプル", origin: "auto", sourceChatId: "c1" },

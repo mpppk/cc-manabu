@@ -12,21 +12,21 @@ import {
   X,
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
-import type { ChatDto, ProjectDto, WikiDto } from "../../router.ts";
+import type { ChatDto, TaskDto, WikiDto } from "../../router.ts";
 import { groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
-import {
-  AddThreadsDialog,
-  GroupByWikiToggle,
-  ProjectSwitcher,
-  useGroupByWiki,
-} from "./project-switcher.tsx";
 import {
   SearchBox,
   type SearchResult,
   SearchResults,
   useSearch,
 } from "./search-results.tsx";
+import {
+  AddThreadsDialog,
+  GroupByWikiToggle,
+  TaskSwitcher,
+  useGroupByWiki,
+} from "./task-switcher.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 
@@ -62,7 +62,7 @@ const ChatItem = ({
   onSelect,
   onRename,
   onDelete,
-  onRemoveFromProject,
+  onRemoveFromTask,
   branchCount = 1,
 }: {
   chat: ChatDto;
@@ -72,8 +72,8 @@ const ChatItem = ({
   onSelect: () => void;
   onRename: (title: string) => Promise<void>;
   onDelete: () => void;
-  /** プロジェクト内の一覧なら、プロジェクトから外せる。 */
-  onRemoveFromProject?: () => void;
+  /** タスク内の一覧なら、タスクから外せる。 */
+  onRemoveFromTask?: () => void;
 }) => {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(chat.title);
@@ -162,14 +162,14 @@ const ChatItem = ({
         >
           <Pencil className="size-3.5" />
         </Button>
-        {onRemoveFromProject !== undefined && (
+        {onRemoveFromTask !== undefined && (
           <Button
             variant="ghost"
             size="icon"
             className="size-6"
-            aria-label={`「${label}」をプロジェクトから外す`}
-            title="プロジェクトから外す"
-            onClick={onRemoveFromProject}
+            aria-label={`「${label}」をタスクから外す`}
+            title="タスクから外す"
+            onClick={onRemoveFromTask}
           >
             <FolderMinus className="size-3.5" />
           </Button>
@@ -190,55 +190,55 @@ const ChatItem = ({
 
 export const Sidebar = ({
   chats,
-  projects,
-  projectId,
+  tasks,
+  taskId,
   selectedId,
   onNew,
   onSelect,
   onRename,
   onDelete,
-  onSelectProject,
-  onCreateProject,
+  onSelectTask,
+  onCreateTask,
   wikis,
   onRenameWiki,
-  onRenameProject,
-  onDeleteProject,
-  onSetProject,
+  onRenameTask,
+  onDeleteTask,
+  onSetTask,
   view,
   onOpenWiki,
   wikiPanel,
   onSetAutoTerms,
-  onOpenProjectList,
+  onOpenTaskList,
   onSearch,
   onOpenSearchHit,
 }: {
-  /** すべての会話（表示は選択中のプロジェクトで絞る）。 */
+  /** すべての会話（表示は選択中のタスクで絞る）。 */
   chats: ChatDto[];
-  projects: ProjectDto[];
-  /** 選択中のプロジェクト。null は未所属の会話。 */
-  projectId: string | null;
+  tasks: TaskDto[];
+  /** 選択中のタスク。null は未所属の会話。 */
+  taskId: string | null;
   selectedId: string | undefined;
   onNew: () => void;
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onSelectProject: (projectId: string | null) => void;
+  onSelectTask: (taskId: string | null) => void;
   /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
-  onCreateProject: (name: string, wikiId?: string) => Promise<void>;
-  /** Wiki（プロジェクトで共有できる）。 */
+  onCreateTask: (name: string, wikiId?: string) => Promise<void>;
+  /** Wiki（タスクで共有できる）。 */
   wikis: WikiDto[];
   onRenameWiki: (wikiId: string, name: string) => Promise<void>;
-  onRenameProject: (projectId: string, name: string) => Promise<void>;
-  onDeleteProject: (projectId: string) => Promise<void>;
+  onRenameTask: (taskId: string, name: string) => Promise<void>;
+  onDeleteTask: (taskId: string) => Promise<void>;
   /** 会話の所属を変える（null で未所属に戻す）。 */
-  onSetProject: (chatId: string, projectId: string | null) => Promise<void>;
-  /** メイン画面に出しているもの（プロジェクト選択時のタブの状態）。 */
+  onSetTask: (chatId: string, taskId: string | null) => Promise<void>;
+  /** メイン画面に出しているもの（タスク選択時のタブの状態）。 */
   view: "threads" | "wiki";
   onOpenWiki: () => void;
   /** Wiki を表示しているとき、会話一覧の代わりに出すページ一覧。 */
   wikiPanel?: ReactNode;
-  onSetAutoTerms: (projectId: string, enabled: boolean) => Promise<void>;
-  onOpenProjectList: () => void;
+  onSetAutoTerms: (taskId: string, enabled: boolean) => Promise<void>;
+  onOpenTaskList: () => void;
   /** 会話を検索する（#115）。 */
   onSearch: (q: string) => Promise<SearchResult>;
   /** 検索結果を開く。messageId があればその発言へ移動する。 */
@@ -251,20 +251,18 @@ export const Sidebar = ({
   const [adding, setAdding] = useState(false);
   // 分岐は会話ごとに 1 行にまとめる（#76）
   const groups = groupChats(chats);
-  const visible = groups.filter(
-    (group) => group.primary.projectId === projectId,
-  );
-  const project = projects.find((p) => p.id === projectId);
-  const showWikiPanel = project !== undefined && view === "wiki";
+  const visible = groups.filter((group) => group.primary.taskId === taskId);
+  const task = tasks.find((p) => p.id === taskId);
+  const showWikiPanel = task !== undefined && view === "wiki";
   const [searchOpen, setSearchOpen] = useState(false);
   const [groupByWiki, setGroupByWiki] = useGroupByWiki();
 
   const threadList =
     visible.length === 0 ? (
       <p className="px-2 py-4 text-muted-foreground text-sm">
-        {project === undefined
+        {task === undefined
           ? "未所属の会話はありません。"
-          : "このプロジェクトにはまだ会話がありません。"}
+          : "このタスクにはまだ会話がありません。"}
       </p>
     ) : (
       <ul className="flex flex-col gap-0.5">
@@ -277,11 +275,10 @@ export const Sidebar = ({
               onSelect={() => onSelect(primary.id)}
               onRename={(title) => onRename(primary.id, title)}
               onDelete={() => setDeleting(primary)}
-              {...(project === undefined
+              {...(task === undefined
                 ? {}
                 : {
-                    onRemoveFromProject: () =>
-                      void onSetProject(primary.id, null),
+                    onRemoveFromTask: () => void onSetTask(primary.id, null),
                   })}
             />
           </li>
@@ -297,9 +294,9 @@ export const Sidebar = ({
           <Button
             variant="ghost"
             size="icon"
-            aria-label="プロジェクト一覧"
-            title="プロジェクト一覧"
-            onClick={onOpenProjectList}
+            aria-label="タスク一覧"
+            title="タスク一覧"
+            onClick={onOpenTaskList}
           >
             <LayoutList />
           </Button>
@@ -308,9 +305,7 @@ export const Sidebar = ({
             size="icon"
             aria-label="新しい会話"
             title={
-              project === undefined
-                ? "新しい会話"
-                : `「${project.name}」に新しい会話`
+              task === undefined ? "新しい会話" : `「${task.name}」に新しい会話`
             }
             onClick={onNew}
           >
@@ -319,26 +314,26 @@ export const Sidebar = ({
         </div>
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
-        <ProjectSwitcher
-          projects={projects}
-          projectId={projectId}
-          onSelect={onSelectProject}
-          onCreate={onCreateProject}
+        <TaskSwitcher
+          tasks={tasks}
+          taskId={taskId}
+          onSelect={onSelectTask}
+          onCreate={onCreateTask}
           wikis={wikis}
           onRenameWiki={onRenameWiki}
-          onRename={onRenameProject}
-          onDelete={onDeleteProject}
+          onRename={onRenameTask}
+          onDelete={onDeleteTask}
           onSetAutoTerms={onSetAutoTerms}
           groupByWiki={groupByWiki}
         />
-        {project !== undefined && (
-          <nav className="flex gap-1 px-3 pb-2" aria-label="プロジェクトの表示">
+        {task !== undefined && (
+          <nav className="flex gap-1 px-3 pb-2" aria-label="タスクの表示">
             <Button
               variant={view === "threads" ? "secondary" : "ghost"}
               size="sm"
               className="flex-1"
               aria-pressed={view === "threads"}
-              onClick={() => onSelectProject(project.id)}
+              onClick={() => onSelectTask(task.id)}
             >
               スレッド
             </Button>
@@ -365,7 +360,7 @@ export const Sidebar = ({
                 open={searchOpen}
                 onOpenChange={setSearchOpen}
               />
-              {project !== undefined && (
+              {task !== undefined && (
                 <Button
                   variant="ghost"
                   size="icon"
@@ -393,7 +388,7 @@ export const Sidebar = ({
               </nav>
             ) : (
               <>
-                {projects.length > 0 && (
+                {tasks.length > 0 && (
                   <GroupByWikiToggle
                     checked={groupByWiki}
                     onChange={setGroupByWiki}
@@ -412,12 +407,12 @@ export const Sidebar = ({
       </div>
       <AddThreadsDialog
         open={adding}
-        projectName={project?.name ?? ""}
+        taskName={task?.name ?? ""}
         candidates={groups
-          .filter((group) => group.primary.projectId === null)
+          .filter((group) => group.primary.taskId === null)
           .map((group) => group.primary)}
         onAdd={async (chatId) => {
-          if (project !== undefined) await onSetProject(chatId, project.id);
+          if (task !== undefined) await onSetTask(chatId, task.id);
         }}
         onClose={() => setAdding(false)}
       />

@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   chatIdFromPath,
-  isProjectListPath,
+  isTaskListPath,
   pathForChat,
-  pathForProject,
+  pathForTask,
   pathForWiki,
-  projectIdFromPath,
+  taskIdFromPath,
   wikiFromPath,
 } from "../../src/web/lib/route.ts";
 
@@ -19,29 +19,33 @@ describe("route", () => {
     expect(pathForChat(undefined)).toBe("/");
   });
 
-  test("パスとプロジェクト ID を相互に変換する", () => {
-    expect(projectIdFromPath("/p/xyz")).toBe("xyz");
-    expect(projectIdFromPath("/c/xyz")).toBeUndefined();
-    expect(chatIdFromPath("/p/xyz")).toBeUndefined();
-    expect(pathForProject("xyz")).toBe("/p/xyz");
-    expect(pathForProject(null)).toBe("/");
+  test("パスとタスク ID を相互に変換する", () => {
+    expect(taskIdFromPath("/t/xyz")).toBe("xyz");
+    // 「プロジェクト」だったころのリンクも開ける
+    expect(taskIdFromPath("/p/xyz")).toBe("xyz");
+    expect(taskIdFromPath("/c/xyz")).toBeUndefined();
+    expect(chatIdFromPath("/t/xyz")).toBeUndefined();
+    expect(pathForTask("xyz")).toBe("/t/xyz");
+    expect(pathForTask(null)).toBe("/");
   });
 
   test("Wiki のパス", () => {
-    expect(wikiFromPath("/p/xyz/wiki")).toEqual({ projectId: "xyz" });
-    expect(wikiFromPath("/p/xyz/wiki/pg1")).toEqual({
-      projectId: "xyz",
+    expect(wikiFromPath("/t/xyz/wiki")).toEqual({ taskId: "xyz" });
+    expect(wikiFromPath("/p/xyz/wiki")).toEqual({ taskId: "xyz" });
+    expect(wikiFromPath("/t/xyz/wiki/pg1")).toEqual({
+      taskId: "xyz",
       pageId: "pg1",
     });
-    expect(wikiFromPath("/p/xyz")).toBeUndefined();
-    expect(projectIdFromPath("/p/xyz/wiki")).toBeUndefined();
-    expect(pathForWiki("xyz")).toBe("/p/xyz/wiki");
-    expect(pathForWiki("xyz", "pg1")).toBe("/p/xyz/wiki/pg1");
+    expect(wikiFromPath("/t/xyz")).toBeUndefined();
+    expect(taskIdFromPath("/t/xyz/wiki")).toBeUndefined();
+    expect(pathForWiki("xyz")).toBe("/t/xyz/wiki");
+    expect(pathForWiki("xyz", "pg1")).toBe("/t/xyz/wiki/pg1");
   });
 
-  test("プロジェクト一覧のパス", () => {
-    expect(isProjectListPath("/projects")).toBe(true);
-    expect(isProjectListPath("/projects/")).toBe(true);
-    expect(isProjectListPath("/p/x")).toBe(false);
+  test("タスク一覧のパス", () => {
+    expect(isTaskListPath("/tasks")).toBe(true);
+    expect(isTaskListPath("/tasks/")).toBe(true);
+    expect(isTaskListPath("/projects")).toBe(true);
+    expect(isTaskListPath("/t/x")).toBe(false);
   });
 });

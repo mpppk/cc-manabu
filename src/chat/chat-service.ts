@@ -77,7 +77,12 @@ export type ChatMessageMetadata = {
   };
   aborted?: boolean;
   /** このターンで参照資料として渡した Wiki ページ（引用をリンクにするのに使う）。 */
-  wiki?: { projectId: string; pages: { id: string; title: string }[] };
+  wiki?: {
+    taskId?: string;
+    /** 「プロジェクト」を「タスク」に改名する前に保存した回答の taskId。 */
+    projectId?: string;
+    pages: { id: string; title: string }[];
+  };
 };
 
 export type ChatDataParts = {
@@ -181,10 +186,10 @@ export const createChatService = (deps: {
     modelId: string,
     options: { canUseTool: CanUseTool },
   ) => LanguageModelV4;
-  /** プロジェクトの会話で、質問に関係する Wiki ページを参照資料にする。 */
+  /** タスクの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
   /**
-   * プロジェクトの会話で回答が最後まで終わったとき（中断・エラーを除く）に呼ぶ。
+   * タスクの会話で回答が最後まで終わったとき（中断・エラーを除く）に呼ぶ。
    * 用語ページの自動作成（#80）に使う。回答の保存のあとに呼び、結果は待たない。
    */
   onAnswerComplete?: (event: AnswerCompleted) => void;
@@ -196,14 +201,14 @@ export const createChatService = (deps: {
 }) => {
   const { chats, registry, approvals } = deps;
 
-  /** 会話がプロジェクトに属していれば、Wiki の参照資料を作る。 */
+  /** 会話がタスクに属していれば、Wiki の参照資料を作る。 */
   const contextFor = (
     chat: ChatRow,
     parts: ChatUIMessage["parts"],
   ): WikiContext | undefined =>
-    chat.projectId === null
+    chat.taskId === null
       ? undefined
-      : deps.wikiContext?.(chat.projectId, textOf(parts));
+      : deps.wikiContext?.(chat.taskId, textOf(parts));
 
   const startGeneration = (params: {
     chatId: string;
@@ -211,8 +216,8 @@ export const createChatService = (deps: {
     effort: Effort | null;
     sessionId: string | null;
     content: UserContent;
-    /** 会話の所属プロジェクト（回答後の用語ページ作成に使う）。 */
-    projectId: string | null;
+    /** 会話の所属タスク（回答後の用語ページ作成に使う）。 */
+    taskId: string | null;
     /** 質問の本文（回答後の用語ページ作成に使う）。 */
     question: string;
     /** 質問とは別に渡す Wiki の参照資料。DB の発話には保存しない。 */
@@ -276,7 +281,7 @@ export const createChatService = (deps: {
                       ? {}
                       : {
                           wiki: {
-                            projectId: params.context.projectId,
+                            taskId: params.context.taskId,
                             pages: params.context.pages,
                           },
                         }),
@@ -327,13 +332,13 @@ export const createChatService = (deps: {
           if (
             !isAborted &&
             !failed &&
-            params.projectId !== null &&
+            params.taskId !== null &&
             answer.trim() !== ""
           ) {
             try {
               deps.onAnswerComplete?.({
                 chatId: params.chatId,
-                projectId: params.projectId,
+                taskId: params.taskId,
                 messageId: responseMessage.id,
                 question: params.question,
                 answer,
@@ -383,7 +388,7 @@ export const createChatService = (deps: {
           effort: (chat.effort as Effort | null) ?? null,
           ...resumeOf(chat),
           content: toUserContent(input.message.parts),
-          projectId: chat.projectId,
+          taskId: chat.taskId,
           question: textOf(input.message.parts),
           context: contextFor(chat, input.message.parts),
         }),
@@ -460,7 +465,7 @@ export const createChatService = (deps: {
           effort: (created.effort as Effort | null) ?? null,
           ...resumeOf(created),
           content: toUserContent(input.message.parts),
-          projectId: created.projectId,
+          taskId: created.taskId,
           question: textOf(input.message.parts),
           context: contextFor(created, input.message.parts),
         }),
@@ -510,7 +515,7 @@ export const createChatService = (deps: {
               ? null
               : (chat.sessionId ?? chat.forkSessionId),
           content: toUserContent(userMessage.parts),
-          projectId: chat.projectId,
+          taskId: chat.taskId,
           question: textOf(userMessage.parts),
           context: contextFor(chat, userMessage.parts),
           ...(forkPoint === undefined

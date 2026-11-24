@@ -61,12 +61,12 @@ const send = async (client: Client, chatId: string, text: string) =>
 describe("回答からの用語ページの自動作成", () => {
   test("回答に出てくる重要な用語のページを作り、元の回答をたどれる", async () => {
     const { client, termJobs, prompts } = setup();
-    const project = await client.projects.create({ name: "認可基盤" });
-    const chat = await client.chats.create({ projectId: project.id });
+    const task = await client.tasks.create({ name: "認可基盤" });
+    const chat = await client.chats.create({ taskId: task.id });
     await send(client, chat.id, "関係タプルとは");
     await Promise.all(termJobs);
 
-    const pages = await client.wiki.list({ projectId: project.id });
+    const pages = await client.wiki.list({ taskId: task.id });
     const { messages } = await client.chats.get({ id: chat.id });
     expect(pages).toHaveLength(1);
     expect(pages[0]).toMatchObject({
@@ -84,25 +84,25 @@ describe("回答からの用語ページの自動作成", () => {
 
   test("複数の回答を並行して処理しても、ページは 1 件だけ", async () => {
     const { client, termJobs } = setup();
-    const project = await client.projects.create({ name: "p" });
+    const task = await client.tasks.create({ name: "p" });
     const chats = await Promise.all(
-      [1, 2, 3].map(() => client.chats.create({ projectId: project.id })),
+      [1, 2, 3].map(() => client.chats.create({ taskId: task.id })),
     );
     await Promise.all(
       chats.map((chat) => send(client, chat.id, "関係タプルとは")),
     );
     await Promise.all(termJobs);
     expect(termJobs).toHaveLength(3);
-    expect(await client.wiki.list({ projectId: project.id })).toHaveLength(1);
+    expect(await client.wiki.list({ taskId: task.id })).toHaveLength(1);
   });
 
   test("編集したページは、同じ用語が出てきても書き換えない", async () => {
     const { client, termJobs } = setup();
-    const project = await client.projects.create({ name: "p" });
-    const chat = await client.chats.create({ projectId: project.id });
+    const task = await client.tasks.create({ name: "p" });
+    const chat = await client.chats.create({ taskId: task.id });
     await send(client, chat.id, "関係タプルとは");
     await Promise.all(termJobs);
-    const [page] = await client.wiki.list({ projectId: project.id });
+    const [page] = await client.wiki.list({ taskId: task.id });
     await client.wiki.update({
       id: page?.id ?? "",
       title: "関係タプル",
@@ -112,7 +112,7 @@ describe("回答からの用語ページの自動作成", () => {
 
     await send(client, chat.id, "関係タプルの例");
     await Promise.all(termJobs);
-    const pages = await client.wiki.list({ projectId: project.id });
+    const pages = await client.wiki.list({ taskId: task.id });
     expect(pages).toHaveLength(1);
     expect(pages[0]?.body).toBe("利用者が書いた説明");
   });
@@ -125,33 +125,33 @@ describe("回答からの用語ページの自動作成", () => {
           { term: "relation tuple", aliases: [], summary: "x" },
         ]),
     });
-    const project = await client.projects.create({ name: "p" });
+    const task = await client.tasks.create({ name: "p" });
     await client.wiki.create({
-      projectId: project.id,
+      taskId: task.id,
       title: "関係タプル",
       aliases: ["relation tuple"],
       body: "",
     });
-    const chat = await client.chats.create({ projectId: project.id });
+    const chat = await client.chats.create({ taskId: task.id });
     await send(client, chat.id, "relation tuple とは");
     await Promise.all(termJobs);
-    expect(await client.wiki.list({ projectId: project.id })).toHaveLength(1);
+    expect(await client.wiki.list({ taskId: task.id })).toHaveLength(1);
   });
 
-  test("自動作成を止めたプロジェクトと未所属のスレッドでは、モデルを呼ばずページも作らない", async () => {
+  test("自動作成を止めたタスクと未所属のスレッドでは、モデルを呼ばずページも作らない", async () => {
     const { client, termJobs, prompts } = setup();
-    const project = await client.projects.create({ name: "p" });
+    const task = await client.tasks.create({ name: "p" });
     expect(
-      (await client.projects.setAutoTerms({ id: project.id, enabled: false }))
+      (await client.tasks.setAutoTerms({ id: task.id, enabled: false }))
         .autoTerms,
     ).toBe(false);
-    const inProject = await client.chats.create({ projectId: project.id });
+    const inTask = await client.chats.create({ taskId: task.id });
     const loose = await client.chats.create({});
-    await send(client, inProject.id, "関係タプルとは");
+    await send(client, inTask.id, "関係タプルとは");
     await send(client, loose.id, "関係タプルとは");
     await Promise.all(termJobs);
     expect(prompts).toEqual([]);
-    expect(await client.wiki.list({ projectId: project.id })).toEqual([]);
+    expect(await client.wiki.list({ taskId: task.id })).toEqual([]);
   });
 
   test("途中で止めた回答・エラーになった回答では作らない", async () => {
@@ -163,8 +163,8 @@ describe("回答からの用語ページの自動作成", () => {
     const { client, termJobs, prompts } = setup({
       query: (params) => (fail ? failing(params) : scripted(params)),
     });
-    const project = await client.projects.create({ name: "p" });
-    const chat = await client.chats.create({ projectId: project.id });
+    const task = await client.tasks.create({ name: "p" });
+    const chat = await client.chats.create({ taskId: task.id });
 
     // 「ゆっくり」はゆっくり流れるので、途中で止める
     const stream = await client.chat.send({
@@ -191,7 +191,7 @@ describe("回答からの用語ページの自動作成", () => {
     await send(client, chat.id, "関係タプルとは");
     await Promise.all(termJobs);
     expect(prompts).toEqual([]);
-    expect(await client.wiki.list({ projectId: project.id })).toEqual([]);
+    expect(await client.wiki.list({ taskId: task.id })).toEqual([]);
   });
 
   test("用語抽出が失敗しても回答は保存され、会話を続けられる", async () => {
@@ -200,13 +200,13 @@ describe("回答からの用語ページの自動作成", () => {
         throw new Error("rate limited");
       },
     });
-    const project = await client.projects.create({ name: "p" });
-    const chat = await client.chats.create({ projectId: project.id });
+    const task = await client.tasks.create({ name: "p" });
+    const chat = await client.chats.create({ taskId: task.id });
     await send(client, chat.id, "関係タプルとは");
     await send(client, chat.id, "続き");
     await Promise.all(termJobs);
     const { messages } = await client.chats.get({ id: chat.id });
     expect(messages).toHaveLength(4);
-    expect(await client.wiki.list({ projectId: project.id })).toEqual([]);
+    expect(await client.wiki.list({ taskId: task.id })).toEqual([]);
   });
 });

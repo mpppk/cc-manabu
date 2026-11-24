@@ -1,12 +1,12 @@
 import { Moon, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
-import type { ChatDto, ProjectDto, WikiDto } from "../router.ts";
+import type { ChatDto, TaskDto, WikiDto } from "../router.ts";
 import { ChatWorkspace } from "./components/chat-workspace.tsx";
-import { ProjectList } from "./components/project-list.tsx";
-import { ProjectOverview } from "./components/project-overview.tsx";
 import { RateLimitBadge } from "./components/rate-limit-badge.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
+import { TaskList } from "./components/task-list.tsx";
+import { TaskOverview } from "./components/task-overview.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { WikiPageList, WikiView } from "./components/wiki-view.tsx";
 import { groupChats } from "./lib/groups.ts";
@@ -19,12 +19,12 @@ import type { ApiClient } from "./lib/orpc.ts";
 import type { PageDraft } from "./lib/page-draft.ts";
 import {
   chatIdFromPath,
-  isProjectListPath,
-  PROJECT_LIST_PATH,
+  isTaskListPath,
   pathForChat,
-  pathForProject,
+  pathForTask,
   pathForWiki,
-  projectIdFromPath,
+  TASK_LIST_PATH,
+  taskIdFromPath,
   wikiFromPath,
 } from "./lib/route.ts";
 import { applyTheme, loadTheme, type Theme } from "./lib/theme.ts";
@@ -70,7 +70,7 @@ export const App = ({ api }: { api: ApiClient }) => {
   const [status, setStatus] = useState<Status>();
   const [theme, setTheme] = useState<Theme>(loadTheme);
   const [chats, setChats] = useState<ChatDto[]>([]);
-  const [projects, setProjects] = useState<ProjectDto[]>();
+  const [tasks, setTasks] = useState<TaskDto[]>();
   const [path, setPath] = useState(() => window.location.pathname);
   const selectedId = chatIdFromPath(path);
   const wikiRoute = wikiFromPath(path);
@@ -136,23 +136,23 @@ export const App = ({ api }: { api: ApiClient }) => {
   }, [refreshChats]);
 
   const [wikis, setWikis] = useState<WikiDto[]>([]);
-  const refreshProjects = useCallback(async () => {
-    const [nextProjects, nextWikis] = await Promise.all([
-      api.projects.list(),
+  const refreshTasks = useCallback(async () => {
+    const [nextTasks, nextWikis] = await Promise.all([
+      api.tasks.list(),
       api.wikis.list(),
     ]);
-    setProjects(nextProjects);
+    setTasks(nextTasks);
     setWikis(nextWikis);
   }, [api]);
 
   useEffect(() => {
-    void refreshProjects();
-  }, [refreshProjects]);
+    void refreshTasks();
+  }, [refreshTasks]);
 
   /** 検索結果から開いた発言（#115）。開いた会話でその発言へ移動する。 */
   const [focus, setFocus] = useState<{ chatId: string; messageId: string }>();
 
-  // 選んだ会話・プロジェクトを URL に反映し、ブラウザの戻る・進むにも対応する
+  // 選んだ会話・タスクを URL に反映し、ブラウザの戻る・進むにも対応する
   const navigate = useCallback(
     (next: string, state?: { returnTo?: string; draft?: PageDraft }) => {
       setFocus(undefined);
@@ -223,29 +223,28 @@ export const App = ({ api }: { api: ApiClient }) => {
     };
   }, [api, chatViewId]);
 
-  // 一覧に出すプロジェクト。会話を開いていればその所属先、そうでなければ URL のプロジェクト
+  // 一覧に出すタスク。会話を開いていればその所属先、そうでなければ URL のタスク
   const selectedChat =
     chats.find((chat) => chat.id === selectedId) ??
     (current?.chat.id === selectedId ? current?.chat : undefined);
-  const routeProjectId = projectIdFromPath(path) ?? wikiRoute?.projectId;
-  const projectId =
+  const routeTaskId = taskIdFromPath(path) ?? wikiRoute?.taskId;
+  const taskId =
     selectedId !== undefined
-      ? (selectedChat?.projectId ?? null)
-      : routeProjectId !== undefined &&
-          (projects === undefined ||
-            projects.some((project) => project.id === routeProjectId))
-        ? routeProjectId
+      ? (selectedChat?.taskId ?? null)
+      : routeTaskId !== undefined &&
+          (tasks === undefined || tasks.some((task) => task.id === routeTaskId))
+        ? routeTaskId
         : null;
 
-  const project = projects?.find((p) => p.id === projectId);
-  const showWiki = wikiRoute !== undefined && project !== undefined;
+  const task = tasks?.find((p) => p.id === taskId);
+  const showWiki = wikiRoute !== undefined && task !== undefined;
   // Wiki のページ一覧（サイドバーの一覧とメインのページ表示で共有する）
-  const wiki = useWikiPages(api, showWiki ? project.id : undefined);
+  const wiki = useWikiPages(api, showWiki ? task.id : undefined);
   const navigateWiki = (pageId: string | undefined) => {
-    if (project === undefined) return;
+    if (task === undefined) return;
     // 回答から開いたときは、ページを移っても回答に戻れるようにする
     navigate(
-      pathForWiki(project.id, pageId),
+      pathForWiki(task.id, pageId),
       wikiState?.returnTo === undefined
         ? undefined
         : { returnTo: wikiState.returnTo },
@@ -257,47 +256,47 @@ export const App = ({ api }: { api: ApiClient }) => {
     workspace?.chat.groupId;
 
   const newChat = async () => {
-    const chat = await api.chats.create({ projectId });
+    const chat = await api.chats.create({ taskId });
     await refreshChats();
     select(chat.id);
   };
 
   /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
-  const createProject = async (name: string, wikiId?: string) => {
-    const project = await api.projects.create({
+  const createTask = async (name: string, wikiId?: string) => {
+    const task = await api.tasks.create({
       name,
       ...(wikiId === undefined ? {} : { wikiId }),
     });
-    await refreshProjects();
-    navigate(pathForProject(project.id));
+    await refreshTasks();
+    navigate(pathForTask(task.id));
   };
 
-  const renameProject = async (id: string, name: string) => {
-    await api.projects.rename({ id, name });
-    await refreshProjects();
+  const renameTask = async (id: string, name: string) => {
+    await api.tasks.rename({ id, name });
+    await refreshTasks();
   };
 
-  const deleteProject = async (id: string) => {
-    await api.projects.delete({ id });
-    await Promise.all([refreshProjects(), refreshChats()]);
-    navigate(pathForProject(null));
+  const deleteTask = async (id: string) => {
+    await api.tasks.delete({ id });
+    await Promise.all([refreshTasks(), refreshChats()]);
+    navigate(pathForTask(null));
   };
 
   const renameWiki = async (id: string, name: string) => {
     await api.wikis.rename({ id, name });
-    await refreshProjects();
+    await refreshTasks();
   };
 
   const setAutoTerms = async (id: string, enabled: boolean) => {
-    await api.projects.setAutoTerms({ id, enabled });
-    await refreshProjects();
+    await api.tasks.setAutoTerms({ id, enabled });
+    await refreshTasks();
   };
 
-  const setProject = async (chatId: string, next: string | null) => {
-    await api.chats.setProject({ id: chatId, projectId: next });
-    // 開いている会話を今の一覧から外したら、一覧ごと移動せずにこのプロジェクトに留まる
-    if (chatId === selectedId && next !== projectId) {
-      navigate(pathForProject(projectId));
+  const setTask = async (chatId: string, next: string | null) => {
+    await api.chats.setTask({ id: chatId, taskId: next });
+    // 開いている会話を今の一覧から外したら、一覧ごと移動せずにこのタスクに留まる
+    if (chatId === selectedId && next !== taskId) {
+      navigate(pathForTask(taskId));
     }
     await refreshChats();
   };
@@ -319,27 +318,27 @@ export const App = ({ api }: { api: ApiClient }) => {
     <div className="flex h-full">
       <Sidebar
         chats={chats}
-        projects={projects ?? []}
-        projectId={projectId}
+        tasks={tasks ?? []}
+        taskId={taskId}
         selectedId={selectedId}
         onNew={() => void newChat()}
         onSelect={select}
         onRename={rename}
         onDelete={remove}
-        onSelectProject={(id) => navigate(pathForProject(id))}
-        onCreateProject={createProject}
+        onSelectTask={(id) => navigate(pathForTask(id))}
+        onCreateTask={createTask}
         wikis={wikis}
         onRenameWiki={renameWiki}
-        onRenameProject={renameProject}
-        onDeleteProject={deleteProject}
-        onSetProject={setProject}
+        onRenameTask={renameTask}
+        onDeleteTask={deleteTask}
+        onSetTask={setTask}
         view={showWiki ? "wiki" : "threads"}
         onOpenWiki={() => {
-          if (projectId !== null) navigate(pathForWiki(projectId));
+          if (taskId !== null) navigate(pathForWiki(taskId));
         }}
         wikiPanel={
           <WikiPageList
-            key={project?.id}
+            key={task?.id}
             pages={wiki.pages}
             loadError={wiki.loadError}
             pageId={wikiRoute?.pageId}
@@ -347,7 +346,7 @@ export const App = ({ api }: { api: ApiClient }) => {
           />
         }
         onSetAutoTerms={setAutoTerms}
-        onOpenProjectList={() => navigate(PROJECT_LIST_PATH)}
+        onOpenTaskList={() => navigate(TASK_LIST_PATH)}
         onSearch={searchChats}
         onOpenSearchHit={openSearchHit}
       />
@@ -400,37 +399,37 @@ export const App = ({ api }: { api: ApiClient }) => {
                 (chat) => chat.groupId === workspace.chat.groupId,
               )}
               onSelectBranch={select}
-              onCreateWikiPage={(projectId, draft) =>
-                navigate(pathForWiki(projectId), { returnTo: path, draft })
+              onCreateWikiPage={(taskId, draft) =>
+                navigate(pathForWiki(taskId), { returnTo: path, draft })
               }
               {...(focus?.chatId === workspace.chat.id
                 ? { focusMessage: focus }
                 : {})}
-              onOpenWikiPage={(projectId, pageId) =>
-                navigate(pathForWiki(projectId, pageId), { returnTo: path })
+              onOpenWikiPage={(taskId, pageId) =>
+                navigate(pathForWiki(taskId, pageId), { returnTo: path })
               }
             />
           </div>
         )}
-        {isProjectListPath(path) ? (
-          <ProjectList
-            projects={projects ?? []}
-            onOpen={(id) => navigate(pathForProject(id))}
+        {isTaskListPath(path) ? (
+          <TaskList
+            tasks={tasks ?? []}
+            onOpen={(id) => navigate(pathForTask(id))}
           />
         ) : showWiki ? (
           <WikiView
-            key={project.id}
+            key={task.id}
             api={api}
             pages={wiki.pages}
             loadError={wiki.loadError}
             refresh={wiki.refresh}
-            projectId={project.id}
-            projectName={project.name}
-            wikiName={wikis.find((wiki) => wiki.id === project.wikiId)?.name}
-            sharedWith={(projects ?? [])
-              .filter((p) => p.wikiId === project.wikiId && p.id !== project.id)
+            taskId={task.id}
+            taskName={task.name}
+            wikiName={wikis.find((wiki) => wiki.id === task.wikiId)?.name}
+            sharedWith={(tasks ?? [])
+              .filter((p) => p.wikiId === task.wikiId && p.id !== task.id)
               .map((p) => p.name)}
-            autoTerms={project.autoTerms}
+            autoTerms={task.autoTerms}
             pageId={wikiRoute.pageId}
             onOpenChat={select}
             returnTo={wikiState?.returnTo}
@@ -440,18 +439,18 @@ export const App = ({ api }: { api: ApiClient }) => {
           />
         ) : workspace !== undefined ? null : selectedId === undefined &&
           wikiRoute === undefined &&
-          project !== undefined ? (
-          <ProjectOverview
-            key={project.id}
+          task !== undefined ? (
+          <TaskOverview
+            key={task.id}
             api={api}
-            project={project}
+            task={task}
             threads={groupChats(chats)
-              .filter((group) => group.primary.projectId === project.id)
+              .filter((group) => group.primary.taskId === task.id)
               .map((group) => group.primary)}
             onOpenChat={select}
-            onOpenWiki={() => navigate(pathForWiki(project.id))}
+            onOpenWiki={() => navigate(pathForWiki(task.id))}
             onNewChat={() => void newChat()}
-            onChanged={refreshProjects}
+            onChanged={refreshTasks}
           />
         ) : (
           <section className="flex flex-1 items-center justify-center text-muted-foreground">

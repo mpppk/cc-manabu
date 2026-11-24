@@ -11,10 +11,10 @@ import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
-import { createProjectRepository } from "../../src/db/project-repository.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
 import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts";
 import { createSearchRepository } from "../../src/db/search-repository.ts";
+import { createTaskRepository } from "../../src/db/task-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import {
   createClaudeCode,
@@ -41,7 +41,7 @@ export const createTestContext = (
     throw opened.error;
   }
   const chats = createChatRepository(opened.value.db);
-  const projects = createProjectRepository(opened.value.db);
+  const tasks = createTaskRepository(opened.value.db);
   const wiki = createWikiRepository(opened.value.db);
   const queue = createQueueRepository(opened.value.db);
   const rateLimits = createRateLimitRepository(opened.value.db);
@@ -66,7 +66,7 @@ export const createTestContext = (
   const writeTermPages =
     options.extract === undefined
       ? undefined
-      : createTermPageWriter({ projects, wiki, extract: options.extract });
+      : createTermPageWriter({ tasks, wiki, extract: options.extract });
   const chatService = createChatService({
     chats,
     registry,
@@ -75,7 +75,7 @@ export const createTestContext = (
       createClaudeCode({ cwd: "/work", query, canUseTool, onRateLimit })(
         modelId,
       ),
-    wikiContext: createWikiContextBuilder(wiki, projects),
+    wikiContext: createWikiContextBuilder(wiki, tasks),
     onRunnerFinish: (chatId, outcome) =>
       queueDispatcher?.onRunnerFinish(chatId, outcome),
     ...(writeTermPages === undefined
@@ -108,7 +108,7 @@ export const createTestContext = (
   );
   const context: RouterContext = {
     chats,
-    projects,
+    tasks,
     wiki,
     queue,
     queueDispatcher,
@@ -122,7 +122,7 @@ export const createTestContext = (
   return {
     context,
     chats,
-    projects,
+    tasks,
     wiki,
     queue,
     rateLimits,

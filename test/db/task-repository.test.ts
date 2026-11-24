@@ -8,11 +8,11 @@ import {
 } from "../../src/db/chat-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { MIGRATIONS, runMigrations } from "../../src/db/migrate.ts";
-import {
-  createProjectRepository,
-  type ProjectRepository,
-} from "../../src/db/project-repository.ts";
 import * as schema from "../../src/db/schema.ts";
+import {
+  createTaskRepository,
+  type TaskRepository,
+} from "../../src/db/task-repository.ts";
 
 const unwrap = <T>(result: Result.Result<T, unknown>): T => {
   if (Result.isFailure(result)) {
@@ -21,66 +21,61 @@ const unwrap = <T>(result: Result.Result<T, unknown>): T => {
   return result.value;
 };
 
-let projects: ProjectRepository;
+let tasks: TaskRepository;
 let chats: ChatRepository;
 
 beforeEach(() => {
   const { db } = unwrap(openDatabase(":memory:"));
-  projects = createProjectRepository(db);
+  tasks = createTaskRepository(db);
   chats = createChatRepository(db);
 });
 
-describe("projects", () => {
+describe("tasks", () => {
   test("作成・一覧（作った順）・名前変更", async () => {
-    const a = unwrap(projects.createProject({ name: "認可基盤" }));
+    const a = unwrap(tasks.createTask({ name: "認可基盤" }));
     await Bun.sleep(5);
-    const b = unwrap(projects.createProject({ name: "家計簿" }));
-    expect(unwrap(projects.listProjects()).map((p) => p.id)).toEqual([
-      a.id,
-      b.id,
-    ]);
-    expect(unwrap(projects.renameProject(a.id, "認可")).name).toBe("認可");
-    expect(unwrap(projects.getProject(a.id)).name).toBe("認可");
+    const b = unwrap(tasks.createTask({ name: "家計簿" }));
+    expect(unwrap(tasks.listTasks()).map((p) => p.id)).toEqual([a.id, b.id]);
+    expect(unwrap(tasks.renameTask(a.id, "認可")).name).toBe("認可");
+    expect(unwrap(tasks.getTask(a.id)).name).toBe("認可");
   });
 
-  test("存在しないプロジェクトは ProjectNotFoundError", () => {
+  test("存在しないタスクは TaskNotFoundError", () => {
     for (const result of [
-      projects.getProject("missing"),
-      projects.renameProject("missing", "x"),
-      projects.deleteProject("missing"),
+      tasks.getTask("missing"),
+      tasks.renameTask("missing", "x"),
+      tasks.deleteTask("missing"),
     ]) {
       expect(Result.isFailure(result)).toBe(true);
       if (Result.isFailure(result)) {
-        expect(result.error.name).toBe("ProjectNotFoundError");
+        expect(result.error.name).toBe("TaskNotFoundError");
       }
     }
   });
 
-  test("プロジェクトに会話を作り、所属を変えられる（更新日時は動かさない）", () => {
-    const project = unwrap(projects.createProject({ name: "p" }));
-    const inProject = unwrap(
-      chats.createChat({ cwd: "/w", projectId: project.id }),
-    );
-    expect(inProject.projectId).toBe(project.id);
+  test("タスクに会話を作り、所属を変えられる（更新日時は動かさない）", () => {
+    const task = unwrap(tasks.createTask({ name: "p" }));
+    const inTask = unwrap(chats.createChat({ cwd: "/w", taskId: task.id }));
+    expect(inTask.taskId).toBe(task.id);
 
     const loose = unwrap(chats.createChat({ cwd: "/w" }));
-    expect(loose.projectId).toBeNull();
-    const moved = unwrap(chats.setProject(loose.id, project.id));
-    expect(moved.projectId).toBe(project.id);
+    expect(loose.taskId).toBeNull();
+    const moved = unwrap(chats.setTask(loose.id, task.id));
+    expect(moved.taskId).toBe(task.id);
     expect(moved.updatedAt).toEqual(loose.updatedAt);
-    expect(unwrap(chats.setProject(loose.id, null)).projectId).toBeNull();
+    expect(unwrap(chats.setTask(loose.id, null)).taskId).toBeNull();
   });
 
-  test("プロジェクトを消しても会話は残り、未所属に戻る", () => {
-    const project = unwrap(projects.createProject({ name: "p" }));
-    const chat = unwrap(chats.createChat({ cwd: "/w", projectId: project.id }));
-    unwrap(projects.deleteProject(project.id));
-    expect(unwrap(chats.getChat(chat.id)).chat.projectId).toBeNull();
+  test("タスクを消しても会話は残り、未所属に戻る", () => {
+    const task = unwrap(tasks.createTask({ name: "p" }));
+    const chat = unwrap(chats.createChat({ cwd: "/w", taskId: task.id }));
+    unwrap(tasks.deleteTask(task.id));
+    expect(unwrap(chats.getChat(chat.id)).chat.taskId).toBeNull();
   });
 
-  test("存在しないプロジェクトには所属させられない", () => {
+  test("存在しないタスクには所属させられない", () => {
     const chat = unwrap(chats.createChat({ cwd: "/w" }));
-    expect(Result.isFailure(chats.setProject(chat.id, "missing"))).toBe(true);
+    expect(Result.isFailure(chats.setTask(chat.id, "missing"))).toBe(true);
   });
 });
 
@@ -107,7 +102,7 @@ describe("migration 0001_projects", () => {
     expect(chat).toMatchObject({
       title: "既存",
       sessionId: "s1",
-      projectId: null,
+      taskId: null,
     });
     expect(messages.map((m) => m.id)).toEqual(["m1"]);
   });

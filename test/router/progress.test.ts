@@ -15,11 +15,11 @@ const drain = async (iterable: AsyncIterable<unknown>) => {
   }
 };
 
-describe("プロジェクトの進捗", () => {
+describe("タスクの進捗", () => {
   test("作成時は未着手・空欄で、最終更新日時は無い", async () => {
     const client = setup();
-    const project = await client.projects.create({ name: "認可基盤" });
-    expect(project).toMatchObject({
+    const task = await client.tasks.create({ name: "認可基盤" });
+    expect(task).toMatchObject({
       status: "not_started",
       progressNote: "",
       nextAction: "",
@@ -27,11 +27,11 @@ describe("プロジェクトの進捗", () => {
     });
   });
 
-  test("状態・進捗メモ・次にやることを保存でき、別のプロジェクトには反映されない", async () => {
+  test("状態・進捗メモ・次にやることを保存でき、別のタスクには反映されない", async () => {
     const client = setup();
-    const a = await client.projects.create({ name: "a" });
-    const b = await client.projects.create({ name: "b" });
-    const updated = await client.projects.updateProgress({
+    const a = await client.tasks.create({ name: "a" });
+    const b = await client.tasks.create({ name: "b" });
+    const updated = await client.tasks.updateProgress({
       id: a.id,
       status: "in_progress",
       progressNote: "設計と調査を進めた",
@@ -45,7 +45,7 @@ describe("プロジェクトの進捗", () => {
     expect(updated.progressUpdatedAt).not.toBeNull();
 
     // 指定しなかった項目は変わらない
-    const onHold = await client.projects.updateProgress({
+    const onHold = await client.tasks.updateProgress({
       id: a.id,
       status: "on_hold",
     });
@@ -55,7 +55,7 @@ describe("プロジェクトの進捗", () => {
       nextAction: "検証環境で権限モデルを試す",
     });
 
-    const list = await client.projects.list();
+    const list = await client.tasks.list();
     expect(list.find((p) => p.id === b.id)).toMatchObject({
       status: "not_started",
       progressNote: "",
@@ -64,14 +64,14 @@ describe("プロジェクトの進捗", () => {
     });
   });
 
-  test("完了したプロジェクトも進行中に戻せる", async () => {
+  test("完了したタスクも進行中に戻せる", async () => {
     const client = setup();
-    const project = await client.projects.create({ name: "p" });
-    await client.projects.updateProgress({ id: project.id, status: "done" });
+    const task = await client.tasks.create({ name: "p" });
+    await client.tasks.updateProgress({ id: task.id, status: "done" });
     expect(
       (
-        await client.projects.updateProgress({
-          id: project.id,
+        await client.tasks.updateProgress({
+          id: task.id,
           status: "in_progress",
         })
       ).status,
@@ -80,12 +80,12 @@ describe("プロジェクトの進捗", () => {
 
   test("スレッドで会話を続けても、状態と進捗の最終更新日時は変わらない", async () => {
     const client = setup();
-    const project = await client.projects.create({ name: "p" });
-    const progressed = await client.projects.updateProgress({
-      id: project.id,
+    const task = await client.tasks.create({ name: "p" });
+    const progressed = await client.tasks.updateProgress({
+      id: task.id,
       status: "in_progress",
     });
-    const chat = await client.chats.create({ projectId: project.id });
+    const chat = await client.chats.create({ taskId: task.id });
     await Bun.sleep(5);
     await drain(
       await client.chat.send({
@@ -98,22 +98,22 @@ describe("プロジェクトの進捗", () => {
       }),
     );
     await drain(await client.chat.regenerate({ chatId: chat.id }));
-    const [after] = await client.projects.list();
+    const [after] = await client.tasks.list();
     expect(after?.status).toBe("in_progress");
     expect(after?.progressUpdatedAt).toEqual(progressed.progressUpdatedAt);
   });
 
-  test("不正な状態は BAD_REQUEST、存在しないプロジェクトは NOT_FOUND", async () => {
+  test("不正な状態は BAD_REQUEST、存在しないタスクは NOT_FOUND", async () => {
     const client = setup();
-    const project = await client.projects.create({ name: "p" });
+    const task = await client.tasks.create({ name: "p" });
     expect(
-      client.projects.updateProgress({
-        id: project.id,
+      client.tasks.updateProgress({
+        id: task.id,
         status: "archived" as never,
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(
-      client.projects.updateProgress({ id: "missing", status: "done" }),
+      client.tasks.updateProgress({ id: "missing", status: "done" }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

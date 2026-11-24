@@ -52,7 +52,7 @@ export const createChatRepository = (db: Db) => {
   return {
     createChat: (input: {
       cwd: string;
-      projectId?: string | null;
+      taskId?: string | null;
       model?: string;
       effort?: string | null;
       title?: string;
@@ -67,7 +67,7 @@ export const createChatRepository = (db: Db) => {
             id,
             // 新しい会話は、自分自身が会話（分岐のまとまり）になる
             groupId: id,
-            projectId: input.projectId ?? null,
+            taskId: input.taskId ?? null,
             cwd: input.cwd,
             model: input.model ?? "default",
             effort: input.effort ?? null,
@@ -132,7 +132,7 @@ export const createChatRepository = (db: Db) => {
     /**
      * 分岐を作る（#76）。分岐元の seq ≤ upToSeq のメッセージを新しい id でコピーし、
      * 分岐元が後で編集・再生成されても分岐の履歴が残るようにする。
-     * タイトル・プロジェクト・作業ディレクトリは会話で共有する。
+     * タイトル・タスク・作業ディレクトリは会話で共有する。
      */
     createBranch: (input: {
       id: string;
@@ -171,7 +171,7 @@ export const createChatRepository = (db: Db) => {
               branchTitle: input.branchTitle,
               forkSessionId: input.forkSessionId,
               forkFromUuid: input.forkFromUuid,
-              projectId: input.parent.projectId,
+              taskId: input.parent.taskId,
               title: input.parent.title,
               cwd: input.parent.cwd,
               model: input.model,
@@ -223,14 +223,14 @@ export const createChatRepository = (db: Db) => {
           .run();
       }),
 
-    /** 会話の所属プロジェクトを、すべての分岐で変える（更新日時は動かさない）。 */
-    setGroupProject: (
+    /** 会話の所属タスクを、すべての分岐で変える（更新日時は動かさない）。 */
+    setGroupTask: (
       groupId: string,
-      projectId: string | null,
+      taskId: string | null,
     ): Result.Result<void, DatabaseError> =>
       run(() => {
         db.update(chats)
-          .set({ projectId })
+          .set({ taskId })
           .where(eq(chats.groupId, groupId))
           .run();
       }),
@@ -256,18 +256,18 @@ export const createChatRepository = (db: Db) => {
       }),
 
     /**
-     * 会話の所属プロジェクトを変える（null で未所属）。
+     * 会話の所属タスクを変える（null で未所属）。
      * 一覧の並びが変わらないよう updatedAt は動かさない。
      */
-    setProject: (
+    setTask: (
       chatId: string,
-      projectId: string | null,
+      taskId: string | null,
     ): Result.Result<ChatRow, ChatNotFoundError | DatabaseError> =>
       Result.pipe(
         run(() =>
           db
             .update(chats)
-            .set({ projectId })
+            .set({ taskId })
             .where(eq(chats.id, chatId))
             .returning()
             .get(),

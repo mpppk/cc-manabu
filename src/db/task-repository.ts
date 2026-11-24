@@ -4,11 +4,11 @@ import { and, asc, count, eq, ne } from "drizzle-orm";
 import { DatabaseError } from "./chat-repository.ts";
 import type { Db } from "./index.ts";
 import {
-  type ProjectLinkRow,
-  type ProjectRow,
-  type ProjectStatus,
-  projectLinks,
-  projects,
+  type TaskLinkRow,
+  type TaskRow,
+  type TaskStatus,
+  taskLinks,
+  tasks,
   type WikiRow,
   wikis,
 } from "./schema.ts";
@@ -19,54 +19,54 @@ export class WikiNotFoundError extends ErrorFactory({
   fields: ErrorFactory.fields<{ wikiId: string }>(),
 }) {}
 
-/** プロジェクトが参照する Wiki。古い行で未設定なら、移行で作った同じ ID の Wiki。 */
-export const wikiIdOf = (project: Pick<ProjectRow, "id" | "wikiId">): string =>
-  project.wikiId ?? project.id;
+/** タスクが参照する Wiki。古い行で未設定なら、移行で作った同じ ID の Wiki。 */
+export const wikiIdOf = (task: Pick<TaskRow, "id" | "wikiId">): string =>
+  task.wikiId ?? task.id;
 
-/** Wiki と、それを参照しているプロジェクトの数。 */
-export type WikiSummary = WikiRow & { projectCount: number };
+/** Wiki と、それを参照しているタスクの数。 */
+export type WikiSummary = WikiRow & { taskCount: number };
 
-export class ProjectNotFoundError extends ErrorFactory({
-  name: "ProjectNotFoundError",
-  message: (fields) => `Project not found: ${fields.projectId}`,
-  fields: ErrorFactory.fields<{ projectId: string }>(),
+export class TaskNotFoundError extends ErrorFactory({
+  name: "TaskNotFoundError",
+  message: (fields) => `Task not found: ${fields.taskId}`,
+  fields: ErrorFactory.fields<{ taskId: string }>(),
 }) {}
 
-export class ProjectLinkNotFoundError extends ErrorFactory({
-  name: "ProjectLinkNotFoundError",
-  message: (fields) => `Project link not found: ${fields.linkId}`,
+export class TaskLinkNotFoundError extends ErrorFactory({
+  name: "TaskLinkNotFoundError",
+  message: (fields) => `Task link not found: ${fields.linkId}`,
   fields: ErrorFactory.fields<{ linkId: string }>(),
 }) {}
 
 const requireLink = (
-  row: ProjectLinkRow | undefined,
+  row: TaskLinkRow | undefined,
   linkId: string,
-): Result.Result<ProjectLinkRow, ProjectLinkNotFoundError> =>
+): Result.Result<TaskLinkRow, TaskLinkNotFoundError> =>
   row === undefined
-    ? Result.fail(new ProjectLinkNotFoundError({ linkId }))
+    ? Result.fail(new TaskLinkNotFoundError({ linkId }))
     : Result.succeed(row);
 
 const run = <T>(fn: () => T): Result.Result<T, DatabaseError> =>
   Result.try({ try: fn, catch: (cause) => new DatabaseError({ cause }) });
 
-const requireProject = (
-  row: ProjectRow | undefined,
-  projectId: string,
-): Result.Result<ProjectRow, ProjectNotFoundError> =>
+const requireTask = (
+  row: TaskRow | undefined,
+  taskId: string,
+): Result.Result<TaskRow, TaskNotFoundError> =>
   row === undefined
-    ? Result.fail(new ProjectNotFoundError({ projectId }))
+    ? Result.fail(new TaskNotFoundError({ taskId }))
     : Result.succeed(row);
 
-/** プロジェクトの永続化。会話の所属は chats.project_id に持つ。 */
-export const createProjectRepository = (db: Db) => ({
+/** タスクの永続化。会話の所属は chats.project_id に持つ。 */
+export const createTaskRepository = (db: Db) => ({
   /**
-   * プロジェクトを作る。wikiId があればその Wiki を共有し、無ければ同じ名前の Wiki を新しく作る。
+   * タスクを作る。wikiId があればその Wiki を共有し、無ければ同じ名前の Wiki を新しく作る。
    */
-  createProject: (input: {
+  createTask: (input: {
     name: string;
     id?: string;
     wikiId?: string;
-  }): Result.Result<ProjectRow, WikiNotFoundError | DatabaseError> =>
+  }): Result.Result<TaskRow, WikiNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() =>
         db.transaction((tx) => {
@@ -92,7 +92,7 @@ export const createProjectRepository = (db: Db) => ({
             return undefined;
           }
           return tx
-            .insert(projects)
+            .insert(tasks)
             .values({
               id: input.id ?? crypto.randomUUID(),
               name: input.name,
@@ -111,14 +111,14 @@ export const createProjectRepository = (db: Db) => ({
       ),
     ),
 
-  /** Wiki（作った順）と、参照しているプロジェクトの数。 */
+  /** Wiki（作った順）と、参照しているタスクの数。 */
   listWikis: (): Result.Result<WikiSummary[], DatabaseError> =>
     run(() => {
       const counts = new Map(
         db
-          .select({ wikiId: projects.wikiId, n: count() })
-          .from(projects)
-          .groupBy(projects.wikiId)
+          .select({ wikiId: tasks.wikiId, n: count() })
+          .from(tasks)
+          .groupBy(tasks.wikiId)
           .all()
           .map((row) => [row.wikiId, row.n]),
       );
@@ -127,10 +127,10 @@ export const createProjectRepository = (db: Db) => ({
         .from(wikis)
         .orderBy(asc(wikis.createdAt))
         .all()
-        .map((wiki) => ({ ...wiki, projectCount: counts.get(wiki.id) ?? 0 }));
+        .map((wiki) => ({ ...wiki, taskCount: counts.get(wiki.id) ?? 0 }));
     }),
 
-  /** Wiki の名前を変える（共有しているすべてのプロジェクトに反映される）。 */
+  /** Wiki の名前を変える（共有しているすべてのタスクに反映される）。 */
   renameWiki: (
     wikiId: string,
     name: string,
@@ -152,75 +152,71 @@ export const createProjectRepository = (db: Db) => ({
     ),
 
   /** 作った順（並びが勝手に変わらないように）。 */
-  listProjects: (): Result.Result<ProjectRow[], DatabaseError> =>
-    run(() =>
-      db.select().from(projects).orderBy(asc(projects.createdAt)).all(),
-    ),
+  listTasks: (): Result.Result<TaskRow[], DatabaseError> =>
+    run(() => db.select().from(tasks).orderBy(asc(tasks.createdAt)).all()),
 
-  getProject: (
-    projectId: string,
-  ): Result.Result<ProjectRow, ProjectNotFoundError | DatabaseError> =>
+  getTask: (
+    taskId: string,
+  ): Result.Result<TaskRow, TaskNotFoundError | DatabaseError> =>
     Result.pipe(
-      run(() =>
-        db.select().from(projects).where(eq(projects.id, projectId)).get(),
-      ),
-      Result.andThen((row) => requireProject(row, projectId)),
+      run(() => db.select().from(tasks).where(eq(tasks.id, taskId)).get()),
+      Result.andThen((row) => requireTask(row, taskId)),
     ),
 
-  renameProject: (
-    projectId: string,
+  renameTask: (
+    taskId: string,
     name: string,
-  ): Result.Result<ProjectRow, ProjectNotFoundError | DatabaseError> =>
+  ): Result.Result<TaskRow, TaskNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() =>
         db
-          .update(projects)
+          .update(tasks)
           .set({ name, updatedAt: new Date() })
-          .where(eq(projects.id, projectId))
+          .where(eq(tasks.id, taskId))
           .returning()
           .get(),
       ),
-      Result.andThen((row) => requireProject(row, projectId)),
+      Result.andThen((row) => requireTask(row, taskId)),
     ),
 
   /** 回答からの用語ページの自動作成を切り替える。 */
   setAutoTerms: (
-    projectId: string,
+    taskId: string,
     enabled: boolean,
-  ): Result.Result<ProjectRow, ProjectNotFoundError | DatabaseError> =>
+  ): Result.Result<TaskRow, TaskNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() =>
         db
-          .update(projects)
+          .update(tasks)
           .set({ autoTerms: enabled, updatedAt: new Date() })
-          .where(eq(projects.id, projectId))
+          .where(eq(tasks.id, taskId))
           .returning()
           .get(),
       ),
-      Result.andThen((row) => requireProject(row, projectId)),
+      Result.andThen((row) => requireTask(row, taskId)),
     ),
 
   /**
-   * プロジェクトを消す。所属していた会話は消さず、未所属に戻す（外部キーの ON DELETE SET NULL）。
-   * 参照していた Wiki は、ほかのプロジェクトが使っていなければページごと消す。
+   * タスクを消す。所属していた会話は消さず、未所属に戻す（外部キーの ON DELETE SET NULL）。
+   * 参照していた Wiki は、ほかのタスクが使っていなければページごと消す。
    */
-  deleteProject: (
-    projectId: string,
-  ): Result.Result<ProjectRow, ProjectNotFoundError | DatabaseError> =>
+  deleteTask: (
+    taskId: string,
+  ): Result.Result<TaskRow, TaskNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() =>
         db.transaction((tx) => {
           const row = tx
-            .delete(projects)
-            .where(eq(projects.id, projectId))
+            .delete(tasks)
+            .where(eq(tasks.id, taskId))
             .returning()
             .get();
           if (row === undefined) return undefined;
           const wikiId = wikiIdOf(row);
           const shared = tx
-            .select({ id: projects.id })
-            .from(projects)
-            .where(and(eq(projects.wikiId, wikiId), ne(projects.id, projectId)))
+            .select({ id: tasks.id })
+            .from(tasks)
+            .where(and(eq(tasks.wikiId, wikiId), ne(tasks.id, taskId)))
             .get();
           if (shared === undefined) {
             tx.delete(wikis).where(eq(wikis.id, wikiId)).run();
@@ -228,7 +224,7 @@ export const createProjectRepository = (db: Db) => ({
           return row;
         }),
       ),
-      Result.andThen((row) => requireProject(row, projectId)),
+      Result.andThen((row) => requireTask(row, taskId)),
     ),
 
   /**
@@ -236,18 +232,18 @@ export const createProjectRepository = (db: Db) => ({
    * 進捗の最終更新日時を今にする。会話の送信など、ほかの操作では変わらない。
    */
   updateProgress: (
-    projectId: string,
+    taskId: string,
     progress: {
-      status?: ProjectStatus;
+      status?: TaskStatus;
       progressNote?: string;
       nextAction?: string;
     },
-  ): Result.Result<ProjectRow, ProjectNotFoundError | DatabaseError> =>
+  ): Result.Result<TaskRow, TaskNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() => {
         const now = new Date();
         return db
-          .update(projects)
+          .update(tasks)
           .set({
             ...(progress.status === undefined
               ? {}
@@ -261,38 +257,36 @@ export const createProjectRepository = (db: Db) => ({
             progressUpdatedAt: now,
             updatedAt: now,
           })
-          .where(eq(projects.id, projectId))
+          .where(eq(tasks.id, taskId))
           .returning()
           .get();
       }),
-      Result.andThen((row) => requireProject(row, projectId)),
+      Result.andThen((row) => requireTask(row, taskId)),
     ),
 
-  /** プロジェクトの関連リンク（登録した順）。 */
-  listLinks: (
-    projectId: string,
-  ): Result.Result<ProjectLinkRow[], DatabaseError> =>
+  /** タスクの関連リンク（登録した順）。 */
+  listLinks: (taskId: string): Result.Result<TaskLinkRow[], DatabaseError> =>
     run(() =>
       db
         .select()
-        .from(projectLinks)
-        .where(eq(projectLinks.projectId, projectId))
-        .orderBy(asc(projectLinks.createdAt))
+        .from(taskLinks)
+        .where(eq(taskLinks.taskId, taskId))
+        .orderBy(asc(taskLinks.createdAt))
         .all(),
     ),
 
   createLink: (input: {
-    projectId: string;
+    taskId: string;
     url: string;
     label: string | null;
-  }): Result.Result<ProjectLinkRow, DatabaseError> =>
+  }): Result.Result<TaskLinkRow, DatabaseError> =>
     run(() => {
       const now = new Date();
       return db
-        .insert(projectLinks)
+        .insert(taskLinks)
         .values({
           id: crypto.randomUUID(),
-          projectId: input.projectId,
+          taskId: input.taskId,
           url: input.url,
           label: input.label,
           createdAt: now,
@@ -305,13 +299,13 @@ export const createProjectRepository = (db: Db) => ({
   updateLink: (
     linkId: string,
     input: { url: string; label: string | null },
-  ): Result.Result<ProjectLinkRow, ProjectLinkNotFoundError | DatabaseError> =>
+  ): Result.Result<TaskLinkRow, TaskLinkNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() =>
         db
-          .update(projectLinks)
+          .update(taskLinks)
           .set({ ...input, updatedAt: new Date() })
-          .where(eq(projectLinks.id, linkId))
+          .where(eq(taskLinks.id, linkId))
           .returning()
           .get(),
       ),
@@ -320,17 +314,13 @@ export const createProjectRepository = (db: Db) => ({
 
   deleteLink: (
     linkId: string,
-  ): Result.Result<ProjectLinkRow, ProjectLinkNotFoundError | DatabaseError> =>
+  ): Result.Result<TaskLinkRow, TaskLinkNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() =>
-        db
-          .delete(projectLinks)
-          .where(eq(projectLinks.id, linkId))
-          .returning()
-          .get(),
+        db.delete(taskLinks).where(eq(taskLinks.id, linkId)).returning().get(),
       ),
       Result.andThen((row) => requireLink(row, linkId)),
     ),
 });
 
-export type ProjectRepository = ReturnType<typeof createProjectRepository>;
+export type TaskRepository = ReturnType<typeof createTaskRepository>;

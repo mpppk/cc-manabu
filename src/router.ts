@@ -8,22 +8,22 @@ import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
 import type { QueueDispatcher } from "./chat/queue-dispatcher.ts";
 import type { ClaudeStatusHolder } from "./claude/status.ts";
 import type { ChatRepository, DatabaseError } from "./db/chat-repository.ts";
-import {
-  type ProjectNotFoundError,
-  type ProjectRepository,
-  wikiIdOf,
-} from "./db/project-repository.ts";
 import type { QueueRepository } from "./db/queue-repository.ts";
 import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
 import {
   type ChatRow,
   type MessageRow,
-  PROJECT_STATUSES,
-  type ProjectLinkRow,
-  type ProjectRow,
+  TASK_STATUSES,
+  type TaskLinkRow,
+  type TaskRow,
   type WikiPageRow,
 } from "./db/schema.ts";
 import type { SearchRepository } from "./db/search-repository.ts";
+import {
+  type TaskNotFoundError,
+  type TaskRepository,
+  wikiIdOf,
+} from "./db/task-repository.ts";
 import type { WikiRepository } from "./db/wiki-repository.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
 import { version } from "./version.ts";
@@ -31,7 +31,7 @@ import { version } from "./version.ts";
 /** oRPC ハンドラに渡すコンテキスト。 */
 export type RouterContext = {
   chats: ChatRepository;
-  projects: ProjectRepository;
+  tasks: TaskRepository;
   queue: QueueRepository;
   queueDispatcher: QueueDispatcher;
   search: SearchRepository;
@@ -48,8 +48,8 @@ export const base = os.$context<RouterContext>();
 
 const ERROR_CODES: OrpcErrorCodeMap = {
   ChatNotFoundError: "NOT_FOUND",
-  ProjectNotFoundError: "NOT_FOUND",
-  ProjectLinkNotFoundError: "NOT_FOUND",
+  TaskNotFoundError: "NOT_FOUND",
+  TaskLinkNotFoundError: "NOT_FOUND",
   QueuedMessageNotFoundError: "NOT_FOUND",
   WikiPageNotFoundError: "NOT_FOUND",
   ChatAlreadyRunningError: "CONFLICT",
@@ -81,7 +81,7 @@ export type ChatDto = Pick<
   | "inheritedCount"
   | "branchTitle"
   | "lastSelectedAt"
-  | "projectId"
+  | "taskId"
   | "title"
   | "model"
   | "effort"
@@ -107,7 +107,7 @@ const toChatDto = (row: ChatRow): ChatDto => ({
   inheritedCount: row.inheritedCount,
   branchTitle: row.branchTitle,
   lastSelectedAt: row.lastSelectedAt,
-  projectId: row.projectId,
+  taskId: row.taskId,
   title: row.title,
   model: row.model,
   effort: row.effort,
@@ -125,9 +125,9 @@ const toMessageDto = (row: MessageRow): MessageDto => ({
   metadata: row.metadata ?? undefined,
 });
 
-/** クライアントに返すプロジェクト。 */
-export type ProjectDto = Pick<
-  ProjectRow,
+/** クライアントに返すタスク。 */
+export type TaskDto = Pick<
+  TaskRow,
   | "id"
   | "name"
   | "autoTerms"
@@ -137,11 +137,11 @@ export type ProjectDto = Pick<
   | "progressUpdatedAt"
   | "createdAt"
 > & {
-  /** 参照する Wiki（ほかのプロジェクトと共有していることがある）。 */
+  /** 参照する Wiki（ほかのタスクと共有していることがある）。 */
   wikiId: string;
 };
 
-const toProjectDto = (row: ProjectRow): ProjectDto => ({
+const toTaskDto = (row: TaskRow): TaskDto => ({
   id: row.id,
   name: row.name,
   wikiId: wikiIdOf(row),
@@ -153,36 +153,33 @@ const toProjectDto = (row: ProjectRow): ProjectDto => ({
   createdAt: row.createdAt,
 });
 
-/** クライアントに返す Wiki（複数のプロジェクトで共有できる）。 */
-export type WikiDto = { id: string; name: string; projectCount: number };
+/** クライアントに返す Wiki（複数のタスクで共有できる）。 */
+export type WikiDto = { id: string; name: string; taskCount: number };
 
-/** projectId が指定されていれば、そのプロジェクトがあることを確かめる。 */
-const requireProject = (
+/** taskId が指定されていれば、そのタスクがあることを確かめる。 */
+const requireTask = (
   context: RouterContext,
-  projectId: string | null | undefined,
-): Result.Result<void, ProjectNotFoundError | DatabaseError> =>
-  projectId === null || projectId === undefined
+  taskId: string | null | undefined,
+): Result.Result<void, TaskNotFoundError | DatabaseError> =>
+  taskId === null || taskId === undefined
     ? Result.succeed()
     : Result.pipe(
-        context.projects.getProject(projectId),
+        context.tasks.getTask(taskId),
         Result.map(() => undefined),
       );
 
 /** クライアントに返す関連リンク。 */
-export type ProjectLinkDto = Pick<
-  ProjectLinkRow,
-  "id" | "projectId" | "url" | "label"
->;
+export type TaskLinkDto = Pick<TaskLinkRow, "id" | "taskId" | "url" | "label">;
 
-const toProjectLinkDto = (row: ProjectLinkRow): ProjectLinkDto => ({
+const toTaskLinkDto = (row: TaskLinkRow): TaskLinkDto => ({
   id: row.id,
-  projectId: row.projectId,
+  taskId: row.taskId,
   url: row.url,
   label: row.label,
 });
 
 /** 関連リンクの入力。URL は http / https だけ。表示名は空なら null（URL を表示する）。 */
-const projectLinkInput = z.object({
+const taskLinkInput = z.object({
   url: z
     .string()
     .trim()
@@ -238,7 +235,7 @@ const wikiPageInput = z.object({
 });
 
 const chatId = z.object({ id: z.string().min(1) });
-const projectName = z.string().trim().min(1).max(100);
+const taskName = z.string().trim().min(1).max(100);
 
 const userMessage = z.object({
   id: z.string().min(1),
@@ -306,21 +303,19 @@ export const router = {
       claude: context.claude.get(),
     })),
   },
-  projects: {
+  tasks: {
     list: base.handler(async ({ context }) =>
-      (await unwrapForOrpc(context.projects.listProjects(), ERROR_CODES)).map(
-        toProjectDto,
+      (await unwrapForOrpc(context.tasks.listTasks(), ERROR_CODES)).map(
+        toTaskDto,
       ),
     ),
-    /** プロジェクトを作る。wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
+    /** タスクを作る。wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
     create: base
-      .input(
-        z.object({ name: projectName, wikiId: z.string().min(1).optional() }),
-      )
+      .input(z.object({ name: taskName, wikiId: z.string().min(1).optional() }))
       .handler(async ({ context, input }) =>
-        toProjectDto(
+        toTaskDto(
           await unwrapForOrpc(
-            context.projects.createProject({
+            context.tasks.createTask({
               name: input.name,
               ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
             }),
@@ -329,11 +324,11 @@ export const router = {
         ),
       ),
     rename: base
-      .input(z.object({ id: z.string().min(1), name: projectName }))
+      .input(z.object({ id: z.string().min(1), name: taskName }))
       .handler(async ({ context, input }) =>
-        toProjectDto(
+        toTaskDto(
           await unwrapForOrpc(
-            context.projects.renameProject(input.id, input.name),
+            context.tasks.renameTask(input.id, input.name),
             ERROR_CODES,
           ),
         ),
@@ -343,15 +338,15 @@ export const router = {
       .input(
         z.object({
           id: z.string().min(1),
-          status: z.enum(PROJECT_STATUSES).optional(),
+          status: z.enum(TASK_STATUSES).optional(),
           progressNote: z.string().max(20_000).optional(),
           nextAction: z.string().trim().max(500).optional(),
         }),
       )
       .handler(async ({ context, input }) =>
-        toProjectDto(
+        toTaskDto(
           await unwrapForOrpc(
-            context.projects.updateProgress(input.id, {
+            context.tasks.updateProgress(input.id, {
               ...(input.status === undefined ? {} : { status: input.status }),
               ...(input.progressNote === undefined
                 ? {}
@@ -368,49 +363,46 @@ export const router = {
     setAutoTerms: base
       .input(z.object({ id: z.string().min(1), enabled: z.boolean() }))
       .handler(async ({ context, input }) =>
-        toProjectDto(
+        toTaskDto(
           await unwrapForOrpc(
-            context.projects.setAutoTerms(input.id, input.enabled),
+            context.tasks.setAutoTerms(input.id, input.enabled),
             ERROR_CODES,
           ),
         ),
       ),
-    /** プロジェクトを消す。所属していた会話は消さず、未所属に戻る。 */
+    /** タスクを消す。所属していた会話は消さず、未所属に戻る。 */
     delete: base
       .input(z.object({ id: z.string().min(1) }))
       .handler(async ({ context, input }) => {
-        await unwrapForOrpc(
-          context.projects.deleteProject(input.id),
-          ERROR_CODES,
-        );
+        await unwrapForOrpc(context.tasks.deleteTask(input.id), ERROR_CODES);
         return { id: input.id };
       }),
   },
   links: {
-    /** プロジェクトの関連リンク（登録した順）。 */
+    /** タスクの関連リンク（登録した順）。 */
     list: base
-      .input(z.object({ projectId: z.string().min(1) }))
+      .input(z.object({ taskId: z.string().min(1) }))
       .handler(async ({ context, input }) =>
         (
           await unwrapForOrpc(
             Result.pipe(
-              requireProject(context, input.projectId),
-              Result.andThen(() => context.projects.listLinks(input.projectId)),
+              requireTask(context, input.taskId),
+              Result.andThen(() => context.tasks.listLinks(input.taskId)),
             ),
             ERROR_CODES,
           )
-        ).map(toProjectLinkDto),
+        ).map(toTaskLinkDto),
       ),
     create: base
-      .input(projectLinkInput.extend({ projectId: z.string().min(1) }))
+      .input(taskLinkInput.extend({ taskId: z.string().min(1) }))
       .handler(async ({ context, input }) =>
-        toProjectLinkDto(
+        toTaskLinkDto(
           await unwrapForOrpc(
             Result.pipe(
-              requireProject(context, input.projectId),
+              requireTask(context, input.taskId),
               Result.andThen(() =>
-                context.projects.createLink({
-                  projectId: input.projectId,
+                context.tasks.createLink({
+                  taskId: input.taskId,
                   url: input.url,
                   label: input.label,
                 }),
@@ -421,11 +413,11 @@ export const router = {
         ),
       ),
     update: base
-      .input(projectLinkInput.extend({ id: z.string().min(1) }))
+      .input(taskLinkInput.extend({ id: z.string().min(1) }))
       .handler(async ({ context, input }) =>
-        toProjectLinkDto(
+        toTaskLinkDto(
           await unwrapForOrpc(
-            context.projects.updateLink(input.id, {
+            context.tasks.updateLink(input.id, {
               url: input.url,
               label: input.label,
             }),
@@ -437,44 +429,42 @@ export const router = {
     delete: base
       .input(z.object({ id: z.string().min(1) }))
       .handler(async ({ context, input }) => {
-        await unwrapForOrpc(context.projects.deleteLink(input.id), ERROR_CODES);
+        await unwrapForOrpc(context.tasks.deleteLink(input.id), ERROR_CODES);
         return { id: input.id };
       }),
   },
   wikis: {
-    /** Wiki（作った順）と、参照しているプロジェクトの数。 */
+    /** Wiki（作った順）と、参照しているタスクの数。 */
     list: base.handler(async ({ context }) =>
-      (await unwrapForOrpc(context.projects.listWikis(), ERROR_CODES)).map(
+      (await unwrapForOrpc(context.tasks.listWikis(), ERROR_CODES)).map(
         (wiki): WikiDto => ({
           id: wiki.id,
           name: wiki.name,
-          projectCount: wiki.projectCount,
+          taskCount: wiki.taskCount,
         }),
       ),
     ),
-    /** Wiki の名前を変える（共有しているプロジェクトすべてに反映される）。 */
+    /** Wiki の名前を変える（共有しているタスクすべてに反映される）。 */
     rename: base
-      .input(z.object({ id: z.string().min(1), name: projectName }))
+      .input(z.object({ id: z.string().min(1), name: taskName }))
       .handler(async ({ context, input }) => {
         const wiki = await unwrapForOrpc(
-          context.projects.renameWiki(input.id, input.name),
+          context.tasks.renameWiki(input.id, input.name),
           ERROR_CODES,
         );
         return { id: wiki.id, name: wiki.name };
       }),
   },
   wiki: {
-    /** プロジェクトが参照する Wiki のページ（タイトル順）。 */
+    /** タスクが参照する Wiki のページ（タイトル順）。 */
     list: base
-      .input(z.object({ projectId: z.string().min(1) }))
+      .input(z.object({ taskId: z.string().min(1) }))
       .handler(async ({ context, input }) =>
         (
           await unwrapForOrpc(
             Result.pipe(
-              context.projects.getProject(input.projectId),
-              Result.andThen((project) =>
-                context.wiki.listPages(wikiIdOf(project)),
-              ),
+              context.tasks.getTask(input.taskId),
+              Result.andThen((task) => context.wiki.listPages(wikiIdOf(task))),
             ),
             ERROR_CODES,
           )
@@ -488,15 +478,15 @@ export const router = {
         ),
       ),
     create: base
-      .input(wikiPageInput.extend({ projectId: z.string().min(1) }))
+      .input(wikiPageInput.extend({ taskId: z.string().min(1) }))
       .handler(async ({ context, input }) =>
         toWikiPageDto(
           await unwrapForOrpc(
             Result.pipe(
-              context.projects.getProject(input.projectId),
-              Result.andThen((project) =>
+              context.tasks.getTask(input.taskId),
+              Result.andThen((task) =>
                 context.wiki.createPage({
-                  wikiId: wikiIdOf(project),
+                  wikiId: wikiIdOf(task),
                   title: input.title,
                   aliases: input.aliases,
                   body: input.body,
@@ -545,7 +535,7 @@ export const router = {
     create: base
       .input(
         z.object({
-          projectId: z.string().min(1).nullable().optional(),
+          taskId: z.string().min(1).nullable().optional(),
           model: z.string().min(1).optional(),
           effort: z.string().min(1).nullable().optional(),
         }),
@@ -554,11 +544,11 @@ export const router = {
         toChatDto(
           await unwrapForOrpc(
             Result.pipe(
-              requireProject(context, input.projectId),
+              requireTask(context, input.taskId),
               Result.andThen(() =>
                 context.chats.createChat({
                   cwd: context.cwd,
-                  projectId: input.projectId ?? null,
+                  taskId: input.taskId ?? null,
                   model: input.model,
                   effort: input.effort,
                 }),
@@ -568,19 +558,19 @@ export const router = {
           ),
         ),
       ),
-    /** 会話の所属プロジェクトを変える（null で未所属に戻す）。過去のメッセージとセッションはそのまま。 */
-    setProject: base
-      .input(chatId.extend({ projectId: z.string().min(1).nullable() }))
+    /** 会話の所属タスクを変える（null で未所属に戻す）。過去のメッセージとセッションはそのまま。 */
+    setTask: base
+      .input(chatId.extend({ taskId: z.string().min(1).nullable() }))
       .handler(async ({ context, input }) =>
         toChatDto(
           await unwrapForOrpc(
             Result.pipe(
-              requireProject(context, input.projectId),
+              requireTask(context, input.taskId),
               Result.andThen(() => context.chats.getChat(input.id)),
-              // 分岐元と分岐先は同じプロジェクトに属する（会話ごと移す）
+              // 分岐元と分岐先は同じタスクに属する（会話ごと移す）
               Result.andThen(({ chat }) =>
                 Result.pipe(
-                  context.chats.setGroupProject(chat.groupId, input.projectId),
+                  context.chats.setGroupTask(chat.groupId, input.taskId),
                   Result.andThen(() => context.chats.getChat(input.id)),
                 ),
               ),
