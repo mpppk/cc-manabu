@@ -87,27 +87,21 @@ describe("update", () => {
   const fakeFetch =
     (options: { tag?: string; checksum?: string } = {}) =>
     async (url: string): Promise<Response> => {
+      const base = `https://github.com/mpppk/cc-manabu/releases/download/${options.tag ?? "v0.2.0"}`;
       if (url.endsWith("/releases/latest")) {
-        return Response.json({
-          tag_name: options.tag ?? "v0.2.0",
-          assets: [
-            {
-              name: assetName,
-              browser_download_url: "https://example.test/asset",
-            },
-            {
-              name: "checksums.txt",
-              browser_download_url: "https://example.test/checksums",
-            },
-          ],
+        // リダイレクト後の URL（/releases/tag/<tag>）を再現する
+        const response = new Response("");
+        Object.defineProperty(response, "url", {
+          value: `https://github.com/mpppk/cc-manabu/releases/tag/${options.tag ?? "v0.2.0"}`,
         });
+        return response;
       }
-      if (url === "https://example.test/checksums") {
+      if (url === `${base}/checksums.txt`) {
         return new Response(
           `${options.checksum ?? sha256(archive)}  ${assetName}\n`,
         );
       }
-      if (url === "https://example.test/asset") {
+      if (url === `${base}/${assetName}`) {
         return new Response(archive);
       }
       return new Response("not found", { status: 404 });
@@ -154,6 +148,7 @@ describe("update", () => {
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
       expect(result.error.name).toBe("UpdateFetchError");
+      expect(result.error.message).toContain("HTTP 500");
     }
   });
 
