@@ -2,7 +2,12 @@ import { RPCHandler } from "@orpc/server/fetch";
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
 import type { Router, RouterContext } from "../router.ts";
-import { accessErrorResponse, checkApiRequest } from "./access-control.ts";
+import {
+  accessErrorResponse,
+  checkApiRequest,
+  checkLocalRequest,
+} from "./access-control.ts";
+import { AUTH_MODE_PATH, type AuthMode } from "./auth-mode.ts";
 
 export class PortInUseError extends ErrorFactory({
   name: "PortInUseError",
@@ -18,7 +23,8 @@ export class ServerStartError extends ErrorFactory({
 
 export type StartServerOptions = {
   port: number;
-  token: string;
+  /** API に要求するアクセストークン。null ならトークンを要求しない（CC_MANABU_NO_AUTH=1、デバッグ用）。 */
+  token: string | null;
   router: Router;
   context: RouterContext;
   /** SPA（src/web/index.html）。省略時は仮の HTML（テスト用）。 */
@@ -29,7 +35,7 @@ export type StartServerOptions = {
 
 export type RunningServer = {
   port: number;
-  /** トークン付きの URL。ブラウザで開く。 */
+  /** ブラウザで開く URL。トークンを要求するときは fragment にトークンを付ける。 */
   url: string;
   stop: () => Promise<void>;
 };
@@ -77,6 +83,15 @@ export const startServer = (
                 ? response
                 : new Response("Not found", { status: 404 });
             },
+            [AUTH_MODE_PATH]: (request) => {
+              const access = checkLocalRequest(request, actualPort);
+              if (Result.isFailure(access)) {
+                return accessErrorResponse(access.error);
+              }
+              return Response.json({
+                tokenRequired: options.token !== null,
+              } satisfies AuthMode);
+            },
             "/*": options.index ?? placeholderIndex,
           },
         }),
@@ -98,7 +113,10 @@ export const startServer = (
       actualPort = server.port ?? options.port;
       return {
         port: actualPort,
-        url: `http://127.0.0.1:${actualPort}/#token=${options.token}`,
+        url:
+          options.token === null
+            ? `http://127.0.0.1:${actualPort}/`
+            : `http://127.0.0.1:${actualPort}/#token=${options.token}`,
         stop: () => server.stop(true),
       };
     }),

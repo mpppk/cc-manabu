@@ -8,6 +8,11 @@
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
+import {
+  ANSWER_SUMMARY_MODEL,
+  ANSWER_SUMMARY_SETTINGS,
+  createAnswerSummarizer,
+} from "../../src/chat/answer-summary.ts";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
 import {
@@ -41,6 +46,8 @@ import { createScriptedQuery } from "./scripted-query.ts";
 
 export const E2E_PORT = Number(process.env.E2E_PORT ?? 45200);
 export const E2E_TOKEN = "e2e-token";
+/** E2E_NO_AUTH=1 なら、トークンを要求しないモード（CC_MANABU_NO_AUTH=1 相当）で起動する。 */
+const NO_AUTH = process.env.E2E_NO_AUTH === "1";
 
 const opened = openDatabase(":memory:");
 if (Result.isFailure(opened)) throw opened.error;
@@ -69,6 +76,16 @@ const writeTermPages = createTermPageWriter({
   extract: async (prompt) =>
     (await generateText({ model: termModel, prompt })).text,
 });
+const summaryModel = createClaudeCode({
+  cwd: "/e2e",
+  query,
+  ...ANSWER_SUMMARY_SETTINGS,
+})(ANSWER_SUMMARY_MODEL);
+const summarizeAnswer = createAnswerSummarizer({
+  chats,
+  summarize: async (prompt) =>
+    (await generateText({ model: summaryModel, prompt })).text,
+});
 const registry = new RunnerRegistry();
 const chatService = createChatService({
   chats,
@@ -81,6 +98,7 @@ const chatService = createChatService({
   onRunnerFinish: (chatId, outcome) =>
     queueDispatcher?.onRunnerFinish(chatId, outcome),
   onAnswerComplete: (event) => void writeTermPages(event),
+  onAnswerFinish: (event) => void summarizeAnswer(event),
 });
 queueDispatcher = createQueueDispatcher({ queue, registry, chatService });
 const claude = createClaudeStatus(
@@ -106,7 +124,7 @@ const claude = createClaudeStatus(
 
 const started = startServer({
   port: E2E_PORT,
-  token: E2E_TOKEN,
+  token: NO_AUTH ? null : E2E_TOKEN,
   router,
   index,
   context: {

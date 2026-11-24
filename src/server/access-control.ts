@@ -75,15 +75,31 @@ export const checkToken = (
     : Result.fail(new InvalidTokenError());
 };
 
-/** API リクエストに必要な検証をまとめて行う。 */
+/** トークン以外の検証（Host / Origin）。API 以外のエンドポイントにも使う。 */
+export const checkLocalRequest = (
+  request: Request,
+  port: number,
+): Result.Result<void, ForbiddenHostError | ForbiddenOriginError> =>
+  Result.pipe(
+    checkHost(request, port),
+    Result.andThen(() => checkOrigin(request, port)),
+  );
+
+/**
+ * API リクエストに必要な検証をまとめて行う。
+ * `token` が null（CC_MANABU_NO_AUTH=1 のデバッグモード）のときはトークンを検証しないが、Host / Origin は検証する。
+ */
 export const checkApiRequest = (
   request: Request,
-  options: { port: number; token: string },
+  options: { port: number; token: string | null },
 ): Result.Result<void, AccessError> =>
   Result.pipe(
-    checkHost(request, options.port),
-    Result.andThen(() => checkOrigin(request, options.port)),
-    Result.andThen(() => checkToken(request, options.token)),
+    checkLocalRequest(request, options.port),
+    Result.andThen(() =>
+      options.token === null
+        ? Result.succeed()
+        : checkToken(request, options.token),
+    ),
   );
 
 /** 検証エラーを HTTP レスポンスにする。詳細はクライアントに返さない。 */

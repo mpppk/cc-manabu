@@ -384,6 +384,53 @@ export const createChatRepository = (db: Db) => {
         }),
       ),
 
+    /** 回答の要約を metadata に書き足す。メッセージが無ければ何もしない。 */
+    setMessageSummary: (
+      messageId: string,
+      summary: string,
+    ): Result.Result<void, DatabaseError> =>
+      run(() =>
+        db.transaction((tx) => {
+          const row = tx
+            .select({ metadata: messages.metadata })
+            .from(messages)
+            .where(eq(messages.id, messageId))
+            .get();
+          if (row === undefined) return;
+          const metadata =
+            typeof row.metadata === "object" && row.metadata !== null
+              ? row.metadata
+              : {};
+          tx.update(messages)
+            .set({ metadata: { ...metadata, summary } })
+            .where(eq(messages.id, messageId))
+            .run();
+        }),
+      ),
+
+    /** 会話の回答の要約（メッセージ id → 要約）。要約の無い回答は含めない。 */
+    listMessageSummaries: (
+      chatId: string,
+    ): Result.Result<Record<string, string>, DatabaseError> =>
+      run(() => {
+        const rows = db
+          .select({ id: messages.id, metadata: messages.metadata })
+          .from(messages)
+          .where(
+            and(eq(messages.chatId, chatId), eq(messages.role, "assistant")),
+          )
+          .all();
+        const summaries: Record<string, string> = {};
+        for (const row of rows) {
+          const summary =
+            typeof row.metadata === "object" && row.metadata !== null
+              ? (row.metadata as { summary?: unknown }).summary
+              : undefined;
+          if (typeof summary === "string") summaries[row.id] = summary;
+        }
+        return summaries;
+      }),
+
     /** seq 以降のメッセージを消す（再生成・編集で使う）。消した件数を返す。 */
     deleteMessagesFrom: (
       chatId: string,

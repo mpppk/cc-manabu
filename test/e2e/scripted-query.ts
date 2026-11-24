@@ -10,6 +10,7 @@ import type { QueryFunction } from "../../src/provider/types.ts";
  * - 「承認」を含む: Bash の承認を求め、許可なら「許可されました」、拒否なら「拒否されました」と返す
  * - 「ゆっくり」を含む: 1〜40 を 1 行ずつ、150ms 間隔で流す（リロード・停止の確認用）
  * - 用語抽出（<term-extraction>）: 回答の中の「」で囲まれた語を用語として JSON で返す
+ * - 回答の要約（<answer-summary>）: 「要約（<回答の文字数> 文字の回答）」と返す
  * - Wiki の参照資料付き: 「参照: [タイトル](wiki:ID)…」と、渡していないページへの偽の引用を返す
  * - 画像付き: 「画像 <枚数> 枚: <テキスト>」と返す
  * - それ以外: 「了解: <プロンプト>」と返す
@@ -137,6 +138,10 @@ export const createScriptedQuery = (): QueryFunction => {
           ([, term]) => ({ term, aliases: [], summary: `${term} の説明。` }),
         );
         yield* textMessage([JSON.stringify(terms)], 0);
+      } else if (text.includes("<answer-summary>")) {
+        const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(text)?.[1] ?? "";
+        // 回答の文言を繰り返すと、画面上で回答の本文と区別できなくなるので文字数だけ使う
+        yield* textMessage([`要約（${[...answer].length} 文字の回答）`], 0);
       } else if (text.includes("承認")) {
         const decision = await options?.canUseTool?.(
           "Bash",

@@ -6,6 +6,11 @@ export type RuntimeConfig = {
   readonly port: number;
   /** 起動時にブラウザを開くか。 */
   readonly openBrowser: boolean;
+  /**
+   * API にアクセストークンを要求するか。CC_MANABU_NO_AUTH=1 で false（デバッグ用）。
+   * `bun run dev` の再起動でトークンが変わり、開いているページが 401 になるのを避ける。
+   */
+  readonly requireToken: boolean;
 };
 
 const DEFAULT_PORT = 0;
@@ -26,4 +31,5 @@ export const loadRuntimeConfig = (
   hostname: "127.0.0.1",
   port: parsePort(env.CC_MANABU_PORT),
   openBrowser: env.CC_MANABU_NO_OPEN !== "1",
+  requireToken: env.CC_MANABU_NO_AUTH !== "1",
 });

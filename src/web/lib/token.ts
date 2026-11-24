@@ -18,3 +18,32 @@ export const takeToken = (
   }
   return storage.getItem(STORAGE_KEY) ?? undefined;
 };
+
+/** Web UI が API を呼ぶときの認証のしかた。 */
+export type Access =
+  /** 起動時トークンを付けて呼ぶ（通常）。 */
+  | { kind: "token"; token: string }
+  /** トークンなしで呼ぶ（サーバが CC_MANABU_NO_AUTH=1 で起動しているとき）。 */
+  | { kind: "open" }
+  /** トークンが無く、サーバも要求している。 */
+  | { kind: "missing" };
+
+/**
+ * 認証のしかたを決める。トークンがあればそれを使い、無いときだけサーバに要否を問い合わせる。
+ * 問い合わせに失敗したり応答が不正なら、トークンが要るものとして扱う。
+ */
+export const resolveAccess = async (
+  token: string | undefined,
+  fetchAuthMode: () => Promise<unknown>,
+): Promise<Access> => {
+  if (token !== undefined) {
+    return { kind: "token", token };
+  }
+  const mode = await fetchAuthMode().catch(() => undefined);
+  const open =
+    typeof mode === "object" &&
+    mode !== null &&
+    "tokenRequired" in mode &&
+    mode.tokenRequired === false;
+  return open ? { kind: "open" } : { kind: "missing" };
+};

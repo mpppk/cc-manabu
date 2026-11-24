@@ -2,6 +2,11 @@ import { existsSync } from "node:fs";
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
+import {
+  ANSWER_SUMMARY_MODEL,
+  ANSWER_SUMMARY_SETTINGS,
+  createAnswerSummarizer,
+} from "./chat/answer-summary.ts";
 import { createApprovalBroker } from "./chat/approval-broker.ts";
 import { createChatService } from "./chat/chat-service.ts";
 import {
@@ -90,6 +95,22 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           (await generateText({ model: termModel, prompt, reasoning: "none" }))
             .text,
       });
+      // 回答の要約も同じく軽い呼び出し（閉じた回答に出す）
+      const summaryModel = createClaudeCode({
+        ...providerSettings,
+        ...ANSWER_SUMMARY_SETTINGS,
+      })(ANSWER_SUMMARY_MODEL);
+      const summarizeAnswer = createAnswerSummarizer({
+        chats,
+        summarize: async (prompt) =>
+          (
+            await generateText({
+              model: summaryModel,
+              prompt,
+              reasoning: "none",
+            })
+          ).text,
+      });
       const registry = new RunnerRegistry();
       let queueDispatcher: QueueDispatcher | undefined;
       const chatService = createChatService({
@@ -101,6 +122,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         wikiContext: createWikiContextBuilder(wiki, tasks),
         readWikiPage: createWikiPageReader(wiki, tasks),
         onAnswerComplete: (event) => void writeTermPages(event),
+        onAnswerFinish: (event) => void summarizeAnswer(event),
         onRunnerFinish: (chatId, outcome) =>
           queueDispatcher?.onRunnerFinish(chatId, outcome),
       });
@@ -111,7 +133,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       });
       return startServer({
         port: config.port,
-        token: generateToken(),
+        token: config.requireToken ? generateToken() : null,
         router,
         index,
         development: process.env.NODE_ENV !== "production",
@@ -136,6 +158,11 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
     throw new CliExit({ code: 1 });
   }
   const server = result.value;
+  if (!config.requireToken) {
+    console.warn(
+      "警告: CC_MANABU_NO_AUTH=1 のため、アクセストークンなしで API を呼べます（デバッグ用）。このマシンの他のプロセスやユーザーからも、Claude にファイル編集やコマンド実行をさせられます。",
+    );
+  }
   console.log(`cc-manabu を起動しました: ${server.url}`);
   console.log("終了するには Ctrl+C を押してください。");
   if (config.openBrowser) {
