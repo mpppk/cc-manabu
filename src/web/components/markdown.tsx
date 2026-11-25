@@ -14,7 +14,7 @@ import {
 import { pageIdFromHref } from "../../wiki/citations.ts";
 import type { TermMatch } from "../../wiki/term-matcher.ts";
 import { rehypeCosenseLinks } from "../lib/rehype-cosense-links.ts";
-import { rehypeWikiTerms } from "../lib/rehype-wiki-terms.ts";
+import { isPendingTermId, rehypeWikiTerms } from "../lib/rehype-wiki-terms.ts";
 import { WikiTerm } from "./wiki-term.tsx";
 
 const plugins = { code, math, mermaid, cjk };
@@ -46,11 +46,20 @@ const TermSpan = ({
   ...props
 }: ComponentProps<"span"> & { node?: unknown; "data-wiki-term"?: string }) => {
   const pageId = props["data-wiki-term"];
-  return pageId === undefined ? (
-    <span {...props} />
-  ) : (
-    <WikiTerm pageId={pageId}>{props.children}</WikiTerm>
-  );
+  if (pageId === undefined) return <span {...props} />;
+  // ページを AI で作っている最中の語句
+  if (isPendingTermId(pageId)) {
+    return (
+      <span
+        data-wiki-term-pending=""
+        className="wiki-term-generating"
+        title="Wiki のページを作成しています…"
+      >
+        {props.children}
+      </span>
+    );
+  }
+  return <WikiTerm pageId={pageId}>{props.children}</WikiTerm>;
 };
 
 const DefaultLink = defaultComponents.a as (

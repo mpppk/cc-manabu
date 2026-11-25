@@ -45,7 +45,7 @@ export const SideChat = ({
   ...callbacks
 }: Pick<
   ChatViewProps,
-  "api" | "models" | "onActivity" | "onOpenWikiPage" | "onCreateWikiPage"
+  "api" | "models" | "onActivity" | "onOpenWikiPage" | "onWikiPageCreated"
 > & {
   request: BranchRequest | WikiRequest;
   onClose: () => void;
@@ -338,9 +338,9 @@ export const ChatWorkspace = ({
           {...(props.onOpenWikiPage === undefined
             ? {}
             : { onOpenWikiPage: props.onOpenWikiPage })}
-          {...(props.onCreateWikiPage === undefined
+          {...(props.onWikiPageCreated === undefined
             ? {}
-            : { onCreateWikiPage: props.onCreateWikiPage })}
+            : { onWikiPageCreated: props.onWikiPageCreated })}
         />
       ) : null}
     </div>

@@ -196,15 +196,12 @@ export const WikiView = ({
   onOpenChat,
   returnTo,
   onReturn,
-  initialDraft,
 }: {
   /** ページの一覧（サイドバーと共有する）。undefined は読み込み中。 */
   pages: WikiPageDto[] | undefined;
   loadError: string | undefined;
   /** ページを変えたあとに一覧を読み直す。 */
   refresh: () => Promise<void>;
-  /** 回答の選択範囲から作るときの下書き（#121）。あれば作成画面で開く。 */
-  initialDraft?: { title: string; body: string } | undefined;
   api: ApiClient;
   taskId: string;
   taskName: string;
@@ -226,9 +223,7 @@ export const WikiView = ({
   onChatActivity: () => void;
   onNavigate: (pageId: string | undefined) => void;
 }) => {
-  const [mode, setMode] = useState<"view" | "new" | "edit">(
-    initialDraft === undefined ? "view" : "new",
-  );
+  const [mode, setMode] = useState<"view" | "new" | "edit">("view");
   const [deleting, setDeleting] = useState(false);
   const [askingPageId, setAskingPageId] = useState<string>();
   const askButton = useRef<HTMLButtonElement>(null);
@@ -304,17 +299,8 @@ export const WikiView = ({
     if (mode === "new") {
       return (
         <PageEditor
-          initial={
-            initialDraft === undefined
-              ? toDraft()
-              : { ...initialDraft, aliases: "" }
-          }
-          onCancel={() =>
-            // 回答から開いた作成画面は、取り消したら回答に戻る
-            initialDraft !== undefined && returnTo !== undefined
-              ? onReturn(returnTo)
-              : setMode("view")
-          }
+          initial={toDraft()}
+          onCancel={() => setMode("view")}
           onSave={async (draft) => {
             const created = await api.wiki.create({
               taskId,

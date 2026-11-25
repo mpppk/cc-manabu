@@ -5,6 +5,16 @@ import { transformProse } from "./rehype-prose.ts";
 /** 用語に結び付けた文字を包む要素の属性名（React では data-wiki-term）。 */
 export const WIKI_TERM_ATTRIBUTE = "dataWikiTerm";
 
+const PENDING_PREFIX = "pending:";
+
+/** ページを生成している最中の語句に使う、仮のページ ID。 */
+export const pendingTermId = (term: string): string =>
+  `${PENDING_PREFIX}${term}`;
+
+/** 仮のページ ID（生成中の語句）か。 */
+export const isPendingTermId = (pageId: string): boolean =>
+  pageId.startsWith(PENDING_PREFIX);
+
 const splitText = (
   node: Text,
   match: (text: string) => TermMatch[],

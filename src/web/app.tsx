@@ -16,7 +16,6 @@ import {
   titleFor,
 } from "./lib/notify.ts";
 import type { ApiClient } from "./lib/orpc.ts";
-import type { PageDraft } from "./lib/page-draft.ts";
 import {
   chatIdFromPath,
   isTaskListPath,
@@ -118,10 +117,7 @@ export const App = ({ api }: { api: ApiClient }) => {
   const [path, setPath] = useState(() => window.location.pathname);
   const selectedId = chatIdFromPath(path);
   const wikiRoute = wikiFromPath(path);
-  const wikiState = window.history.state as {
-    returnTo?: string;
-    draft?: PageDraft;
-  } | null;
+  const wikiState = window.history.state as { returnTo?: string } | null;
   // 回答から Wiki を開いている間も、元のチャットの現在地と入力を保つ。
   const chatViewId =
     selectedId ??
@@ -198,7 +194,7 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   // 選んだ会話・タスクを URL に反映し、ブラウザの戻る・進むにも対応する
   const navigate = useCallback(
-    (next: string, state?: { returnTo?: string; draft?: PageDraft }) => {
+    (next: string, state?: { returnTo?: string }) => {
       setFocus(undefined);
       if (window.location.pathname !== next) {
         window.history.pushState(state ?? null, "", next);
@@ -465,9 +461,7 @@ export const App = ({ api }: { api: ApiClient }) => {
               )}
               onSelectBranch={select}
               onOpenChat={select}
-              onCreateWikiPage={(taskId, draft) =>
-                navigate(pathForWiki(taskId), { returnTo: path, draft })
-              }
+              onWikiPageCreated={() => void wiki.refresh()}
               {...(focus?.chatId === workspace.chat.id
                 ? { focusMessage: focus }
                 : {})}
@@ -507,7 +501,6 @@ export const App = ({ api }: { api: ApiClient }) => {
             onChatActivity={() => void refreshChats()}
             onOpenChat={select}
             returnTo={wikiState?.returnTo}
-            initialDraft={wikiState?.draft}
             onReturn={(to) => navigate(to)}
             onNavigate={navigateWiki}
           />

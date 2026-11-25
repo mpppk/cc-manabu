@@ -20,6 +20,20 @@ export type TermCandidate = {
 export const normalizeTerm = (value: string): string =>
   value.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
 
+/** 回答の選択範囲からページにできる語句の長さ（文字数）。 */
+export const MIN_PAGE_TERM_LENGTH = 2;
+export const MAX_PAGE_TERM_LENGTH = 40;
+
+/** 語句がページのタイトルにできる形か（1 行で、短すぎず長すぎない）。 */
+export const isPageTerm = (term: string): boolean => {
+  const trimmed = term.trim();
+  return (
+    !/[\r\n]/.test(trimmed) &&
+    [...normalizeTerm(trimmed)].length >= MIN_PAGE_TERM_LENGTH &&
+    [...trimmed].length <= MAX_PAGE_TERM_LENGTH
+  );
+};
+
 /** 用語抽出のシステムプロンプト。 */
 export const TERM_EXTRACTION_SYSTEM_PROMPT = [
   "あなたは技術用語集の編集者です。与えられた質問と回答から、タスクの用語集に載せる価値のある重要な専門用語を選び、JSON だけを出力します。",
