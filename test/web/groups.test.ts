@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 import type { ChatDto } from "../../src/router.ts";
-import { branchLabel, groupChats } from "../../src/web/lib/groups.ts";
+import {
+  branchLabel,
+  groupChats,
+  listedChats,
+} from "../../src/web/lib/groups.ts";
 
 const chat = (overrides: Partial<ChatDto> & { id: string }): ChatDto => ({
   groupId: overrides.id,
@@ -60,4 +64,28 @@ test("branchLabel", () => {
   expect(
     branchLabel(chat({ id: "b", parentId: "r", branchTitle: "非同期" })),
   ).toBe("非同期");
+});
+
+test("まだ何も送っていない会話は、開いているときだけ一覧に出す", () => {
+  const sent = chat({ id: "sent" });
+  const blank = chat({ id: "blank", title: "", hasSession: false });
+  const renamed = chat({ id: "renamed", hasSession: false });
+  const sending = chat({
+    id: "sending",
+    title: "",
+    hasSession: false,
+    status: "running",
+  });
+  const all = [sent, blank, renamed, sending];
+  expect(listedChats(all, undefined).map((c) => c.id)).toEqual([
+    "sent",
+    "renamed",
+    "sending",
+  ]);
+  expect(listedChats(all, "blank").map((c) => c.id)).toEqual([
+    "sent",
+    "blank",
+    "renamed",
+    "sending",
+  ]);
 });

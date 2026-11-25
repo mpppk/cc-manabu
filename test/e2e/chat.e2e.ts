@@ -467,6 +467,39 @@ const createTask = async (page: Page, name: string) => {
   await expect(taskRow(page, name)).toBeVisible();
 };
 
+test("何も送っていないスレッドは開いている間だけ出て、＋で使い回す", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "下書き置き場");
+  const item = taskItem(page, "下書き置き場");
+  await newChat(page);
+  const blank = page.url();
+  await expect(item.getByText("新しい会話")).toBeVisible();
+
+  // 別の画面に移ると、空のスレッドは一覧から消える
+  await page
+    .getByRole("button", { name: "「下書き置き場」の概要を開く" })
+    .click();
+  await expect(page).toHaveURL(/\/t\/.+/);
+  await expect(item.getByText("新しい会話")).toHaveCount(0);
+  await expect(item.getByText("まだスレッドがありません。")).toBeVisible();
+
+  // ＋を押すと、同じ空のスレッドを開く
+  await newChat(page);
+  expect(page.url()).toBe(blank);
+
+  // 送ればタイトルが付き、離れても一覧に残る
+  await send(page, "残るスレッド");
+  await idle(page);
+  await page
+    .getByRole("button", { name: "「下書き置き場」の概要を開く" })
+    .click();
+  await expect(item.getByText("残るスレッド")).toBeVisible();
+  await newChat(page);
+  expect(page.url()).not.toBe(blank);
+});
+
 test("タスクでスレッドをまとめ、既存のスレッドを追加できる", async ({
   page,
 }) => {

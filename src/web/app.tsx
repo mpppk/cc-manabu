@@ -10,7 +10,7 @@ import { TaskList } from "./components/task-list.tsx";
 import { TaskOverview } from "./components/task-overview.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { WikiView } from "./components/wiki-view.tsx";
-import { groupChats } from "./lib/groups.ts";
+import { groupChats, isBlankChat, listedChats } from "./lib/groups.ts";
 import {
   newlyAwaiting,
   notifyAwaitingApproval,
@@ -322,7 +322,15 @@ export const App = ({ api }: { api: ApiClient }) => {
     chats.find((chat) => chat.id === chatViewId)?.groupId ??
     workspace?.chat.groupId;
 
+  /** 同じタスクにまだ何も送っていない会話があれば、新しく作らずにそれを開く。 */
   const newChat = async (owner: string | null) => {
+    const blank = chats.find(
+      (chat) => chat.taskId === owner && isBlankChat(chat),
+    );
+    if (blank !== undefined) {
+      select(blank.id);
+      return;
+    }
     const chat = await api.chats.create({ taskId: owner });
     await refreshChats();
     select(chat.id);
@@ -409,7 +417,7 @@ export const App = ({ api }: { api: ApiClient }) => {
       <Sidebar
         id="sidebar"
         hidden={!sidebarOpen}
-        chats={chats}
+        chats={listedChats(chats, selectedId)}
         tasks={tasks ?? []}
         environments={environments}
         wikis={wikis}
@@ -555,7 +563,7 @@ export const App = ({ api }: { api: ApiClient }) => {
             key={task.id}
             api={api}
             task={task}
-            threads={groupChats(chats)
+            threads={groupChats(listedChats(chats, selectedId))
               .filter((group) => group.primary.taskId === task.id)
               .map((group) => group.primary)}
             onOpenChat={select}
