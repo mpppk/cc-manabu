@@ -3,6 +3,7 @@ import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import {
   ChevronRight,
   FilePlus,
+  Folder,
   GitBranch,
   Pencil,
   RotateCcw,
@@ -347,6 +348,13 @@ const MessageView = ({
     </div>
   );
 };
+
+/** パスの最後のフォルダ名（入力欄の下に出す。全体は title で見せる）。 */
+const folderName = (cwd: string): string =>
+  cwd
+    .split(/[\\/]/)
+    .filter((part) => part !== "")
+    .at(-1) ?? cwd;
 
 const UsageTotal = ({ messages }: { messages: ChatUIMessage[] }) => {
   const total = totalUsage(messages);
@@ -766,6 +774,8 @@ export type ChatViewProps = {
   onOpenWikiPane?: (taskId: string, pageId: string) => void;
   side?: boolean;
   onAskSelection?: (quote: QuoteData, settings: SendSettings) => void;
+  /** 作業フォルダ（入力欄の下に出す）。 */
+  cwd?: string;
 };
 
 /** 1 つの分岐を表示し、その分岐 ID で送信・再接続する。 */
@@ -784,6 +794,7 @@ export const ChatView = ({
   onCreateWikiPage,
   side = false,
   onAskSelection,
+  cwd,
 }: ChatViewProps) => {
   const [settings, setSettings] = useState<{
     model: string;
@@ -1270,7 +1281,7 @@ export const ChatView = ({
             )}
           </div>
         </div>
-        <div className="border-t p-4">
+        <div className="px-4 pt-2 pb-3">
           {queueState !== undefined && (
             <QueuePanel
               state={queueState}
@@ -1295,14 +1306,36 @@ export const ChatView = ({
               {queueError}
             </p>
           )}
-          <div className="mx-auto mb-2 flex max-w-3xl items-center justify-between gap-2">
-            <ModelPicker
-              models={models}
-              model={settings.model}
-              effort={settings.effort}
-              disabled={busy}
-              onChange={setSettings}
-            />
+          <Composer
+            busy={busy}
+            pending={creatingBranch}
+            messageLabel={side ? "サイドチャットのメッセージ" : "メッセージ"}
+            queueing={queueing && branchFrom === undefined}
+            toolbar={
+              <ModelPicker
+                models={models}
+                model={settings.model}
+                effort={settings.effort}
+                disabled={busy}
+                onChange={setSettings}
+              />
+            }
+            onSubmit={submit}
+            onQueue={enqueue}
+            onStop={onStop}
+          />
+          <div className="mx-auto mt-1.5 flex max-w-3xl items-center justify-between gap-3 px-2">
+            {cwd === undefined || cwd === "" ? (
+              <span />
+            ) : (
+              <span
+                className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs"
+                title={cwd}
+              >
+                <Folder className="size-3.5 shrink-0" aria-hidden />
+                <span className="truncate">{folderName(cwd)}</span>
+              </span>
+            )}
             <span className="flex min-w-0 items-center gap-3">
               <PromptCacheTimer
                 messages={messages}
@@ -1312,15 +1345,6 @@ export const ChatView = ({
               <UsageTotal messages={messages} />
             </span>
           </div>
-          <Composer
-            busy={busy}
-            pending={creatingBranch}
-            messageLabel={side ? "サイドチャットのメッセージ" : "メッセージ"}
-            queueing={queueing && branchFrom === undefined}
-            onSubmit={submit}
-            onQueue={enqueue}
-            onStop={onStop}
-          />
         </div>
       </div>
     </WikiTermsContext.Provider>

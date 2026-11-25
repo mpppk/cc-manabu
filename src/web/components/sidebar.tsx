@@ -349,6 +349,8 @@ const TreeRow = ({
 );
 
 export const Sidebar = ({
+  id,
+  hidden = false,
   chats,
   tasks,
   wikis,
@@ -372,6 +374,9 @@ export const Sidebar = ({
   onSearch,
   onOpenSearchHit,
 }: {
+  id?: string;
+  /** 畳んでいるか（⌘B）。畳んでも状態（検索・開閉）は保つ。 */
+  hidden?: boolean;
   /** すべての会話。 */
   chats: ChatDto[];
   tasks: TaskDto[];
@@ -580,7 +585,12 @@ export const Sidebar = ({
   const unassignedOpen = isExpanded(expanded, "unassigned");
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+    <aside
+      id={id}
+      hidden={hidden}
+      aria-label="サイドバー"
+      className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground [&[hidden]]:hidden"
+    >
       <div className="flex items-center p-2">
         <div className="flex items-center">
           <Button
