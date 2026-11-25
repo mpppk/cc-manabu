@@ -71,6 +71,8 @@ Node から上のプロトコルで `claude`（Claude Code 2.1.332 / haiku）を
 
 ask ルールがない場合、この環境では Bash が自動で許可され、`can_use_tool` は来ませんでした。承認の流れを確かめるために、artifact では「Bash・Write・Edit を毎回確認する」設定ファイルを `--settings` で渡しています（既定でオン）。
 
+その後、この方式で Provider の `query()` を実装し（`src/desktop/process-query.ts`）、Agent SDK 版と同じ実機テスト（`test/live/provider.test.ts`）を両方の実装で流して、すべて通ることを確かめました。デスクトップアプリ版の全体は [desktop-app.md](../desktop-app.md) を参照してください。
+
 ## 利用者の手元で確認すること（artifact）
 
 デスクトップ API は、インストールしたアプリのウィンドウの中でしか動きません。以下は artifact を使って手元で確かめ、結果をこの文書に追記します。

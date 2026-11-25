@@ -105,6 +105,17 @@ CC_MANABU_PORT=4000 CC_MANABU_CHROME_PROFILE='Profile 2' cc-manabu --pwa
 
 `--pwa` は起動ごとに新しいアクセストークンを渡します。Chrome や PWA が見つからない場合は、理由を表示して同じサーバーを既定のブラウザで開きます。ポートが使用中なら、先に使用中のプロセスを止めてください。別のポートを使う場合は、その URL で PWA をインストールし直します。`CC_MANABU_NO_OPEN=1` を指定するとサーバーだけ起動します。
 
+## デスクトップアプリ版（実験的）
+
+CLI を使わず、Claude デスクトップアプリで「Install as app」した artifact として動かすこともできます（macOS / Windows）。
+手元の `claude` を子プロセスとして起動し、会話は `~/.local/share/cc-manabu/desktop.sqlite` に保存します。
+
+```sh
+bun run build:artifact   # dist/artifact を、自分のアカウントの artifact として公開する
+```
+
+仕組み・公開のしかた・CLI 版との違いは [docs/desktop-app.md](docs/desktop-app.md) を参照してください。
+
 ## セキュリティ
 
 - **ツールはローカルで実行されます。** Claude は起動したディレクトリと環境に追加したディレクトリで、ファイルの編集やコマンドの実行ができます。信頼できるディレクトリで起動し、信頼できるディレクトリだけを環境に追加してください
