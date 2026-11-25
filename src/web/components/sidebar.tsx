@@ -5,6 +5,7 @@ import {
   FileText,
   FolderMinus,
   FolderPlus,
+  FolderTree,
   GitBranch,
   LayoutDashboard,
   LayoutList,
@@ -13,12 +14,20 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   Pencil,
+  Search,
   Settings,
   SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import type { ChatDto, TaskDto, WikiDto } from "../../router.ts";
 import { type ChatGroup, groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
@@ -231,6 +240,25 @@ const saveExpanded = (expanded: Expanded) => {
   }
 };
 
+const GROUP_KEY = "cc-manabu.sidebarGroupByWiki";
+
+/** タスクを参照している Wiki ごとにまとめるか（ブラウザに覚える。既定はまとめる）。 */
+const loadGroupByWiki = (): boolean => {
+  try {
+    return localStorage.getItem(GROUP_KEY) !== "0";
+  } catch {
+    return true;
+  }
+};
+
+const saveGroupByWiki = (value: boolean) => {
+  try {
+    localStorage.setItem(GROUP_KEY, value ? "1" : "0");
+  } catch {
+    // 覚えられなくても切り替えはできる
+  }
+};
+
 const isExpanded = (expanded: Expanded, key: string): boolean =>
   expanded[key] ?? !key.startsWith("task:");
 
@@ -321,6 +349,8 @@ const TreeRow = ({
 );
 
 export const Sidebar = ({
+  id,
+  hidden = false,
   chats,
   tasks,
   wikis,
@@ -328,7 +358,6 @@ export const Sidebar = ({
   selectedId,
   openTaskId,
   openWikiTaskId,
-  onNew,
   onNewInTask,
   onSelect,
   onRename,
@@ -345,6 +374,9 @@ export const Sidebar = ({
   onSearch,
   onOpenSearchHit,
 }: {
+  id?: string;
+  /** 畳んでいるか（⌘B）。畳んでも状態（検索・開閉）は保つ。 */
+  hidden?: boolean;
   /** すべての会話。 */
   chats: ChatDto[];
   tasks: TaskDto[];
@@ -357,8 +389,6 @@ export const Sidebar = ({
   openTaskId: string | undefined;
   /** メインに Wiki を出しているタスク（その Wiki の行を強調する）。 */
   openWikiTaskId: string | undefined;
-  /** 今のタスク（無ければ未所属）に新しい会話を作る。 */
-  onNew: () => void;
   /** タスク（null は未所属）に新しい会話を作る。 */
   onNewInTask: (taskId: string | null) => void;
   onSelect: (id: string) => void;
@@ -387,6 +417,14 @@ export const Sidebar = ({
   const searching = query.trim() !== "";
   const search = useSearch(query, onSearch);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [groupByWiki, setGroupByWiki] = useState(loadGroupByWiki);
+  const searchId = useId();
+  const searchButton = useRef<HTMLButtonElement>(null);
+  const closeSearch = (restoreFocus: boolean) => {
+    setQuery("");
+    setSearchOpen(false);
+    if (restoreFocus) searchButton.current?.focus();
+  };
   /** 既存のスレッドを追加する先のタスク。 */
   const [addingTo, setAddingTo] = useState<TaskDto>();
   const [taskDialog, setTaskDialog] = useState<TaskDialog>();
@@ -465,7 +503,7 @@ export const Sidebar = ({
     const key = `task:${item.id}`;
     const open = isExpanded(expanded, key);
     return (
-      <li key={item.id}>
+      <li key={item.id} data-task-id={item.id}>
         <TreeRow
           level={level}
           expanded={open}
@@ -547,9 +585,13 @@ export const Sidebar = ({
   const unassignedOpen = isExpanded(expanded, "unassigned");
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center justify-between p-3">
-        <span className="font-semibold">cc-manabu</span>
+    <aside
+      id={id}
+      hidden={hidden}
+      aria-label="サイドバー"
+      className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground [&[hidden]]:hidden"
+    >
+      <div className="flex items-center p-2">
         <div className="flex items-center">
           <Button
             variant="ghost"
@@ -570,26 +612,50 @@ export const Sidebar = ({
             <FolderPlus />
           </Button>
           <Button
-            variant="ghost"
+            variant={groupByWiki ? "secondary" : "ghost"}
             size="icon"
-            aria-label="新しい会話"
+            aria-label="Wiki ごとにまとめる"
             title={
-              task === undefined ? "新しい会話" : `「${task.name}」に新しい会話`
+              groupByWiki
+                ? "Wiki ごとにまとめる（オン）"
+                : "Wiki ごとにまとめる（オフ）"
             }
-            onClick={onNew}
+            aria-pressed={groupByWiki}
+            onClick={() => {
+              setGroupByWiki(!groupByWiki);
+              saveGroupByWiki(!groupByWiki);
+            }}
           >
-            <MessageSquarePlus />
+            <FolderTree />
+          </Button>
+          <Button
+            ref={searchButton}
+            variant={searchOpen ? "secondary" : "ghost"}
+            size="icon"
+            aria-label="会話を検索"
+            title="会話を検索"
+            aria-expanded={searchOpen}
+            aria-controls={searchOpen ? searchId : undefined}
+            // 開いているときは、押しても検索欄からフォーカスを外さない（外れると先に閉じてしまう）
+            onMouseDown={(event) => {
+              if (searchOpen) event.preventDefault();
+            }}
+            onClick={() =>
+              searchOpen ? closeSearch(false) : setSearchOpen(true)
+            }
+          >
+            <Search />
           </Button>
         </div>
       </div>
-      <div className="flex px-3 pb-2">
+      {searchOpen && (
         <SearchBox
+          id={searchId}
           value={query}
           onChange={setQuery}
-          open={searchOpen}
-          onOpenChange={setSearchOpen}
+          onClose={closeSearch}
         />
-      </div>
+      )}
       {searching ? (
         <nav
           className="flex-1 overflow-y-auto px-2 pb-2"
@@ -606,50 +672,52 @@ export const Sidebar = ({
       ) : (
         <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
           <ul className="flex flex-col gap-0.5">
-            {wikiGroups.map(({ wiki, members }) => {
-              const key = `wiki:${wiki.id}`;
-              const open = isExpanded(expanded, key);
-              const first = members[0];
-              return (
-                <li key={wiki.id}>
-                  <TreeRow
-                    level={0}
-                    expanded={open}
-                    onToggle={() => toggle(key)}
-                    icon={<BookOpen />}
-                    label={wiki.name}
-                    selected={openWikiId === wiki.id}
-                    actions={
-                      <>
-                        {first !== undefined && (
+            {!groupByWiki && tasks.map((item) => renderTask(item, 0))}
+            {groupByWiki &&
+              wikiGroups.map(({ wiki, members }) => {
+                const key = `wiki:${wiki.id}`;
+                const open = isExpanded(expanded, key);
+                const first = members[0];
+                return (
+                  <li key={wiki.id}>
+                    <TreeRow
+                      level={0}
+                      expanded={open}
+                      onToggle={() => toggle(key)}
+                      icon={<BookOpen />}
+                      label={wiki.name}
+                      selected={openWikiId === wiki.id}
+                      actions={
+                        <>
+                          {first !== undefined && (
+                            <RowAction
+                              label={`Wiki「${wiki.name}」のページを開く`}
+                              onClick={() => onOpenWiki(first.id)}
+                            >
+                              <FileText className="size-3.5" />
+                            </RowAction>
+                          )}
                           <RowAction
-                            label={`Wiki「${wiki.name}」のページを開く`}
-                            onClick={() => onOpenWiki(first.id)}
+                            label={`Wiki「${wiki.name}」で新しいタスク`}
+                            onClick={() =>
+                              setTaskDialog({ kind: "create", wikiId: wiki.id })
+                            }
                           >
-                            <FileText className="size-3.5" />
+                            <FolderPlus className="size-3.5" />
                           </RowAction>
-                        )}
-                        <RowAction
-                          label={`Wiki「${wiki.name}」で新しいタスク`}
-                          onClick={() =>
-                            setTaskDialog({ kind: "create", wikiId: wiki.id })
-                          }
-                        >
-                          <FolderPlus className="size-3.5" />
-                        </RowAction>
-                      </>
-                    }
-                  />
-                  {open && (
-                    <ul className="flex flex-col gap-0.5">
-                      {members.map((member) => renderTask(member, 1))}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-            {orphans.map((orphan) => renderTask(orphan, 0))}
-            <li>
+                        </>
+                      }
+                    />
+                    {open && (
+                      <ul className="flex flex-col gap-0.5">
+                        {members.map((member) => renderTask(member, 1))}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            {groupByWiki && orphans.map((orphan) => renderTask(orphan, 0))}
+            <li data-unassigned>
               <TreeRow
                 level={0}
                 expanded={unassignedOpen}

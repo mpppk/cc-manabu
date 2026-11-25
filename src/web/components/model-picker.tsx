@@ -10,7 +10,7 @@ const EFFORT_LABELS: Record<Effort, string> = {
 };
 
 const selectClass =
-  "h-8 rounded-md border bg-background px-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  "h-8 min-w-0 max-w-40 truncate rounded-md bg-transparent px-2 text-muted-foreground text-xs outline-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50";
 
 /** 送信に使うモデルと effort を選ぶ。effort の選択肢はモデルが対応するものだけ出す。 */
 export const ModelPicker = ({
@@ -38,7 +38,7 @@ export const ModelPicker = ({
       ? [{ value: model, displayName: model }, ...models]
       : models;
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex min-w-0 items-center gap-1">
       <select
         className={selectClass}
         aria-label="モデル"

@@ -1,4 +1,4 @@
-import { Moon, Sun } from "lucide-react";
+import { Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
 import type { ChatDto, TaskDto, WikiDto } from "../router.ts";
@@ -48,7 +48,10 @@ const ClaudeStatusBadge = ({ status }: { status: Status | undefined }) => {
       );
     case "ready":
       return (
-        <span className="text-muted-foreground text-xs">
+        <span
+          className="hidden text-muted-foreground text-xs lg:inline"
+          title={`Claude Code ${claude.version ?? ""}${claude.account.subscriptionType ? `・${claude.account.subscriptionType}` : ""}`}
+        >
           Claude Code {claude.version ?? ""}
           {claude.account.subscriptionType
             ? `・${claude.account.subscriptionType}`
@@ -65,9 +68,50 @@ const ClaudeStatusBadge = ({ status }: { status: Status | undefined }) => {
   }
 };
 
+const SIDEBAR_KEY = "cc-manabu.sidebarOpen";
+
+/** サイドバーを開いているか（ブラウザに覚える。既定は開く）。 */
+const loadSidebarOpen = (): boolean => {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) !== "0";
+  } catch {
+    return true;
+  }
+};
+
+/** サイドバーの開閉のショートカットの表記（Mac は ⌘B、それ以外は Ctrl+B）。 */
+const SIDEBAR_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform)
+  ? "⌘B"
+  : "Ctrl+B";
+
 export const App = ({ api }: { api: ApiClient }) => {
   const [status, setStatus] = useState<Status>();
   const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [sidebarOpen, setSidebarOpen] = useState(loadSidebarOpen);
+  const toggleSidebar = useCallback(() => setSidebarOpen((open) => !open), []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, sidebarOpen ? "1" : "0");
+    } catch {
+      // 覚えられなくても開閉はできる
+    }
+  }, [sidebarOpen]);
+  // ⌘B（Ctrl+B）でサイドバーを開閉する
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "b"
+      ) {
+        event.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleSidebar]);
   const [chats, setChats] = useState<ChatDto[]>([]);
   const [tasks, setTasks] = useState<TaskDto[]>();
   const [path, setPath] = useState(() => window.location.pathname);
@@ -234,6 +278,18 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   const task = tasks?.find((p) => p.id === taskId);
   const showWiki = wikiRoute !== undefined && task !== undefined;
+  /** ヘッダーに出す、いま開いているものの名前。 */
+  const headerTitle = isTaskListPath(path)
+    ? "タスク一覧"
+    : showWiki
+      ? `Wiki: ${wikis.find((w) => w.id === task.wikiId)?.name ?? task.name}`
+      : selectedId !== undefined
+        ? selectedChat === undefined
+          ? ""
+          : selectedChat.title === ""
+            ? "新しい会話"
+            : selectedChat.title
+        : (task?.name ?? "");
   // Wiki のページ一覧（サイドバーの一覧とメインのページ表示で共有する）
   const wiki = useWikiPages(api, showWiki ? task.id : undefined);
   const navigateWiki = (pageId: string | undefined) => {
@@ -315,6 +371,8 @@ export const App = ({ api }: { api: ApiClient }) => {
   return (
     <div className="flex h-full">
       <Sidebar
+        id="sidebar"
+        hidden={!sidebarOpen}
         chats={chats}
         tasks={tasks ?? []}
         wikis={wikis}
@@ -326,7 +384,6 @@ export const App = ({ api }: { api: ApiClient }) => {
             : undefined
         }
         openWikiTaskId={showWiki ? task.id : undefined}
-        onNew={() => void newChat(taskId)}
         onNewInTask={(id) => void newChat(id)}
         onSelect={select}
         onRename={rename}
@@ -344,11 +401,23 @@ export const App = ({ api }: { api: ApiClient }) => {
         onOpenSearchHit={openSearchHit}
       />
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b px-4">
-          <span className="truncate text-muted-foreground text-sm">
-            {status?.cwd ?? ""}
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground"
+            aria-label={sidebarOpen ? "サイドバーを閉じる" : "サイドバーを開く"}
+            title={`${sidebarOpen ? "サイドバーを閉じる" : "サイドバーを開く"}（${SIDEBAR_SHORTCUT}）`}
+            aria-expanded={sidebarOpen}
+            aria-controls="sidebar"
+            onClick={toggleSidebar}
+          >
+            {sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+          </Button>
+          <span className="min-w-0 flex-1 truncate font-medium text-sm">
+            {headerTitle}
           </span>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             <RateLimitBadge
               api={api}
               activity={chats
@@ -385,11 +454,13 @@ export const App = ({ api }: { api: ApiClient }) => {
               initialMessages={workspace.messages}
               loading={workspace.chat.id !== chatViewId}
               models={models}
+              {...(status?.cwd === undefined ? {} : { cwd: status.cwd })}
               onActivity={() => void refreshChats()}
               branches={chats.filter(
                 (chat) => chat.groupId === workspace.chat.groupId,
               )}
               onSelectBranch={select}
+              onOpenChat={select}
               onWikiPageCreated={() => void wiki.refresh()}
               {...(focus?.chatId === workspace.chat.id
                 ? { focusMessage: focus }

@@ -14,8 +14,13 @@ import type { WikiPageDto } from "../../router.ts";
 export type WikiTermsContextValue = {
   /** ページの最新の内容。消されていれば undefined。 */
   load: (pageId: string) => Promise<WikiPageDto | undefined>;
-  /** Wiki のページを開く。 */
+  /** Wiki のページを開く（Wiki 画面へ移る）。 */
   open: (pageId: string) => void;
+  /**
+   * 会話の右側のペインでページを開く。あればクリック・Enter でペインを開き、
+   * 無ければ（サイドチャットなど）要約を固定して開く。
+   */
+  openPane?: ((pageId: string) => void) | undefined;
 };
 
 export const WikiTermsContext = createContext<
@@ -44,8 +49,8 @@ type State =
 const HOVER_DELAY_MS = 300;
 
 /**
- * 回答中の用語。ホバー・フォーカスで要約を出し、クリック・タップ・Enter で固定して開く。
- * 要約から Wiki のページへ移れる。
+ * 回答中の用語。ホバー・フォーカスで要約を出し、クリック・タップ・Enter で右側のペインに
+ * ページを開く（ペインが無ければ要約を固定して開く）。要約から Wiki のページへ移れる。
  */
 export const WikiTerm = ({
   pageId,
@@ -144,7 +149,15 @@ export const WikiTerm = ({
         onFocus={() => {
           if (open === undefined) setOpen("hover");
         }}
-        onClick={() => setOpen(open === "pinned" ? undefined : "pinned")}
+        onClick={() => {
+          clearTimeout(timer.current);
+          if (context.openPane !== undefined) {
+            setOpen(undefined);
+            context.openPane(pageId);
+          } else {
+            setOpen(open === "pinned" ? undefined : "pinned");
+          }
+        }}
       >
         {children}
       </button>

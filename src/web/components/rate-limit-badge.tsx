@@ -60,7 +60,8 @@ export const RateLimitBadge = ({
       data-testid="rate-limit"
     >
       <Gauge className="size-3.5 shrink-0" />
-      <span className="hidden sm:inline">{view.label}</span>
+      <span className="hidden xl:inline">{view.label}</span>
+      {view.short !== "" && <span className="xl:hidden">{view.short}</span>}
     </span>
   );
 };

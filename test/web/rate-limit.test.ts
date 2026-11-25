@@ -34,6 +34,7 @@ describe("describeRateLimit（#116）", () => {
     const view = describeRateLimit(snapshot(), now);
     expect(view).toEqual({
       label: "5 時間枠 62%・14:00 にリセット",
+      short: "62%",
       tone: "normal",
       details: [
         "5 時間枠: 62%（14:00 にリセット）",
@@ -52,7 +53,11 @@ describe("describeRateLimit（#116）", () => {
     });
     expect(
       describeRateLimit(snapshot({ status: "rejected" }), now),
-    ).toMatchObject({ label: "利用上限（14:00 にリセット）", tone: "danger" });
+    ).toMatchObject({
+      label: "利用上限（14:00 にリセット）",
+      short: "上限",
+      tone: "danger",
+    });
   });
 
   test("リセット時刻を過ぎた枠は古いので使わない", () => {

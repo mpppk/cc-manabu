@@ -13,9 +13,9 @@ import { searchPages } from "../../wiki/match.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { cn } from "../lib/utils.ts";
 import { SideChat } from "./chat-workspace.tsx";
-import { Markdown } from "./markdown.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
+import { WikiPageContent } from "./wiki-pane.tsx";
 
 type Draft = { title: string; aliases: string; body: string };
 
@@ -388,38 +388,7 @@ export const WikiView = ({
             <Trash2 className="size-3.5" />
           </Button>
         </div>
-        <h2 className="font-bold text-2xl">{page.title}</h2>
-        {page.origin === "auto" && (
-          <p className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-            回答から自動で作成したページです（編集しても自動で上書きされることはありません）。
-            {page.sourceChatId !== null && (
-              <button
-                type="button"
-                className="text-primary underline"
-                onClick={() => {
-                  if (page.sourceChatId !== null) onOpenChat(page.sourceChatId);
-                }}
-              >
-                元の回答を開く
-              </button>
-            )}
-          </p>
-        )}
-        {page.aliases.length > 0 && (
-          <p className="text-muted-foreground text-sm">
-            別名: {page.aliases.join("、")}
-          </p>
-        )}
-        {page.body.trim() === "" ? (
-          <p className="text-muted-foreground text-sm">
-            本文はまだありません。
-          </p>
-        ) : (
-          <Markdown text={page.body} />
-        )}
-        <p className="text-muted-foreground text-xs">
-          最終更新: {new Date(page.updatedAt).toLocaleString("ja-JP")}
-        </p>
+        <WikiPageContent page={page} onOpenChat={onOpenChat} />
         <Dialog
           open={deleting}
           onOpenChange={setDeleting}

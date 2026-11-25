@@ -4,6 +4,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
+  type ReactNode,
   useRef,
   useState,
 } from "react";
@@ -27,6 +28,7 @@ export const Composer = ({
   pending = false,
   messageLabel = "メッセージ",
   queueing = false,
+  toolbar,
   onSubmit,
   onQueue,
   onStop,
@@ -36,6 +38,8 @@ export const Composer = ({
   messageLabel?: string;
   /** 送る代わりに予約するか（生成中・送信待ちの予約があるとき）。 */
   queueing?: boolean;
+  /** 入力欄の下の行（添付ボタンの右）に出すもの。モデル・effort の選択など。 */
+  toolbar?: ReactNode;
   onSubmit: (
     text: string,
     images: ImageAttachment[],
@@ -124,7 +128,7 @@ export const Composer = ({
     <section
       aria-label="入力欄"
       className={cn(
-        "mx-auto flex max-w-3xl flex-col gap-2 rounded-xl",
+        "mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background p-2 shadow-sm transition-colors focus-within:border-ring/60",
         dragging && "outline-2 outline-ring outline-dashed outline-offset-4",
       )}
       onDragOver={(event) => {
@@ -136,7 +140,10 @@ export const Composer = ({
       onDrop={onDrop}
     >
       {(images.length > 0 || loading > 0) && (
-        <ul aria-label="添付する画像" className="flex flex-wrap gap-2">
+        <ul
+          aria-label="添付する画像"
+          className="flex flex-wrap gap-2 px-1 pt-1"
+        >
           {images.map((image) => (
             <li key={image.id} className="relative">
               <img
@@ -166,11 +173,25 @@ export const Composer = ({
         </ul>
       )}
       {attachError !== undefined && (
-        <p className="text-destructive text-sm" role="alert">
+        <p className="px-1 text-destructive text-sm" role="alert">
           {attachError}
         </p>
       )}
-      <div className="flex items-end gap-2">
+      <textarea
+        className="max-h-48 min-h-10 w-full resize-none bg-transparent px-2 py-1.5 outline-none"
+        placeholder={
+          queue
+            ? "メッセージを予約（今の回答が終わったあとに順に送ります）"
+            : "メッセージを入力（Enter で送信、Shift+Enter で改行。画像は貼り付けできます）"
+        }
+        aria-label={messageLabel}
+        rows={1}
+        value={input}
+        onChange={(event) => setInput(event.target.value)}
+        onKeyDown={onKeyDown}
+        onPaste={onPaste}
+      />
+      <div className="flex items-center gap-1">
         <input
           ref={fileInput}
           type="file"
@@ -186,6 +207,7 @@ export const Composer = ({
         <Button
           variant="ghost"
           size="icon"
+          className="size-8 text-muted-foreground"
           aria-label="画像を添付"
           title="画像を添付（貼り付け・ドロップもできます）"
           disabled={busy && !queue}
@@ -193,24 +215,12 @@ export const Composer = ({
         >
           <ImagePlus />
         </Button>
-        <textarea
-          className="max-h-48 min-h-11 flex-1 resize-none rounded-xl border bg-background px-3 py-2 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          placeholder={
-            queue
-              ? "メッセージを予約（今の回答が終わったあとに順に送ります）"
-              : "メッセージを入力（Enter で送信、Shift+Enter で改行。画像は貼り付けできます）"
-          }
-          aria-label={messageLabel}
-          rows={1}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
+        <div className="flex min-w-0 flex-1 items-center gap-1">{toolbar}</div>
         {queue && (
           <Button
             size="icon"
             variant={busy ? "outline" : "default"}
+            className="size-8 rounded-full"
             aria-label="送信を予約"
             title="送信を予約（今の回答が終わったあとに順に送ります）"
             onClick={submit}
@@ -220,12 +230,18 @@ export const Composer = ({
           </Button>
         )}
         {busy ? (
-          <Button size="icon" aria-label="停止" onClick={onStop}>
-            <Square />
+          <Button
+            size="icon"
+            className="size-8 rounded-full"
+            aria-label="停止"
+            onClick={onStop}
+          >
+            <Square className="fill-current" />
           </Button>
         ) : queue ? null : (
           <Button
             size="icon"
+            className="size-8 rounded-full"
             aria-label="送信"
             onClick={submit}
             disabled={!canSend}

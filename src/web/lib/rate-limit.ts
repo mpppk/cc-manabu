@@ -33,6 +33,8 @@ const percent = (utilization: number) => `${Math.round(utilization * 100)}%`;
 
 export type RateLimitView = {
   label: string;
+  /** 狭い画面で出す短い表記（利用率など）。 */
+  short: string;
   tone: "normal" | "warning" | "danger";
   /** ツールチップに出す行。 */
   details: string[];
@@ -78,6 +80,7 @@ export const describeRateLimit = (
         snapshot.resetsAt === null
           ? "利用上限に達しました"
           : `利用上限（${formatResetTime(snapshot.resetsAt, now)} にリセット）`,
+      short: "上限",
       tone: "danger",
       details,
     };
@@ -95,6 +98,7 @@ export const describeRateLimit = (
   if (top === undefined || top.utilization === null) {
     return {
       label: snapshot.windows.length > 0 ? "利用枠 リセット済み" : "利用枠",
+      short: "",
       tone: "normal",
       details,
     };
@@ -105,6 +109,7 @@ export const describeRateLimit = (
       (w) => w.status === "allowed_warning" || w.status === "rejected",
     );
   return {
+    short: percent(top.utilization),
     label: `${windowLabel(top.type)}枠 ${percent(top.utilization)}${
       top.resetsAt === null
         ? ""
