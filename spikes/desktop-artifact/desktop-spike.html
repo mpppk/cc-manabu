@@ -1,0 +1,1585 @@
+<title>cc-manabu デスクトップ検証</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;700&display=swap">
+<script type="application/json" id="claude-artifacts-manifest">{"permissions": ["full-access", "notifications"]}</script>
+<style>
+  /* 検証ノート: 1 列の手順書。各ステップに「やること → 結果 → 判定」を縦に並べ、最後に共有用の結果をまとめる */
+  :root {
+    --paper: #f4f6f8;
+    --surface: #ffffff;
+    --ink: #151a21;
+    --muted: #5a6473;
+    --line: #d8dee6;
+    --code-bg: #edf1f5;
+    --accent: #1d5bc9;
+    --accent-ink: #ffffff;
+    --ok: #18794a;
+    --ok-bg: #e3f4ea;
+    --warn: #9a5800;
+    --warn-bg: #fbeedb;
+    --bad: #b1261d;
+    --bad-bg: #fbe4e1;
+    --font-body: "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --radius: 6px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #0e1115;
+      --surface: #161a20;
+      --ink: #e5e9ef;
+      --muted: #98a2b0;
+      --line: #29303a;
+      --code-bg: #1c222a;
+      --accent: #74a0ff;
+      --accent-ink: #0b1220;
+      --ok: #52c58c;
+      --ok-bg: #13291e;
+      --warn: #f0a74c;
+      --warn-bg: #2d2112;
+      --bad: #ff8278;
+      --bad-bg: #321715;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0e1115;
+    --surface: #161a20;
+    --ink: #e5e9ef;
+    --muted: #98a2b0;
+    --line: #29303a;
+    --code-bg: #1c222a;
+    --accent: #74a0ff;
+    --accent-ink: #0b1220;
+    --ok: #52c58c;
+    --ok-bg: #13291e;
+    --warn: #f0a74c;
+    --warn-bg: #2d2112;
+    --bad: #ff8278;
+    --bad-bg: #321715;
+    color-scheme: dark;
+  }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .wrap {
+    max-width: 920px;
+    margin: 0 auto;
+    padding-block: 28px 64px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    display: grid;
+    gap: 20px;
+  }
+  header { display: grid; gap: 10px; }
+  h1 { font-size: 1.6rem; line-height: 1.3; margin: 0; text-wrap: balance; letter-spacing: 0.01em; }
+  h2 { font-size: 1.15rem; margin: 0; text-wrap: balance; display: flex; gap: 10px; align-items: baseline; }
+  h3 { font-size: 0.95rem; margin: 0; }
+  p { margin: 0; max-width: 68ch; }
+  .lede { color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 0.8rem; padding: 2px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+    white-space: nowrap;
+  }
+  .chip b { color: var(--ink); font-weight: 500; }
+  .chip[data-state="ok"] { background: var(--ok-bg); border-color: transparent; color: var(--ok); }
+  .chip[data-state="ok"] b { color: var(--ok); }
+  .chip[data-state="warn"] { background: var(--warn-bg); border-color: transparent; color: var(--warn); }
+  .chip[data-state="warn"] b { color: var(--warn); }
+  .chip[data-state="bad"] { background: var(--bad-bg); border-color: transparent; color: var(--bad); }
+  .chip[data-state="bad"] b { color: var(--bad); }
+  .banner {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 14px 16px; display: grid; gap: 10px;
+  }
+  .banner[data-tone="warn"] { border-color: var(--warn); }
+  section.step {
+    background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: 18px; display: grid; gap: 14px; min-width: 0;
+  }
+  .step-no {
+    font-family: var(--font-mono); font-size: 0.8rem; color: var(--accent-ink); background: var(--accent);
+    border-radius: 4px; padding: 0 7px; line-height: 1.6; align-self: center;
+  }
+  .step-head { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+  .verdict { font-size: 0.8rem; }
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+  .field { display: grid; gap: 4px; min-width: 0; flex: 1 1 220px; }
+  .field.narrow { flex: 0 1 180px; }
+  label { font-size: 0.8rem; color: var(--muted); letter-spacing: 0.02em; }
+  input[type="text"], select, textarea {
+    font: inherit; font-size: 0.9rem; color: var(--ink); background: var(--paper);
+    border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; width: 100%; box-sizing: border-box; min-width: 0;
+  }
+  textarea { resize: vertical; min-height: 64px; }
+  .check { display: inline-flex; gap: 6px; align-items: center; font-size: 0.85rem; color: var(--ink); }
+  button {
+    font: inherit; font-size: 0.88rem; font-weight: 500; cursor: pointer;
+    border-radius: 4px; padding: 6px 14px; border: 1px solid var(--accent);
+    background: var(--accent); color: var(--accent-ink);
+  }
+  button.secondary { background: transparent; color: var(--accent); }
+  button.danger { background: transparent; border-color: var(--bad); color: var(--bad); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px;
+  }
+  .mono, code, pre { font-family: var(--font-mono); font-size: 0.82rem; }
+  pre {
+    margin: 0; background: var(--code-bg); border-radius: 4px; padding: 10px 12px;
+    overflow-x: auto; white-space: pre-wrap; word-break: break-word; max-height: 320px; overflow-y: auto;
+  }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; font-size: 0.78rem; letter-spacing: 0.03em; }
+  td.mono { word-break: break-all; }
+  .muted { color: var(--muted); }
+  .small { font-size: 0.82rem; }
+  .how { color: var(--muted); font-size: 0.88rem; }
+  div.how { display: grid; gap: 4px; }
+  .row:empty { display: none; }
+  .how ol { margin: 0; padding-left: 1.4em; }
+  details > summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+  details[open] > summary { margin-bottom: 8px; }
+  .transcript { display: grid; gap: 10px; min-width: 0; }
+  .transcript:empty::before {
+    content: "起動すると、ここに会話・ツールの実行・承認待ちが表示されます。";
+    color: var(--muted); font-size: 0.88rem;
+  }
+  .msg { display: grid; gap: 6px; min-width: 0; }
+  .msg-user { justify-self: end; max-width: 85%; background: var(--code-bg); border-radius: var(--radius); padding: 8px 12px; white-space: pre-wrap; }
+  .msg-text { white-space: pre-wrap; word-break: break-word; }
+  .msg-thinking { color: var(--muted); font-size: 0.85rem; white-space: pre-wrap; border-left: 2px solid var(--line); padding-left: 10px; }
+  .tool { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 6px; min-width: 0; }
+  .tool-head { font-size: 0.85rem; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .approval { border: 1px solid var(--warn); background: var(--warn-bg); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 8px; min-width: 0; }
+  .approval[data-done] { border-color: var(--line); background: transparent; }
+  .approval-head { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; font-size: 0.9rem; }
+  .turn-meta { font-size: 0.78rem; color: var(--muted); font-family: var(--font-mono); }
+  .status-line { font-size: 0.82rem; color: var(--muted); font-family: var(--font-mono); word-break: break-all; }
+  .err { color: var(--bad); font-size: 0.85rem; white-space: pre-wrap; word-break: break-word; }
+  .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .grid-2 > * { min-width: 0; }
+  @media (prefers-reduced-motion: no-preference) {
+    .pulse { animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: 0.45; } }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>cc-manabu デスクトップ検証</h1>
+    <p class="lede">
+      cc-manabu を「アプリとしてインストールした artifact」から動かす B 案のスパイクです。
+      手元の <code>claude</code> を子プロセスとして起動し、Agent SDK と同じ stream-json の制御プロトコルで話せるかを確かめます。
+      結果はこのコンピュータの <code>~/.cc-manabu-spike/</code> に保存し、最後に共有用のまとめを作ります。
+    </p>
+    <div class="chips" aria-live="polite">
+      <span class="chip" id="chip-runtime">実行環境 <b id="runtime">確認中…</b></span>
+      <span class="chip" id="chip-full">フルアクセス <b id="perm-full">—</b></span>
+      <span class="chip" id="chip-notify">通知 <b id="perm-notify">—</b></span>
+      <span class="chip" id="chip-platform">OS <b id="platform">—</b></span>
+    </div>
+  </header>
+
+  <div class="banner" id="gate" data-tone="warn">
+    <p id="gate-text">Claude の実行環境を確認しています…</p>
+    <div class="row" id="gate-actions"></div>
+  </div>
+
+  <section class="step" id="step1" aria-labelledby="step1-h">
+    <div class="step-head">
+      <h2 id="step1-h"><span class="step-no">1</span>claude を見つける</h2>
+      <span class="chip verdict" id="v1">未確認</span>
+    </div>
+    <p class="how">
+      デスクトップアプリから起動したプロセスには、ログインシェルの PATH が引き継がれないことがあります。
+      3 通りの方法で <code>claude</code> を探し、見つかったパスと起動方法を手順 2・3 で使います。
+    </p>
+    <div class="row">
+      <button type="button" class="act" id="btn-detect">claude を探す</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>方法</th><th>見つかったパス</th><th>バージョン</th><th>時間</th></tr></thead>
+        <tbody id="detect-body">
+          <tr><td colspan="4" class="muted">「claude を探す」を押すと、アプリの環境・ログインシェル・対話ログインシェルでの結果を並べます。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="claude-path">claude のパス</label>
+        <input type="text" id="claude-path" placeholder="/Users/you/.local/bin/claude" autocomplete="off">
+      </div>
+      <div class="field narrow">
+        <label for="launch-mode">起動方法</label>
+        <select id="launch-mode">
+          <option value="login">ログインシェル経由（-lc）</option>
+          <option value="loginInteractive">対話ログインシェル経由（-lic）</option>
+          <option value="direct">直接起動</option>
+          <option value="shell">シェル経由（Windows の .cmd 用）</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <section class="step" id="step2" aria-labelledby="step2-h">
+    <div class="step-head">
+      <h2 id="step2-h"><span class="step-no">2</span>制御プロトコルで会話する</h2>
+      <span class="chip verdict" id="v2">未確認</span>
+    </div>
+    <div class="how">
+      <p>
+        <code>--input-format stream-json --permission-prompt-tool stdio</code> で起動し、
+        initialize → 発言 → ストリーミング → ツールの承認 → 中断 → resume を、ページの中だけで行います。
+      </p>
+      <ol>
+        <li>「起動」を押し、initialize が通るのを確かめる</li>
+        <li>例の発言のまま送信し、Bash の承認カードが出たら<strong>しばらく待ってから</strong>許可する（長い待機に耐えるかを見ます）</li>
+        <li>長めの質問を送り、生成中に「中断」を押す</li>
+        <li>「resume で起動し直す」を押し、前の会話を覚えているか聞く</li>
+      </ol>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="cwd">作業ディレクトリ</label>
+        <input type="text" id="cwd" placeholder="~（ホームディレクトリ）" autocomplete="off">
+      </div>
+      <div class="field narrow">
+        <label for="model">モデル</label>
+        <select id="model">
+          <option value="haiku">haiku（検証向き・安い）</option>
+          <option value="sonnet">sonnet</option>
+          <option value="opus">opus</option>
+          <option value="">設定の既定</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="ask-bash" checked> Bash・Write・Edit を毎回確認する（承認の流れを必ず通すため）</label>
+    </div>
+    <div class="row">
+      <button type="button" class="act" id="btn-start">起動</button>
+      <button type="button" class="act secondary" id="btn-resume" disabled>resume で起動し直す</button>
+      <button type="button" class="act secondary" id="btn-interrupt" disabled>中断</button>
+      <button type="button" class="act danger" id="btn-kill" disabled>終了</button>
+      <button type="button" class="act secondary" id="btn-notify">通知を許可</button>
+    </div>
+    <p class="status-line" id="sess-status">未起動</p>
+    <div class="transcript" id="transcript"></div>
+    <div class="field">
+      <label for="prompt">発言</label>
+      <textarea id="prompt">Bash で `pwd` と `date` を実行して、結果を 1 行ずつ教えてください。</textarea>
+    </div>
+    <div class="row">
+      <button type="button" class="act" id="btn-send" disabled>送信</button>
+      <button type="button" class="act secondary" id="btn-long" disabled>中断テスト用の長い質問を入れる</button>
+    </div>
+    <details>
+      <summary>生のメッセージ（直近 300 行）と stderr</summary>
+      <div class="grid-2">
+        <pre id="raw-log"></pre>
+        <pre id="stderr-log"></pre>
+      </div>
+    </details>
+  </section>
+
+  <section class="step" id="step3" aria-labelledby="step3-h">
+    <div class="step-head">
+      <h2 id="step3-h"><span class="step-no">3</span>ウィンドウを閉じても動き続けるか</h2>
+      <span class="chip verdict" id="v3">未確認</span>
+    </div>
+    <div class="how">
+      <p>切り離して起動したプロセスが、ウィンドウを閉じたあとも残るかを確かめます（macOS / Linux）。</p>
+      <ol>
+        <li>「心拍プロセスを 3 方式で起動」と「バックグラウンドで claude を実行」を押す</li>
+        <li>すぐにウィンドウを閉じる。別の回では <kbd>⌘Q</kbd> でアプリごと終了する</li>
+        <li>30 秒ほど待ってからアプリを開き直し、「状態を確認」を押す</li>
+      </ol>
+    </div>
+    <div class="row">
+      <button type="button" class="act" id="btn-hb-start">心拍プロセスを 3 方式で起動</button>
+      <button type="button" class="act secondary" id="btn-hb-check">状態を確認</button>
+      <button type="button" class="act danger" id="btn-hb-stop">心拍プロセスを止める</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>方式</th><th>状態</th><th>最終心拍</th><th>起動</th><th>PID</th></tr></thead>
+        <tbody id="hb-body">
+          <tr><td colspan="5" class="muted">まだ起動していません。plain（普通の &amp;）、nohup、setsid の 3 方式を同時に動かして比べます。</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3>バックグラウンドの claude</h3>
+    <div class="row">
+      <div class="field">
+        <label for="bg-prompt">claude -p に渡す質問（時間がかかるものにします）</label>
+        <textarea id="bg-prompt">1 から 40 まで、1 行に 1 つずつ数字を書き、それぞれの後ろにその数字にまつわる短い豆知識を一言添えてください。</textarea>
+      </div>
+      <div class="field narrow">
+        <label for="bg-method">切り離し方</label>
+        <select id="bg-method">
+          <option value="setsid">setsid</option>
+          <option value="nohup">nohup</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <button type="button" class="act" id="btn-bg-start">バックグラウンドで claude を実行</button>
+      <button type="button" class="act secondary" id="btn-bg-check">出力を確認</button>
+    </div>
+    <p class="status-line" id="bg-status">まだ実行していません。</p>
+    <pre id="bg-output" hidden></pre>
+  </section>
+
+  <section class="step" id="step4" aria-labelledby="step4-h">
+    <div class="step-head">
+      <h2 id="step4-h">結果のまとめ</h2>
+      <span class="chip verdict" id="saved-at">未保存</span>
+    </div>
+    <p class="how">
+      ここに出る Markdown を cc-manabu の開発セッションに貼ると、検証結果として記録できます。
+      ホームディレクトリは <code>~</code> に置き換えてあります。
+    </p>
+    <div class="row">
+      <button type="button" class="act" id="btn-copy">まとめをコピー</button>
+      <button type="button" class="act secondary" id="btn-reset">結果を消す</button>
+    </div>
+    <pre id="summary">まだ結果がありません。</pre>
+    <p class="err" id="reset-confirm" hidden></p>
+  </section>
+</div>
+
+<script type="module">
+  const $ = (id) => document.getElementById(id);
+  function h(tag, props = {}, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(props)) {
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v;
+      else if (k === "text") el.textContent = v;
+      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? "" : String(v));
+    }
+    for (const c of kids.flat()) {
+      if (c == null || c === false) continue;
+      el.append(c instanceof Node ? c : String(c));
+    }
+    return el;
+  }
+  const errText = (e) => (e && typeof e === "object" && "message" in e ? String(e.message) : String(e));
+  const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const withTimeout = (p, ms, label) =>
+    Promise.race([p, sleep(ms).then(() => Promise.reject(new Error(`${label} が ${ms / 1000} 秒以内に返りませんでした`)))]);
+  const fmtTime = (ms) => new Date(ms).toLocaleTimeString("ja-JP", { hour12: false });
+  const setChip = (el, text, state) => {
+    el.textContent = text;
+    const chip = el.closest(".chip") ?? el;
+    if (state) chip.dataset.state = state;
+    else delete chip.dataset.state;
+  };
+
+  const PAGE_LOADED_AT = Date.now();
+  let desktop = null;
+  let platform = "";
+  let home = "";
+  let sep = "/";
+  let dirAbs = "";
+  let loginShell = "";
+  let fullAccess = false;
+  let notifyGranted = false;
+
+  const results = {
+    env: {},
+    detect: null,
+    protocol: { approvals: [], errors: [] },
+    detached: { checks: [], claudeRun: null },
+  };
+
+  const posix = () => platform !== "win32";
+  const pathJoin = (...parts) => parts.join(sep);
+  const tilde = (s) => (home && typeof s === "string" ? s.split(home).join("~") : s);
+  const expandHome = (p) => {
+    if (!p) return home;
+    if (p === "~") return home;
+    if (p.startsWith("~/") || p.startsWith("~\\")) return home + p.slice(1);
+    return p;
+  };
+
+  // ---------- 保存とまとめ ----------
+  let saveTimer = 0;
+  function saveResults() {
+    renderSummary();
+    if (!fullAccess) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      try {
+        await desktop.fs.writeFile(pathJoin(dirAbs, "results.json"), JSON.stringify(results, null, 2), "utf8");
+        setChip($("saved-at"), `保存済み ${fmtTime(Date.now())}`, "ok");
+      } catch (e) {
+        setChip($("saved-at"), `保存に失敗: ${errText(e)}`, "bad");
+      }
+    }, 400);
+  }
+
+  function yesNo(v) {
+    if (v === true) return "OK";
+    if (v === false) return "NG";
+    return "未実施";
+  }
+
+  function renderSummary() {
+    const L = [];
+    const env = results.env;
+    L.push("## cc-manabu デスクトップ検証の結果", "");
+    L.push(`- 記録: ${new Date().toISOString()}`);
+    L.push(`- OS: ${env.platform ?? "?"} / ${env.arch ?? "?"}`);
+    if (env.claudeCodeVersion) L.push(`- Claude Code: ${env.claudeCodeVersion}（${env.subscriptionType ?? "?"}）`);
+    L.push("", "### 1. claude の検出", "");
+    if (results.detect) {
+      L.push(`- ログインシェル: ${tilde(results.detect.shell ?? "-")}`);
+      L.push("", "| 方法 | 結果 | パス | バージョン | 時間 |", "| --- | --- | --- | --- | --- |");
+      for (const v of results.detect.variants) {
+        L.push(`| ${v.label} | ${v.found ? "見つかった" : "見つからない"} | ${tilde(v.path ?? "-")} | ${v.version ?? "-"} | ${v.ms} ms |`);
+      }
+      L.push("", `- 採用した起動方法: ${results.detect.chosen ?? "-"}`);
+    } else {
+      L.push("- 未実施");
+    }
+    const p = results.protocol;
+    L.push("", "### 2. 制御プロトコル", "");
+    if (p.init) {
+      L.push(`- 起動方法: ${p.init.mode}`);
+      L.push(`- initialize: ${p.init.ok ? `OK（${p.init.ms} ms、モデル ${p.init.models ?? "?"} 件、コマンド ${p.init.commands ?? "?"} 件）` : `NG: ${tilde(p.init.error)}`}`);
+      L.push(`- ストリーミング（text_delta）: ${yesNo(p.streamed)}`);
+      const approvals = p.approvals ?? [];
+      if (approvals.length) {
+        const maxWait = Math.max(...approvals.map((a) => a.waitSec));
+        L.push(`- 承認（can_use_tool）: ${approvals.length} 回応答、最長の待ち ${maxWait} 秒、許可後にツールが実行された: ${yesNo(p.toolRanAfterApproval)}`);
+        L.push(`  - 内訳: ${approvals.map((a) => `${a.tool}=${a.decision}(${a.waitSec}s)`).join(", ")}`);
+      } else {
+        L.push(`- 承認（can_use_tool）: ${p.approvalSeen ? "要求は来たが未応答" : "未実施"}`);
+      }
+      L.push(`- 中断（interrupt）: ${p.interrupt ? `${p.interrupt.ok ? "OK" : "NG"}${p.interrupt.resultSubtype ? `（result: ${p.interrupt.resultSubtype}）` : ""}${p.interrupt.error ? ` ${p.interrupt.error}` : ""}` : "未実施"}`);
+      L.push(`- モデル切替（set_model）: ${p.setModel ? `${p.setModel.ok ? "OK" : "NG"} → ${p.setModel.model}${p.setModel.error ? ` ${p.setModel.error}` : ""}` : "未実施"}`);
+      L.push(`- resume: ${p.resume ? `起動 ${p.resume.ok ? "OK" : "NG"}、session_id ${p.resume.sameId ? "同じ" : "変わった"}${p.resume.error ? ` ${p.resume.error}` : ""}` : "未実施"}`);
+      L.push(`- 利用枠イベント（rate_limit_event）: ${p.rateLimit ? `受信（5 時間 ${p.rateLimit.fiveHour ?? "?"}、7 日 ${p.rateLimit.sevenDay ?? "?"}）` : "未受信"}`);
+      if (p.lastResult) {
+        L.push(`- 最後の result: ${p.lastResult.subtype}、${p.lastResult.durationMs} ms、$${p.lastResult.costUsd ?? "?"}、入力 ${p.lastResult.inputTokens ?? "?"} / 出力 ${p.lastResult.outputTokens ?? "?"} tokens`);
+      }
+      if (p.exit) L.push(`- プロセス終了: code=${p.exit.code} signal=${p.exit.signal}`);
+    } else {
+      L.push("- 未実施");
+    }
+    if (p.errors?.length) {
+      L.push("", "エラー:", ...p.errors.slice(-8).map((e) => `- ${tilde(e)}`));
+    }
+    L.push("", "### 3. 切り離したプロセス", "");
+    const checks = results.detached.checks ?? [];
+    if (checks.length) {
+      L.push("| 確認時刻 | 方式 | 生存 | 最終心拍 | このページより前に起動 |", "| --- | --- | --- | --- | --- |");
+      for (const c of checks.slice(-12)) {
+        L.push(`| ${c.at} | ${c.method} | ${c.alive ? "生存" : "停止"} | ${c.beatAgeSec ?? "-"} 秒前 | ${c.startedBeforePage ? "はい" : "いいえ"} |`);
+      }
+    } else {
+      L.push("- 心拍プロセス: 未実施");
+    }
+    const run = results.detached.claudeRun;
+    if (run) {
+      L.push("", `- バックグラウンドの claude（${run.method}）: ${run.state}、${run.lines} 行、終了コード ${run.exitCode ?? "-"}、このページより前に起動: ${run.startedBeforePage ? "はい" : "いいえ"}`);
+      if (run.err) L.push(`  - stderr: ${tilde(run.err)}`);
+    }
+    $("summary").textContent = L.join("\n");
+  }
+
+  // ---------- 起動とゲート ----------
+  function setActionsEnabled(enabled) {
+    for (const b of document.querySelectorAll("button.act")) b.disabled = !enabled;
+    if (enabled) syncSessionButtons();
+  }
+
+  function showGate(text, actions = [], tone = "warn") {
+    const gate = $("gate");
+    gate.hidden = false;
+    gate.dataset.tone = tone;
+    $("gate-text").textContent = text;
+    $("gate-actions").replaceChildren(...actions);
+  }
+
+  async function boot() {
+    setActionsEnabled(false);
+    renderSummary();
+    if (!window.claude?.use) {
+      setChip($("runtime"), "Claude の外", "bad");
+      showGate("このページは Claude の中で開いたときだけ動きます。claude.ai か Claude デスクトップアプリで開いてください。");
+      return;
+    }
+    desktop = await window.claude.use("desktop").catch(() => null);
+    if (!desktop?.fs) {
+      await renderNotInstalled();
+      return;
+    }
+    setChip($("runtime"), "インストール済みアプリ", "ok");
+    platform = await desktop.os.platform().catch(() => "unknown");
+    const arch = await desktop.os.arch().catch(() => "?");
+    sep = platform === "win32" ? "\\" : "/";
+    results.env.platform = platform;
+    results.env.arch = arch;
+    $("platform").textContent = `${platform} / ${arch}`;
+    if (platform === "win32") $("launch-mode").value = "direct";
+    desktop.app.dock.setIcon(drawIcon()).catch(() => {});
+    await refreshPermissions();
+    if (fullAccess) await afterFullAccess();
+    else showFullAccessGate();
+  }
+
+  async function renderNotInstalled() {
+    setChip($("runtime"), "ブラウザ表示", "warn");
+    const state = await desktop?.install?.state().catch(() => "unavailable");
+    if (state === "available") {
+      const btn = h("button", { type: "button", text: "アプリとしてインストール" });
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        const r = await desktop.install.request().catch((e) => `failed: ${errText(e)}`);
+        if (r === "installed") showGate("インストールしました。Dock（Windows ではスタートメニュー）の「cc-manabu デスクトップ検証」から開いてください。", [], "ok");
+        else {
+          btn.disabled = false;
+          showGate(`インストールできませんでした（${r}）。もう一度押すか、artifact のメニューの「Install as app」から入れてください。`, [btn]);
+        }
+      });
+      showGate("ファイルの読み書きとコマンドの実行は、このページをアプリとしてインストールしたウィンドウの中でだけ使えます。インストールしてから、アプリのウィンドウで開いてください。", [btn]);
+    } else if (state === "installed") {
+      showGate("このコンピュータにはインストール済みです。Dock（Windows ではスタートメニュー）の「cc-manabu デスクトップ検証」から開いてください。");
+    } else {
+      showGate("この画面ではインストールできません。Claude デスクトップアプリ（macOS / Windows）でこの artifact を開き、「Install as app」を選んでください。");
+    }
+  }
+
+  async function refreshPermissions() {
+    const st = await desktop.permissions.state().catch(() => null);
+    const full = st?.["full-access"] ?? "unavailable";
+    const notify = st?.notifications ?? "unavailable";
+    fullAccess = full === "granted";
+    notifyGranted = notify === "granted";
+    const label = { granted: "許可済み", prompt: "未確認", denied: "拒否", unavailable: "使えない" };
+    const tone = { granted: "ok", prompt: "warn", denied: "bad", unavailable: "bad" };
+    setChip($("perm-full"), label[full] ?? full, tone[full]);
+    setChip($("perm-notify"), label[notify] ?? notify, notify === "granted" ? "ok" : undefined);
+    return st;
+  }
+
+  function showFullAccessGate() {
+    const btn = h("button", { type: "button", text: "フルアクセスを許可する" });
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      const st = await desktop.permissions.request(["full-access"]).catch((e) => {
+        showGate(`許可を求められませんでした: ${errText(e)}`, [btn]);
+        return null;
+      });
+      btn.disabled = false;
+      await refreshPermissions();
+      if (fullAccess) await afterFullAccess();
+      else if (st?.["full-access"] === "denied") {
+        const manage = h("button", { type: "button", class: "secondary", text: "権限の設定を開く" });
+        manage.addEventListener("click", () => desktop.permissions.manage().then(refreshPermissions).then(() => fullAccess && afterFullAccess()).catch(() => {}));
+        showGate("フルアクセスが拒否されています。権限の設定から許可してください。", [manage]);
+      } else if (st?.["full-access"] === "unavailable") {
+        showGate("この artifact ではフルアクセスを使えません。組織の外の人が編集した artifact では許可できないので、自分のアカウントで公開し直したものを使ってください。", [], "warn");
+      }
+    });
+    showGate("手順 1〜3 では、ファイルの読み書きとコマンドの実行を使います。検証を始めるにはフルアクセスを許可してください。", [btn]);
+  }
+
+  async function afterFullAccess() {
+    $("gate").hidden = true;
+    try {
+      home = await desktop.os.homedir();
+    } catch (e) {
+      showGate(`ホームディレクトリを取得できませんでした: ${errText(e)}`);
+      return;
+    }
+    dirAbs = pathJoin(home, ".cc-manabu-spike");
+    await desktop.fs.mkdir(dirAbs, { recursive: true }).catch(() => {});
+    try {
+      const saved = JSON.parse(await desktop.fs.readFile(pathJoin(dirAbs, "results.json"), "utf8"));
+      Object.assign(results, saved);
+      results.env.platform = platform;
+      results.protocol ??= { approvals: [], errors: [] };
+      results.protocol.approvals ??= [];
+      results.protocol.errors ??= [];
+      results.detached ??= { checks: [], claudeRun: null };
+      setChip($("saved-at"), "前回の結果を読み込みました", "ok");
+    } catch {
+      // 初回は results.json がない
+    }
+    if (results.detect) restoreDetect();
+    if (!posix()) {
+      for (const id of ["btn-hb-start", "btn-hb-check", "btn-hb-stop", "btn-bg-start", "btn-bg-check"]) $(id).dataset.unsupported = "1";
+      setChip($("v3"), "Windows は対象外", "warn");
+    }
+    setActionsEnabled(true);
+    renderVerdicts();
+    renderSummary();
+    if (posix()) {
+      checkHeartbeats({ record: false }).catch(() => {});
+      checkBackgroundClaude({ record: false }).catch(() => {});
+    }
+  }
+
+  function drawIcon() {
+    const c = document.createElement("canvas");
+    c.width = c.height = 256;
+    const g = c.getContext("2d");
+    g.fillStyle = "#1d5bc9";
+    g.beginPath();
+    g.roundRect(8, 8, 240, 240, 52);
+    g.fill();
+    g.fillStyle = "#ffffff";
+    g.font = "700 150px 'Hiragino Sans', 'Yu Gothic UI', 'Noto Sans JP', sans-serif";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText("学", 128, 136);
+    g.fillStyle = "#9fd0ff";
+    g.fillRect(64, 206, 128, 10);
+    return c.toDataURL("image/png");
+  }
+
+  // ---------- 1. claude を見つける ----------
+  const parseProbe = (stdout) => {
+    const lines = stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const path = lines.find((l) => /^(\/|[A-Za-z]:\\).*claude(\.exe|\.cmd|\.ps1)?$/i.test(l)) ?? null;
+    const verLine = lines.find((l) => /Claude Code/.test(l)) ?? lines.find((l) => /^\d+\.\d+\.\d+/.test(l));
+    const version = verLine?.match(/\d+\.\d+\.\d+/)?.[0] ?? null;
+    const pathLine = lines.find((l) => l.startsWith("PATH="));
+    return { path, version, PATH: pathLine ? pathLine.slice(5) : null };
+  };
+
+  async function detect() {
+    const btn = $("btn-detect");
+    btn.disabled = true;
+    setChip($("v1"), "確認中…");
+    $("detect-body").replaceChildren(h("tr", {}, h("td", { colspan: 4, class: "muted pulse", text: "探しています…" })));
+    const variants = [];
+    try {
+      if (posix()) {
+        const r = await desktop.childProcess.exec('printf "%s" "$SHELL"', { timeout: 5000 });
+        loginShell = r.stdout.trim() || (platform === "darwin" ? "/bin/zsh" : "/bin/bash");
+        const probe = 'command -v claude || echo "(not found)"; claude --version 2>&1 | head -n 1; printf "PATH=%s\\n" "$PATH"';
+        variants.push({ key: "direct", label: "アプリの環境", cmd: probe });
+        variants.push({ key: "login", label: "ログインシェル（-lc）", cmd: `${q(loginShell)} -lc ${q(probe)}` });
+        variants.push({ key: "loginInteractive", label: "対話ログインシェル（-lic）", cmd: `${q(loginShell)} -lic ${q(probe)}` });
+      } else {
+        variants.push({ key: "direct", label: "cmd.exe", cmd: "where claude & claude --version & echo PATH=%PATH%" });
+        variants.push({
+          key: "shell",
+          label: "PowerShell",
+          cmd: `powershell -NoProfile -Command "(Get-Command claude -ErrorAction SilentlyContinue).Source; claude --version; 'PATH=' + $env:PATH"`,
+        });
+      }
+      const out = [];
+      for (const v of variants) {
+        const t0 = performance.now();
+        let r;
+        try {
+          r = await desktop.childProcess.exec(v.cmd, { timeout: 20000 });
+        } catch (e) {
+          r = { stdout: "", stderr: errText(e), code: null };
+        }
+        const parsed = parseProbe(`${r.stdout}\n${r.stderr}`);
+        out.push({
+          key: v.key,
+          label: v.label,
+          found: Boolean(parsed.path),
+          path: parsed.path,
+          version: parsed.version,
+          PATH: parsed.PATH,
+          ms: Math.round(performance.now() - t0),
+          code: r.code,
+        });
+      }
+      const chosen = out.find((v) => v.found && v.key === "login") ?? out.find((v) => v.found);
+      results.detect = { shell: loginShell, variants: out, chosen: chosen?.key ?? null };
+      if (chosen) {
+        $("claude-path").value = chosen.path;
+        $("launch-mode").value = chosen.key;
+      }
+      renderDetect();
+    } catch (e) {
+      results.detect = { shell: loginShell, variants: [], chosen: null, error: errText(e) };
+      $("detect-body").replaceChildren(h("tr", {}, h("td", { colspan: 4, class: "err", text: `探せませんでした: ${errText(e)}` })));
+    }
+    btn.disabled = false;
+    renderVerdicts();
+    saveResults();
+  }
+
+  function restoreDetect() {
+    loginShell = results.detect.shell || loginShell;
+    const chosen = results.detect.variants?.find((v) => v.key === results.detect.chosen);
+    if (chosen && !$("claude-path").value) {
+      $("claude-path").value = chosen.path;
+      $("launch-mode").value = chosen.key;
+    }
+    renderDetect();
+  }
+
+  function renderDetect() {
+    const rows = (results.detect?.variants ?? []).map((v) =>
+      h(
+        "tr",
+        {},
+        h("td", {}, v.label, v.key === results.detect.chosen ? h("span", { class: "muted small", text: "（採用）" }) : null),
+        h("td", { class: "mono", text: v.found ? tilde(v.path) : "見つからない" }),
+        h("td", { class: "mono", text: v.version ?? "-" }),
+        h("td", { class: "mono", text: `${v.ms} ms` }),
+      ),
+    );
+    $("detect-body").replaceChildren(...rows);
+  }
+
+  const currentPATH = () => {
+    const d = results.detect;
+    const v = d?.variants?.find((x) => x.key === d.chosen) ?? d?.variants?.find((x) => x.PATH);
+    return v?.PATH ?? null;
+  };
+
+  function buildLaunch(args) {
+    const path = $("claude-path").value.trim();
+    if (!path) throw new Error("先に手順 1 で claude を探すか、パスを入力してください");
+    const mode = $("launch-mode").value;
+    if ((mode === "login" || mode === "loginInteractive") && posix()) {
+      const shell = loginShell || (platform === "darwin" ? "/bin/zsh" : "/bin/bash");
+      return { mode, cmd: shell, args: [mode === "login" ? "-lc" : "-lic", 'exec "$0" "$@"', path, ...args] };
+    }
+    if (mode === "shell") return { mode, cmd: path, args, shell: true };
+    return { mode: "direct", cmd: path, args };
+  }
+
+  // ---------- 2. 制御プロトコル ----------
+  const rawLines = [];
+  let rawDirty = false;
+  let logFile = "";
+  let logBatch = [];
+  function logRaw(dir, line) {
+    rawLines.push(`${dir === "in" ? "→" : "←"} ${line}`);
+    if (rawLines.length > 300) rawLines.splice(0, rawLines.length - 300);
+    rawDirty = true;
+    if (logFile) logBatch.push(`${JSON.stringify({ dir, at: Date.now(), line })}\n`);
+  }
+  setInterval(() => {
+    if (rawDirty) {
+      $("raw-log").textContent = rawLines.map((l) => (l.length > 600 ? `${l.slice(0, 600)}…` : l)).join("\n");
+      rawDirty = false;
+    }
+    if (logFile && logBatch.length && fullAccess) {
+      const chunk = logBatch.join("");
+      logBatch = [];
+      desktop.fs.appendFile(logFile, chunk, "utf8").catch(() => {});
+    }
+  }, 800);
+
+  function pushError(msg) {
+    results.protocol.errors.push(`${fmtTime(Date.now())} ${msg}`);
+    if (results.protocol.errors.length > 30) results.protocol.errors.splice(0, results.protocol.errors.length - 30);
+    $("transcript").append(h("p", { class: "err", text: msg }));
+    saveResults();
+  }
+
+  class Session {
+    constructor() {
+      this.pending = new Map();
+      this.buf = "";
+      this.seq = 0;
+      this.alive = false;
+      this.sessionId = null;
+      this.busy = false;
+      this.stderr = "";
+    }
+    start({ cmd, args, cwd, shell }) {
+      const p = desktop.childProcess.spawn(cmd, args, { cwd, ...(shell ? { shell: true } : {}) });
+      this.proc = p;
+      this.alive = true;
+      p.stdout.on("data", (c) => this.onChunk(c));
+      p.stderr.on("data", (c) => {
+        this.stderr = (this.stderr + c).slice(-4000);
+        $("stderr-log").textContent = this.stderr;
+      });
+      p.on("error", (e) => pushError(`プロセスのエラー: ${errText(e)}`));
+      p.on("exit", (code, signal) => {
+        this.alive = false;
+        for (const [, pd] of this.pending) pd.reject(new Error(`プロセスが終了しました（code=${code}）`));
+        this.pending.clear();
+        onSessionExit(this, code, signal);
+      });
+    }
+    onChunk(c) {
+      this.buf += c;
+      for (let i = this.buf.indexOf("\n"); i >= 0; i = this.buf.indexOf("\n")) {
+        const line = this.buf.slice(0, i).trim();
+        this.buf = this.buf.slice(i + 1);
+        if (!line) continue;
+        logRaw("out", line);
+        let m;
+        try {
+          m = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        if (m.type === "control_response") {
+          const r = m.response ?? {};
+          const pd = this.pending.get(r.request_id);
+          if (pd) {
+            this.pending.delete(r.request_id);
+            if (r.subtype === "success") pd.resolve(r.response ?? {});
+            else pd.reject(new Error(r.error ?? "control_response error"));
+          }
+          continue;
+        }
+        try {
+          handleMessage(this, m);
+        } catch (e) {
+          pushError(`表示中のエラー: ${errText(e)}`);
+        }
+      }
+    }
+    write(obj) {
+      const line = JSON.stringify(obj);
+      logRaw("in", line);
+      return this.proc.stdin.write(`${line}\n`);
+    }
+    request(subtype, extra = {}) {
+      const id = `req_${Date.now().toString(36)}_${++this.seq}`;
+      return new Promise((resolve, reject) => {
+        this.pending.set(id, { resolve, reject });
+        this.write({ request_id: id, type: "control_request", request: { subtype, ...extra } }).catch((e) => {
+          this.pending.delete(id);
+          reject(e);
+        });
+      });
+    }
+    respond(requestId, response) {
+      return this.write({ type: "control_response", response: { subtype: "success", request_id: requestId, response } });
+    }
+    respondError(requestId, error) {
+      return this.write({ type: "control_response", response: { subtype: "error", request_id: requestId, error } });
+    }
+    sendUser(text) {
+      return this.write({
+        type: "user",
+        session_id: "",
+        message: { role: "user", content: [{ type: "text", text }] },
+        parent_tool_use_id: null,
+      });
+    }
+  }
+
+  let sess = null;
+  let resumeCheck = null;
+  let interruptPending = false;
+  const streamed = new Set();
+  const toolCards = new Map();
+  const approvals = new Map();
+  const approvedToolUses = new Set();
+  let cur = null;
+
+  function syncSessionButtons() {
+    const alive = Boolean(sess?.alive);
+    const ready = alive && Boolean(sess.ready);
+    $("btn-start").disabled = alive;
+    $("btn-send").disabled = !ready || sess.busy;
+    $("btn-long").disabled = !ready;
+    $("btn-interrupt").disabled = !ready || !sess.busy;
+    $("btn-kill").disabled = !alive;
+    $("btn-resume").disabled = !sess?.sessionId;
+    for (const b of document.querySelectorAll("button[data-unsupported]")) b.disabled = true;
+  }
+
+  function setStatus(text) {
+    $("sess-status").textContent = tilde(text);
+  }
+
+  async function writeAskSettings() {
+    const file = pathJoin(dirAbs, "ask-settings.json");
+    await desktop.fs.writeFile(file, JSON.stringify({ permissions: { ask: ["Bash", "Write", "Edit"] } }), "utf8");
+    return file;
+  }
+
+  async function startSession({ resume = false } = {}) {
+    const prevId = sess?.sessionId ?? null;
+    if (resume && sess?.alive) {
+      sess.proc.kill().catch(() => {});
+      await sleep(300);
+    }
+    const args = [
+      "--output-format", "stream-json", "--verbose",
+      "--input-format", "stream-json",
+      "--include-partial-messages",
+      "--permission-prompt-tool", "stdio",
+      "--setting-sources", "user,project,local",
+    ];
+    const model = $("model").value;
+    if (model) args.push("--model", model);
+    try {
+      if ($("ask-bash").checked) args.push("--settings", await writeAskSettings());
+    } catch (e) {
+      pushError(`確認用の設定ファイルを書けませんでした: ${errText(e)}`);
+    }
+    if (resume && prevId) args.push("--resume", prevId);
+    let launch;
+    try {
+      launch = buildLaunch(args);
+    } catch (e) {
+      pushError(errText(e));
+      return;
+    }
+    const cwd = expandHome($("cwd").value.trim());
+    logFile = pathJoin(dirAbs, `protocol-${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`);
+    const s = new Session();
+    sess = s;
+    s.launchMode = launch.mode;
+    if (resume) resumeCheck = { prevId };
+    setStatus(`起動中… ${launch.mode} / ${cwd}`);
+    $("transcript").append(h("p", { class: "turn-meta", text: resume ? `— resume（${prevId}）で起動 —` : "— 起動 —" }));
+    s.start({ ...launch, cwd });
+    syncSessionButtons();
+    const t0 = performance.now();
+    try {
+      const resp = await withTimeout(s.request("initialize"), 60000, "initialize");
+      s.ready = true;
+      const ms = Math.round(performance.now() - t0);
+      results.protocol.init = {
+        ok: true,
+        ms,
+        mode: launch.mode,
+        models: Array.isArray(resp.models) ? resp.models.length : null,
+        commands: Array.isArray(resp.commands) ? resp.commands.length : null,
+      };
+      results.env.claudeCodeVersion = resp.claude_code_version ?? results.env.claudeCodeVersion;
+      results.env.subscriptionType = resp.account?.subscriptionType ?? results.env.subscriptionType;
+      fillModelOptions(resp.models);
+      setStatus(`initialize OK（${ms} ms） / Claude Code ${resp.claude_code_version ?? "?"} / ${resp.account?.subscriptionType ?? "?"} / ${cwd}`);
+      if (resume) results.protocol.resume = { ok: true, prevId, sameId: null };
+    } catch (e) {
+      results.protocol.init = { ok: false, mode: launch.mode, error: `${errText(e)}${s.stderr ? ` / stderr: ${s.stderr.slice(-300)}` : ""}` };
+      if (resume) results.protocol.resume = { ok: false, prevId, error: errText(e) };
+      pushError(`initialize に失敗しました: ${errText(e)}`);
+      if (s.alive) s.proc.kill().catch(() => {});
+    }
+    syncSessionButtons();
+    renderVerdicts();
+    saveResults();
+  }
+
+  let modelsFilled = false;
+  function fillModelOptions(models) {
+    if (modelsFilled || !Array.isArray(models) || !models.length) return;
+    modelsFilled = true;
+    const sel = $("model");
+    const keep = sel.value;
+    const opts = models.map((m) => h("option", { value: m.value, text: `${m.displayName ?? m.value}${m.value === "default" ? "" : `（${m.value}）`}` }));
+    sel.replaceChildren(...opts);
+    if ([...sel.options].some((o) => o.value === keep)) sel.value = keep;
+    else sel.value = models[0].value;
+  }
+
+  async function onModelChange() {
+    if (!sess?.alive || !sess.ready) return;
+    const model = $("model").value;
+    try {
+      await withTimeout(sess.request("set_model", { model }), 15000, "set_model");
+      results.protocol.setModel = { ok: true, model };
+      $("transcript").append(h("p", { class: "turn-meta", text: `— モデルを ${model} に切り替え（set_model） —` }));
+    } catch (e) {
+      results.protocol.setModel = { ok: false, model, error: errText(e) };
+      pushError(`set_model に失敗しました: ${errText(e)}`);
+    }
+    saveResults();
+  }
+
+  function onSessionExit(s, code, signal) {
+    if (s !== sess) return;
+    results.protocol.exit = { code, signal };
+    for (const [, a] of approvals) {
+      clearInterval(a.iv);
+      a.card.dataset.done = "1";
+    }
+    approvals.clear();
+    s.busy = false;
+    setStatus(`プロセス終了（code=${code} signal=${signal}）${s.sessionId ? ` / session ${s.sessionId}` : ""}`);
+    syncSessionButtons();
+    saveResults();
+  }
+
+  function newAssistantBlock() {
+    const el = h("div", { class: "msg" });
+    $("transcript").append(el);
+    cur = { el, text: null, thinking: null };
+    return cur;
+  }
+
+  function handleMessage(s, m) {
+    if (m.type === "control_request") {
+      if (m.request?.subtype === "can_use_tool") showApproval(s, m);
+      else s.respondError(m.request_id, `このスパイクは ${m.request?.subtype} に対応していません`).catch(() => {});
+      return;
+    }
+    if (m.type === "control_cancel_request") {
+      const a = approvals.get(m.request_id);
+      if (a) {
+        clearInterval(a.iv);
+        a.card.dataset.done = "1";
+        a.status.textContent = "Claude Code 側で取り消されました";
+        approvals.delete(m.request_id);
+      }
+      return;
+    }
+    if (m.parent_tool_use_id) return;
+    switch (m.type) {
+      case "system":
+        if (m.subtype === "init") {
+          s.sessionId = m.session_id;
+          if (resumeCheck && results.protocol.resume) {
+            results.protocol.resume.sameId = m.session_id === resumeCheck.prevId;
+            resumeCheck = null;
+          }
+          setStatus(`session ${m.session_id} / ${m.model} / ${m.cwd} / ツール ${m.tools?.length ?? "?"} 個`);
+          syncSessionButtons();
+        }
+        return;
+      case "stream_event": {
+        const ev = m.event ?? {};
+        if (ev.type === "message_start") {
+          newAssistantBlock();
+          if (ev.message?.id) streamed.add(ev.message.id);
+        } else if (ev.type === "content_block_delta") {
+          if (!cur) newAssistantBlock();
+          if (ev.delta?.type === "text_delta") {
+            if (!cur.text) {
+              cur.text = h("div", { class: "msg-text" });
+              cur.el.append(cur.text);
+            }
+            cur.text.textContent += ev.delta.text;
+            if (!results.protocol.streamed) {
+              results.protocol.streamed = true;
+              renderVerdicts();
+              saveResults();
+            }
+          } else if (ev.delta?.type === "thinking_delta") {
+            if (!cur.thinking) {
+              cur.thinking = h("div", { class: "msg-thinking" });
+              cur.el.append(cur.thinking);
+            }
+            cur.thinking.textContent += ev.delta.thinking;
+          }
+        } else if (ev.type === "content_block_stop") {
+          if (cur) {
+            cur.text = null;
+            cur.thinking = null;
+          }
+        }
+        return;
+      }
+      case "assistant": {
+        const content = m.message?.content ?? [];
+        const wasStreamed = streamed.has(m.message?.id);
+        for (const b of content) {
+          if (b.type === "tool_use") addToolCard(b);
+          else if (b.type === "text" && !wasStreamed) {
+            const blk = cur ?? newAssistantBlock();
+            blk.el.append(h("div", { class: "msg-text", text: b.text }));
+          }
+        }
+        return;
+      }
+      case "user": {
+        const content = Array.isArray(m.message?.content) ? m.message.content : [];
+        for (const b of content) {
+          if (b.type !== "tool_result") continue;
+          const card = toolCards.get(b.tool_use_id);
+          const text = typeof b.content === "string" ? b.content : (b.content ?? []).map((x) => x.text ?? "").join("\n");
+          if (card) {
+            card.out.hidden = false;
+            card.out.textContent = text.length > 4000 ? `${text.slice(0, 4000)}…` : text;
+            card.badge.textContent = b.is_error ? "エラー" : "完了";
+            card.badge.closest(".chip").dataset.state = b.is_error ? "bad" : "ok";
+          }
+          if (approvedToolUses.has(b.tool_use_id) && !b.is_error) {
+            results.protocol.toolRanAfterApproval = true;
+            renderVerdicts();
+            saveResults();
+          }
+        }
+        cur = null;
+        return;
+      }
+      case "rate_limit_event": {
+        const info = m.rate_limit_info ?? {};
+        const w = info.unifiedWindows ?? {};
+        const pct = (x) => (typeof x?.utilization === "number" ? `${Math.round(x.utilization * 100)}%` : null);
+        results.protocol.rateLimit = { status: info.status, fiveHour: pct(w.five_hour), sevenDay: pct(w.seven_day) };
+        saveResults();
+        return;
+      }
+      case "result": {
+        s.busy = false;
+        cur = null;
+        const u = m.usage ?? {};
+        results.protocol.lastResult = {
+          subtype: m.subtype,
+          isError: m.is_error,
+          durationMs: m.duration_ms,
+          costUsd: typeof m.total_cost_usd === "number" ? Number(m.total_cost_usd.toFixed(5)) : null,
+          inputTokens: (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0),
+          outputTokens: u.output_tokens ?? null,
+        };
+        if (interruptPending) {
+          interruptPending = false;
+          if (results.protocol.interrupt) results.protocol.interrupt.resultSubtype = m.subtype;
+        }
+        const rl = results.protocol.rateLimit;
+        $("transcript").append(
+          h("p", {
+            class: "turn-meta",
+            text: `— ${m.subtype} / ${(m.duration_ms / 1000).toFixed(1)} 秒 / $${results.protocol.lastResult.costUsd ?? "?"} / in ${results.protocol.lastResult.inputTokens} · out ${u.output_tokens ?? "?"} tokens${rl ? ` / 利用枠 5h ${rl.fiveHour ?? "?"} · 7d ${rl.sevenDay ?? "?"}` : ""} —`,
+          }),
+        );
+        syncSessionButtons();
+        renderVerdicts();
+        saveResults();
+        return;
+      }
+      default:
+        return;
+    }
+  }
+
+  function addToolCard(b) {
+    if (toolCards.has(b.id)) return;
+    const badge = h("b", { text: "実行待ち" });
+    const out = h("pre", { hidden: true });
+    const card = h(
+      "div",
+      { class: "tool" },
+      h("div", { class: "tool-head" }, h("span", { class: "chip" }, badge), h("strong", { text: b.name })),
+      h("pre", { text: JSON.stringify(b.input, null, 2) }),
+      out,
+    );
+    (cur?.el ?? $("transcript")).append(card);
+    toolCards.set(b.id, { card, badge, out });
+  }
+
+  function showApproval(s, m) {
+    const r = m.request;
+    const t0 = Date.now();
+    results.protocol.approvalSeen = true;
+    const timer = h("span", { class: "mono", text: "0 秒" });
+    const status = h("span", { class: "muted small" });
+    const allow = h("button", { type: "button", text: "許可" });
+    const deny = h("button", { type: "button", class: "danger", text: "拒否" });
+    const card = h(
+      "div",
+      { class: "approval", role: "group", "aria-label": `${r.tool_name} の承認` },
+      h("div", { class: "approval-head" }, h("strong", { text: `承認待ち: ${r.display_name ?? r.tool_name}` }), h("span", { class: "muted small", text: "待ち時間" }), timer),
+      r.description ? h("p", { class: "small", text: r.description }) : null,
+      h("pre", { text: JSON.stringify(r.input, null, 2) }),
+      h("div", { class: "row" }, allow, deny, status),
+    );
+    const iv = setInterval(() => {
+      timer.textContent = `${Math.round((Date.now() - t0) / 1000)} 秒`;
+    }, 1000);
+    approvals.set(m.request_id, { card, iv, status });
+    (cur?.el ?? $("transcript")).append(card);
+    if (notifyGranted && !document.hasFocus()) {
+      desktop.notification.show({ body: `承認待ち: ${r.display_name ?? r.tool_name}` }).catch(() => {});
+    }
+    desktop.app.dock.setBadge("承認").catch(() => {});
+    const answer = async (decision) => {
+      allow.disabled = deny.disabled = true;
+      clearInterval(iv);
+      const waitSec = Math.round((Date.now() - t0) / 1000);
+      const response =
+        decision === "allow"
+          ? { behavior: "allow", updatedInput: r.input, toolUseID: r.tool_use_id }
+          : { behavior: "deny", message: "ユーザーが拒否しました", toolUseID: r.tool_use_id };
+      try {
+        await s.respond(m.request_id, response);
+        if (decision === "allow") approvedToolUses.add(r.tool_use_id);
+        results.protocol.approvals.push({ tool: r.tool_name, decision, waitSec });
+        status.textContent = `${decision === "allow" ? "許可" : "拒否"}しました（${waitSec} 秒待ち）`;
+      } catch (e) {
+        status.textContent = `応答を送れませんでした: ${errText(e)}`;
+        pushError(`承認の応答に失敗しました: ${errText(e)}`);
+      }
+      card.dataset.done = "1";
+      approvals.delete(m.request_id);
+      if (!approvals.size) desktop.app.dock.setBadge("").catch(() => {});
+      renderVerdicts();
+      saveResults();
+    };
+    allow.addEventListener("click", () => answer("allow"));
+    deny.addEventListener("click", () => answer("deny"));
+  }
+
+  async function send() {
+    const text = $("prompt").value.trim();
+    if (!text || !sess?.ready) return;
+    $("transcript").append(h("div", { class: "msg msg-user", text }));
+    cur = null;
+    sess.busy = true;
+    syncSessionButtons();
+    try {
+      await sess.sendUser(text);
+      $("prompt").value = "";
+    } catch (e) {
+      sess.busy = false;
+      pushError(`送信に失敗しました: ${errText(e)}`);
+      syncSessionButtons();
+    }
+  }
+
+  async function interrupt() {
+    if (!sess?.alive) return;
+    interruptPending = true;
+    try {
+      await withTimeout(sess.request("interrupt"), 15000, "interrupt");
+      results.protocol.interrupt = { ok: true };
+    } catch (e) {
+      results.protocol.interrupt = { ok: false, error: errText(e) };
+      pushError(`中断に失敗しました: ${errText(e)}`);
+    }
+    renderVerdicts();
+    saveResults();
+  }
+
+  // ---------- 3. 切り離したプロセス ----------
+  const HB_METHODS = ["plain", "nohup", "setsid"];
+
+  async function writeHeartbeatScripts() {
+    const hb = [
+      "#!/bin/sh",
+      `D=${q(dirAbs)}`,
+      'M="$1"',
+      'echo $$ > "$D/hb-$M.pid"',
+      'date +%s > "$D/hb-$M.started"',
+      "i=0",
+      'while [ "$i" -lt 3600 ]; do date +%s > "$D/hb-$M.beat"; i=$((i+1)); sleep 1; done',
+      "",
+    ].join("\n");
+    await desktop.fs.writeFile(pathJoin(dirAbs, "heartbeat.sh"), hb, "utf8");
+  }
+
+  function detachLine(method, script, ...args) {
+    const call = `/bin/sh ${q(script)} ${args.map(q).join(" ")}`;
+    if (method === "setsid") {
+      return `if command -v setsid >/dev/null 2>&1; then setsid ${call} </dev/null >/dev/null 2>&1 & else perl -MPOSIX -e 'POSIX::setsid(); exec @ARGV' ${call} </dev/null >/dev/null 2>&1 & fi`;
+    }
+    return `${method === "nohup" ? "nohup " : ""}${call} </dev/null >/dev/null 2>&1 &`;
+  }
+
+  async function startHeartbeats() {
+    const btn = $("btn-hb-start");
+    btn.disabled = true;
+    try {
+      await writeHeartbeatScripts();
+      const script = pathJoin(dirAbs, "heartbeat.sh");
+      for (const m of HB_METHODS) {
+        for (const ext of ["pid", "beat", "started"]) await desktop.fs.rm(pathJoin(dirAbs, `hb-${m}.${ext}`), { force: true }).catch(() => {});
+      }
+      const cmd = `${HB_METHODS.map((m) => detachLine(m, script, m)).join("\n")}\necho started`;
+      const r = await desktop.childProcess.exec(cmd, { timeout: 10000 });
+      if (r.code !== 0) throw new Error(r.stderr || `exit ${r.code}`);
+      await sleep(1500);
+      await checkHeartbeats({ record: true });
+    } catch (e) {
+      $("hb-body").replaceChildren(h("tr", {}, h("td", { colspan: 5, class: "err", text: `起動できませんでした: ${errText(e)}` })));
+    }
+    btn.disabled = false;
+  }
+
+  async function readMaybe(path) {
+    try {
+      return (await desktop.fs.readFile(path, "utf8")).trim();
+    } catch {
+      return null;
+    }
+  }
+
+  async function checkHeartbeats({ record }) {
+    const now = Date.now();
+    const rows = [];
+    const states = [];
+    for (const m of HB_METHODS) {
+      const pid = await readMaybe(pathJoin(dirAbs, `hb-${m}.pid`));
+      const beat = await readMaybe(pathJoin(dirAbs, `hb-${m}.beat`));
+      const started = await readMaybe(pathJoin(dirAbs, `hb-${m}.started`));
+      states.push({ m, pid, beat: beat ? Number(beat) * 1000 : null, started: started ? Number(started) * 1000 : null });
+    }
+    if (states.every((s) => !s.pid)) {
+      if (record) $("hb-body").replaceChildren(h("tr", {}, h("td", { colspan: 5, class: "err", text: "心拍プロセスの記録が見つかりません。起動に失敗したか、まだ起動していません。" })));
+      return;
+    }
+    const pids = states.filter((s) => s.pid).map((s) => s.pid);
+    let alive = new Set();
+    try {
+      const r = await desktop.childProcess.exec(`for p in ${pids.map(q).join(" ")}; do kill -0 "$p" 2>/dev/null && echo "$p"; done; true`, { timeout: 5000 });
+      alive = new Set(r.stdout.split(/\s+/).filter(Boolean));
+    } catch {
+      // kill -0 が使えなければ心拍の新しさだけで判断する
+    }
+    for (const s of states) {
+      if (!s.pid) {
+        rows.push(h("tr", {}, h("td", { text: s.m }), h("td", { colspan: 4, class: "muted", text: "記録なし" })));
+        continue;
+      }
+      const isAlive = alive.has(s.pid);
+      const beatAgeSec = s.beat ? Math.max(0, Math.round((now - s.beat) / 1000)) : null;
+      const startedBeforePage = s.started ? s.started < PAGE_LOADED_AT : false;
+      const chip = h("span", { class: "chip", "data-state": isAlive ? "ok" : "bad" }, h("b", { text: isAlive ? "生存" : "停止" }));
+      rows.push(
+        h(
+          "tr",
+          {},
+          h("td", { text: s.m }),
+          h("td", {}, chip, startedBeforePage && isAlive ? h("span", { class: "small", text: " ページを開き直しても残った" }) : null),
+          h("td", { class: "mono", text: beatAgeSec == null ? "-" : `${beatAgeSec} 秒前` }),
+          h("td", { class: "mono", text: s.started ? `${fmtTime(s.started)}${startedBeforePage ? "（前回）" : ""}` : "-" }),
+          h("td", { class: "mono", text: s.pid }),
+        ),
+      );
+      if (record) {
+        results.detached.checks.push({ at: fmtTime(now), method: s.m, alive: isAlive, beatAgeSec, startedBeforePage });
+      }
+    }
+    if (record && results.detached.checks.length > 40) results.detached.checks.splice(0, results.detached.checks.length - 40);
+    $("hb-body").replaceChildren(...rows);
+    if (record) {
+      renderVerdicts();
+      saveResults();
+    }
+  }
+
+  async function stopHeartbeats() {
+    const pids = [];
+    for (const m of HB_METHODS) {
+      const pid = await readMaybe(pathJoin(dirAbs, `hb-${m}.pid`));
+      if (pid && /^\d+$/.test(pid)) pids.push(pid);
+    }
+    if (!pids.length) return;
+    await desktop.childProcess.exec(`kill ${pids.join(" ")} 2>/dev/null; true`, { timeout: 5000 }).catch(() => {});
+    await sleep(500);
+    await checkHeartbeats({ record: false });
+  }
+
+  let bgPoll = 0;
+  async function startBackgroundClaude() {
+    const btn = $("btn-bg-start");
+    btn.disabled = true;
+    try {
+      const path = $("claude-path").value.trim();
+      if (!path) throw new Error("先に手順 1 で claude を探すか、パスを入力してください");
+      const method = $("bg-method").value;
+      for (const f of ["claude-run.jsonl", "claude-run.err", "claude-run.exit", "claude-run.started"]) {
+        await desktop.fs.rm(pathJoin(dirAbs, f), { force: true }).catch(() => {});
+      }
+      await desktop.fs.writeFile(pathJoin(dirAbs, "claude-prompt.txt"), $("bg-prompt").value, "utf8");
+      const PATH = currentPATH();
+      const model = $("model").value;
+      const run = [
+        "#!/bin/sh",
+        `D=${q(dirAbs)}`,
+        PATH ? `export PATH=${q(PATH)}` : "",
+        `cd ${q(home)}`,
+        'date +%s > "$D/claude-run.started"',
+        `${q(path)} -p "$(cat "$D/claude-prompt.txt")" --output-format stream-json --verbose --include-partial-messages${model ? ` --model ${q(model)}` : ""} > "$D/claude-run.jsonl" 2> "$D/claude-run.err"`,
+        'echo "$?" > "$D/claude-run.exit"',
+        "",
+      ].join("\n");
+      const script = pathJoin(dirAbs, "claude-run.sh");
+      await desktop.fs.writeFile(script, run, "utf8");
+      const r = await desktop.childProcess.exec(`${detachLine(method, script)}\necho started`, { timeout: 10000 });
+      if (r.code !== 0) throw new Error(r.stderr || `exit ${r.code}`);
+      results.detached.claudeRun = { method, state: "起動した", lines: 0, startedBeforePage: false };
+      $("bg-status").textContent = "起動しました。ウィンドウを閉じる検証をするなら、今閉じてください。";
+      startBgPoll();
+      saveResults();
+    } catch (e) {
+      $("bg-status").textContent = `起動できませんでした: ${errText(e)}`;
+    }
+    btn.disabled = false;
+  }
+
+  function startBgPoll() {
+    clearInterval(bgPoll);
+    bgPoll = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      checkBackgroundClaude({ record: false }).catch(() => {});
+    }, 2000);
+  }
+
+  async function checkBackgroundClaude({ record }) {
+    const started = await readMaybe(pathJoin(dirAbs, "claude-run.started"));
+    if (!started) {
+      if (record) $("bg-status").textContent = "実行の記録が見つかりません。";
+      return;
+    }
+    const startedMs = Number(started) * 1000;
+    const jsonl = (await readMaybe(pathJoin(dirAbs, "claude-run.jsonl"))) ?? "";
+    const exit = await readMaybe(pathJoin(dirAbs, "claude-run.exit"));
+    const err = await readMaybe(pathJoin(dirAbs, "claude-run.err"));
+    const lines = jsonl ? jsonl.split("\n").filter(Boolean) : [];
+    let text = "";
+    let fallback = "";
+    let result = null;
+    for (const l of lines) {
+      let m;
+      try {
+        m = JSON.parse(l);
+      } catch {
+        continue;
+      }
+      if (m.type === "stream_event" && m.event?.delta?.type === "text_delta") text += m.event.delta.text;
+      else if (m.type === "assistant") fallback += (m.message?.content ?? []).filter((b) => b.type === "text").map((b) => b.text).join("");
+      else if (m.type === "result") result = m;
+    }
+    const body = text || fallback;
+    const startedBeforePage = startedMs < PAGE_LOADED_AT;
+    const state = result ? `完了（${result.subtype}）` : exit != null ? `終了（exit ${exit}）` : "実行中";
+    const methodPrev = results.detached.claudeRun?.method ?? "?";
+    results.detached.claudeRun = {
+      method: methodPrev,
+      state,
+      lines: lines.length,
+      exitCode: exit,
+      startedBeforePage,
+      err: err ? err.slice(-300) : null,
+    };
+    $("bg-status").textContent = `${state} / ${lines.length} 行 / 開始 ${fmtTime(startedMs)}${startedBeforePage ? "（このページを開く前）" : ""}`;
+    const out = $("bg-output");
+    out.hidden = !body && !err;
+    out.textContent = body ? (body.length > 3000 ? `…${body.slice(-3000)}` : body) : (err ?? "");
+    if (exit != null || result) clearInterval(bgPoll);
+    else if (!bgPoll) startBgPoll();
+    renderVerdicts();
+    if (record || exit != null || result) saveResults();
+  }
+
+  // ---------- 判定 ----------
+  function renderVerdicts() {
+    const d = results.detect;
+    if (d) {
+      const found = d.variants?.some((v) => v.found);
+      setChip($("v1"), found ? `見つかった（${d.chosen}）` : "見つからない", found ? "ok" : "bad");
+    }
+    const p = results.protocol;
+    if (p.init) {
+      const parts = [];
+      let state = "ok";
+      if (!p.init.ok) {
+        setChip($("v2"), "initialize NG", "bad");
+      } else {
+        parts.push("init");
+        if (p.streamed) parts.push("stream");
+        if (p.toolRanAfterApproval) parts.push("承認");
+        if (p.interrupt?.ok) parts.push("中断");
+        if (p.resume?.ok) parts.push("resume");
+        if (!(p.streamed && p.toolRanAfterApproval && p.interrupt?.ok && p.resume?.ok)) state = "warn";
+        setChip($("v2"), `${parts.join("・")} OK`, state);
+      }
+    }
+    if (!posix()) return;
+    const checks = results.detached.checks ?? [];
+    const survived = [...new Set(checks.filter((c) => c.alive && c.startedBeforePage).map((c) => c.method))];
+    const run = results.detached.claudeRun;
+    if (survived.length) setChip($("v3"), `生き残った: ${survived.join(", ")}`, "ok");
+    else if (checks.some((c) => c.startedBeforePage)) setChip($("v3"), "閉じると止まった", "bad");
+    else if (checks.length || run) setChip($("v3"), "開き直して確認してください", "warn");
+    if (run?.startedBeforePage && run.state.startsWith("完了")) setChip($("v3"), `${$("v3").textContent} / claude 完走`, "ok");
+  }
+
+  // ---------- 配線 ----------
+  $("btn-detect").addEventListener("click", detect);
+  $("btn-start").addEventListener("click", () => startSession());
+  $("btn-resume").addEventListener("click", () => startSession({ resume: true }));
+  $("btn-send").addEventListener("click", send);
+  $("prompt").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      send();
+    }
+  });
+  $("btn-long").addEventListener("click", () => {
+    $("prompt").value = "日本の 47 都道府県それぞれについて、県庁所在地と名物を 2 文ずつで説明してください。";
+    $("prompt").focus();
+  });
+  $("btn-interrupt").addEventListener("click", interrupt);
+  $("btn-kill").addEventListener("click", () => {
+    if (!sess?.alive) return;
+    sess.proc.stdin.end().catch(() => {});
+    setTimeout(() => sess?.alive && sess.proc.kill().catch(() => {}), 1500);
+  });
+  $("model").addEventListener("change", onModelChange);
+  $("btn-notify").addEventListener("click", async () => {
+    try {
+      await desktop.permissions.request(["notifications"]);
+    } catch (e) {
+      pushError(`通知の許可を求められませんでした: ${errText(e)}`);
+    }
+    await refreshPermissions();
+  });
+  $("btn-hb-start").addEventListener("click", startHeartbeats);
+  $("btn-hb-check").addEventListener("click", () => checkHeartbeats({ record: true }));
+  $("btn-hb-stop").addEventListener("click", stopHeartbeats);
+  $("btn-bg-start").addEventListener("click", startBackgroundClaude);
+  $("btn-bg-check").addEventListener("click", () => checkBackgroundClaude({ record: true }));
+  $("btn-copy").addEventListener("click", async () => {
+    const text = $("summary").textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+      setChip($("saved-at"), "コピーしました", "ok");
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents($("summary"));
+      const sel = getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      setChip($("saved-at"), "選択しました。⌘C / Ctrl+C でコピーしてください", "warn");
+    }
+  });
+  let resetArmed = false;
+  $("btn-reset").addEventListener("click", () => {
+    if (!resetArmed) {
+      resetArmed = true;
+      $("btn-reset").textContent = "もう一度押すと消します";
+      $("reset-confirm").hidden = false;
+      $("reset-confirm").textContent = "記録した結果（results.json）を空にします。ログファイルは残ります。";
+      setTimeout(() => {
+        resetArmed = false;
+        $("btn-reset").textContent = "結果を消す";
+        $("reset-confirm").hidden = true;
+      }, 5000);
+      return;
+    }
+    resetArmed = false;
+    $("btn-reset").textContent = "結果を消す";
+    $("reset-confirm").hidden = true;
+    results.detect = null;
+    results.protocol = { approvals: [], errors: [] };
+    results.detached = { checks: [], claudeRun: null };
+    for (const id of ["v1", "v2", "v3"]) setChip($(id), "未確認");
+    saveResults();
+  });
+
+  boot().catch((e) => showGate(`初期化に失敗しました: ${errText(e)}`));
+</script>
