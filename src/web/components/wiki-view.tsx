@@ -13,9 +13,9 @@ import { searchPages } from "../../wiki/match.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { cn } from "../lib/utils.ts";
 import { SideChat } from "./chat-workspace.tsx";
-import { Markdown } from "./markdown.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
+import { WikiPageContent } from "./wiki-pane.tsx";
 
 type Draft = { title: string; aliases: string; body: string };
 
@@ -196,15 +196,12 @@ export const WikiView = ({
   onOpenChat,
   returnTo,
   onReturn,
-  initialDraft,
 }: {
   /** ページの一覧（サイドバーと共有する）。undefined は読み込み中。 */
   pages: WikiPageDto[] | undefined;
   loadError: string | undefined;
   /** ページを変えたあとに一覧を読み直す。 */
   refresh: () => Promise<void>;
-  /** 回答の選択範囲から作るときの下書き（#121）。あれば作成画面で開く。 */
-  initialDraft?: { title: string; body: string } | undefined;
   api: ApiClient;
   taskId: string;
   taskName: string;
@@ -226,9 +223,7 @@ export const WikiView = ({
   onChatActivity: () => void;
   onNavigate: (pageId: string | undefined) => void;
 }) => {
-  const [mode, setMode] = useState<"view" | "new" | "edit">(
-    initialDraft === undefined ? "view" : "new",
-  );
+  const [mode, setMode] = useState<"view" | "new" | "edit">("view");
   const [deleting, setDeleting] = useState(false);
   const [askingPageId, setAskingPageId] = useState<string>();
   const askButton = useRef<HTMLButtonElement>(null);
@@ -304,17 +299,8 @@ export const WikiView = ({
     if (mode === "new") {
       return (
         <PageEditor
-          initial={
-            initialDraft === undefined
-              ? toDraft()
-              : { ...initialDraft, aliases: "" }
-          }
-          onCancel={() =>
-            // 回答から開いた作成画面は、取り消したら回答に戻る
-            initialDraft !== undefined && returnTo !== undefined
-              ? onReturn(returnTo)
-              : setMode("view")
-          }
+          initial={toDraft()}
+          onCancel={() => setMode("view")}
           onSave={async (draft) => {
             const created = await api.wiki.create({
               taskId,
@@ -402,38 +388,7 @@ export const WikiView = ({
             <Trash2 className="size-3.5" />
           </Button>
         </div>
-        <h2 className="font-bold text-2xl">{page.title}</h2>
-        {page.origin === "auto" && (
-          <p className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-            回答から自動で作成したページです（編集しても自動で上書きされることはありません）。
-            {page.sourceChatId !== null && (
-              <button
-                type="button"
-                className="text-primary underline"
-                onClick={() => {
-                  if (page.sourceChatId !== null) onOpenChat(page.sourceChatId);
-                }}
-              >
-                元の回答を開く
-              </button>
-            )}
-          </p>
-        )}
-        {page.aliases.length > 0 && (
-          <p className="text-muted-foreground text-sm">
-            別名: {page.aliases.join("、")}
-          </p>
-        )}
-        {page.body.trim() === "" ? (
-          <p className="text-muted-foreground text-sm">
-            本文はまだありません。
-          </p>
-        ) : (
-          <Markdown text={page.body} />
-        )}
-        <p className="text-muted-foreground text-xs">
-          最終更新: {new Date(page.updatedAt).toLocaleString("ja-JP")}
-        </p>
+        <WikiPageContent page={page} onOpenChat={onOpenChat} />
         <Dialog
           open={deleting}
           onOpenChange={setDeleting}

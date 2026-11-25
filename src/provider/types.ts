@@ -64,6 +64,10 @@ export type ClaudeCodeCallOptions = {
    * resume でもターンごとに届く（docs/spikes/per-turn-context.md）。
    */
   context?: string;
+  /** この呼び出しの作業ディレクトリ。無ければ Provider の設定（cwd）。 */
+  cwd?: string;
+  /** 作業ディレクトリのほかに Claude Code が扱えるディレクトリ（--add-dir）。 */
+  additionalDirectories?: string[];
 };
 
 export const PROVIDER_NAME = "claude-code";

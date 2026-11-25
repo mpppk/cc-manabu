@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from "react";
-import type { TaskDto, WikiDto } from "../../router.ts";
+import type { EnvironmentDto, TaskDto } from "../../router.ts";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 
@@ -64,36 +64,39 @@ const NameDialog = ({
   );
 };
 
-/** 新しいタスクを作るダイアログ。Wiki は新しく作るか、既存のものを共有する。 */
+/** 環境を新しく作るときの select の値。 */
+const NEW_ENVIRONMENT = "";
+
+/** 新しいタスクを作るダイアログ。環境を選ぶか、タスクと同じ名前の環境を新しく作る。 */
 const CreateTaskDialog = ({
   open,
-  wikis,
-  initialWikiId,
+  environments,
+  initialEnvironmentId,
   onClose,
   onSubmit,
 }: {
   open: boolean;
-  wikis: WikiDto[];
-  /** 既存の Wiki を選んだ状態で開く（Wiki の行から作るとき）。 */
-  initialWikiId?: string | undefined;
+  environments: EnvironmentDto[];
+  /** 環境を選んだ状態で開く（環境の行から作るとき）。 */
+  initialEnvironmentId?: string | undefined;
   onClose: () => void;
-  onSubmit: (name: string, wikiId: string | undefined) => Promise<void>;
+  onSubmit: (name: string, environmentId: string | undefined) => Promise<void>;
 }) => {
   const [name, setName] = useState("");
-  const [useExisting, setUseExisting] = useState(false);
-  const [wikiId, setWikiId] = useState("");
+  const [environmentId, setEnvironmentId] = useState(NEW_ENVIRONMENT);
   const [prevOpen, setPrevOpen] = useState(open);
   // 開き直すたびに初期値に戻す
   if (open !== prevOpen) {
     setPrevOpen(open);
     if (open) {
       setName("");
-      setUseExisting(initialWikiId !== undefined);
-      setWikiId(initialWikiId ?? wikis[0]?.id ?? "");
+      setEnvironmentId(
+        initialEnvironmentId ?? environments[0]?.id ?? NEW_ENVIRONMENT,
+      );
     }
   }
-  const chosen = useExisting ? wikis.find((w) => w.id === wikiId) : undefined;
-  const valid = name.trim() !== "" && (!useExisting || chosen !== undefined);
+  const chosen = environments.find((e) => e.id === environmentId);
+  const valid = name.trim() !== "";
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -119,51 +122,29 @@ const CreateTaskDialog = ({
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
-        <fieldset className="grid gap-2 text-sm">
-          <legend className="mb-1 font-medium">Wiki</legend>
-          <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name="wiki"
-              checked={!useExisting}
-              onChange={() => setUseExisting(false)}
-            />
-            新しい Wiki を作る
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="radio"
-              name="wiki"
-              checked={useExisting}
-              disabled={wikis.length === 0}
-              onChange={() => setUseExisting(true)}
-            />
-            既存の Wiki を使う
-            {wikis.length === 0 && (
-              <span className="text-muted-foreground text-xs">
-                （まだ Wiki がありません）
-              </span>
-            )}
-          </label>
-          {useExisting && (
-            <select
-              className="ml-6 rounded-md border bg-background px-2 py-1.5"
-              aria-label="使う Wiki"
-              value={wikiId}
-              onChange={(event) => setWikiId(event.target.value)}
-            >
-              {wikis.map((wiki) => (
-                <option key={wiki.id} value={wiki.id}>
-                  {wiki.name}（{wiki.taskCount} 件のタスクで使用中）
-                </option>
-              ))}
-            </select>
-          )}
+        <label className="grid gap-2 text-sm">
+          <span className="font-medium">環境</span>
+          <select
+            className="rounded-md border bg-background px-2 py-1.5"
+            aria-label="タスクの環境"
+            value={environmentId}
+            onChange={(event) => setEnvironmentId(event.target.value)}
+          >
+            {environments.map((environment) => (
+              <option key={environment.id} value={environment.id}>
+                {environment.name}
+              </option>
+            ))}
+            <option value={NEW_ENVIRONMENT}>
+              新しい環境を作る（起動したディレクトリ）
+            </option>
+          </select>
           <span className="text-muted-foreground text-xs">
-            同じ Wiki
-            を使うタスクどうしでは、ページ（用語ページを含む）を共有し、回答の参照資料にも使います。
+            {chosen === undefined
+              ? "タスクと同じ名前の環境と Wiki を作ります。ディレクトリはあとで環境の設定から追加できます。"
+              : `${chosen.directories.join("、")} で Claude Code が動き、Wiki「${chosen.wikiName}」を参照します。`}
           </span>
-        </fieldset>
+        </label>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
             キャンセル
@@ -177,52 +158,9 @@ const CreateTaskDialog = ({
   );
 };
 
-/** Wiki の名前を変える欄（タスクの設定の中）。 */
-const WikiNameField = ({
-  wiki,
-  onRename,
-}: {
-  wiki: WikiDto;
-  onRename: (name: string) => Promise<void>;
-}) => {
-  const [name, setName] = useState(wiki.name);
-  const [prevName, setPrevName] = useState(wiki.name);
-  if (wiki.name !== prevName) {
-    setPrevName(wiki.name);
-    setName(wiki.name);
-  }
-  return (
-    <form
-      className="flex gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (name.trim() !== "" && name.trim() !== wiki.name) {
-          void onRename(name.trim());
-        }
-      }}
-    >
-      <input
-        className="min-w-0 flex-1 rounded-md border bg-background px-3 py-1.5 text-sm"
-        aria-label="Wiki の名前"
-        maxLength={100}
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <Button
-        type="submit"
-        size="sm"
-        variant="outline"
-        disabled={name.trim() === "" || name.trim() === wiki.name}
-      >
-        名前を保存
-      </Button>
-    </form>
-  );
-};
-
 /** タスクの操作で開くダイアログ。 */
 export type TaskDialog =
-  | { kind: "create"; wikiId?: string }
+  | { kind: "create"; environmentId?: string }
   | { kind: "rename" | "delete" | "settings"; taskId: string };
 
 /** タスクの作成・名前変更・設定・削除のダイアログ（サイドバーの行の操作から開く）。 */
@@ -230,24 +168,24 @@ export const TaskDialogs = ({
   dialog,
   onClose,
   tasks,
-  wikis,
+  environments,
   onCreate,
   onRename,
   onDelete,
   onSetAutoTerms,
-  onRenameWiki,
+  onSetEnvironment,
 }: {
   dialog: TaskDialog | undefined;
   onClose: () => void;
   tasks: TaskDto[];
-  /** Wiki（複数のタスクで共有できる）。 */
-  wikis: WikiDto[];
-  /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
-  onCreate: (name: string, wikiId?: string) => Promise<void>;
+  environments: EnvironmentDto[];
+  /** environmentId を渡すとその環境に、無ければ同じ名前の環境を新しく作って入れる。 */
+  onCreate: (name: string, environmentId?: string) => Promise<void>;
   onRename: (taskId: string, name: string) => Promise<void>;
   onDelete: (taskId: string) => Promise<void>;
   onSetAutoTerms: (taskId: string, enabled: boolean) => Promise<void>;
-  onRenameWiki: (wikiId: string, name: string) => Promise<void>;
+  /** タスクを別の環境に移す。 */
+  onSetEnvironment: (taskId: string, environmentId: string) => Promise<void>;
 }) => {
   const current =
     dialog === undefined || dialog.kind === "create"
@@ -255,23 +193,21 @@ export const TaskDialogs = ({
       : tasks.find((p) => p.id === dialog.taskId);
   /** 保存中の自動作成の設定（保存が終わるまで表示に使う）。 */
   const [autoTerms, setAutoTerms] = useState<boolean>();
-  const currentWiki = wikis.find((wiki) => wiki.id === current?.wikiId);
-  /** 対象のタスクと同じ Wiki を使う、ほかのタスク。 */
-  const sharing = tasks.filter(
-    (p) =>
-      current !== undefined &&
-      p.wikiId === current.wikiId &&
-      p.id !== current.id,
+  const currentEnvironment = environments.find(
+    (environment) => environment.id === current?.environmentId,
   );
+  const [moveError, setMoveError] = useState<string>();
 
   return (
     <>
       <CreateTaskDialog
         open={dialog?.kind === "create"}
-        wikis={wikis}
-        initialWikiId={dialog?.kind === "create" ? dialog.wikiId : undefined}
+        environments={environments}
+        initialEnvironmentId={
+          dialog?.kind === "create" ? dialog.environmentId : undefined
+        }
         onClose={onClose}
-        onSubmit={(name, wikiId) => onCreate(name, wikiId)}
+        onSubmit={(name, environmentId) => onCreate(name, environmentId)}
       />
       <NameDialog
         open={dialog?.kind === "rename"}
@@ -318,20 +254,42 @@ export const TaskDialogs = ({
             </span>
           </span>
         </label>
-        {currentWiki !== undefined && (
-          <section className="grid gap-2" aria-label="Wiki">
-            <span className="font-medium text-sm">Wiki</span>
-            <WikiNameField
-              wiki={currentWiki}
-              onRename={(name) => onRenameWiki(currentWiki.id, name)}
-            />
+        <label className="grid gap-2 text-sm">
+          <span className="font-medium">環境</span>
+          <select
+            className="rounded-md border bg-background px-2 py-1.5"
+            aria-label="タスクの環境"
+            value={current?.environmentId ?? ""}
+            onChange={(event) => {
+              if (current === undefined) return;
+              setMoveError(undefined);
+              onSetEnvironment(current.id, event.target.value).catch(() =>
+                setMoveError("環境を変えられませんでした。"),
+              );
+            }}
+          >
+            {currentEnvironment === undefined && (
+              <option value="">（未設定）</option>
+            )}
+            {environments.map((environment) => (
+              <option key={environment.id} value={environment.id}>
+                {environment.name}
+              </option>
+            ))}
+          </select>
+          {currentEnvironment !== undefined && (
             <span className="text-muted-foreground text-xs">
-              {sharing.length === 0
-                ? "この Wiki はこのタスクだけで使っています。"
-                : `この Wiki は ${sharing.map((p) => `「${p.name}」`).join("")} と共有しています。名前とページはすべてのタスクに反映されます。`}
+              Wiki「{currentEnvironment.wikiName}
+              」を参照します。別の環境に移すと、Wiki
+              も移った環境のものになります（作ったスレッドの作業ディレクトリは変わりません）。
             </span>
-          </section>
-        )}
+          )}
+          {moveError !== undefined && (
+            <span role="alert" className="text-destructive text-xs">
+              {moveError}
+            </span>
+          )}
+        </label>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             閉じる
@@ -344,11 +302,7 @@ export const TaskDialogs = ({
           if (!open) onClose();
         }}
         title="タスクを削除しますか？"
-        description={`「${current?.name ?? ""}」を削除します。所属しているスレッドは削除されず、未所属に戻ります。${
-          sharing.length > 0
-            ? `Wiki「${currentWiki?.name ?? ""}」はほかのタスクでも使っているので残ります。`
-            : `Wiki「${currentWiki?.name ?? ""}」とそのページも削除されます。`
-        }`}
+        description={`「${current?.name ?? ""}」を削除します。所属しているスレッドは削除されず、未所属に戻ります。Wiki のページは環境に残ります。`}
       >
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

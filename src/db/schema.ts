@@ -39,27 +39,25 @@ export const wikis = sqliteTable("wikis", {
     .default(sql`(unixepoch('subsec') * 1000)`),
 });
 
-/** 複数の会話と、参照する Wiki をまとめる単位。 */
-export const tasks = sqliteTable("tasks", {
+/**
+ * 環境。Claude Code に渡すディレクトリと、参照する Wiki をまとめる。タスクは 1 つの環境に属する。
+ * Wiki はほかの環境と共有できる。
+ */
+export const environments = sqliteTable("environments", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  /**
-   * 参照する Wiki。ほかのタスクと共有できる。
-   * 既存の行に後から足した列なので DB では null を許すが、アプリは必ず設定する。
-   */
-  wikiId: text("wiki_id").references(() => wikis.id),
-  /** 回答から用語ページを自動で作るか（回答ごとに Claude を追加で呼び出す）。 */
-  autoTerms: integer("auto_terms", { mode: "boolean" }).notNull().default(true),
-  /** 進捗の状態。既存のタスクは未着手として扱う。 */
-  status: text("status", { enum: TASK_STATUSES })
+  /** 参照する Wiki。 */
+  wikiId: text("wiki_id")
     .notNull()
-    .default("not_started"),
-  /** 進捗メモ（任意）。 */
-  progressNote: text("progress_note").notNull().default(""),
-  /** 次にやること（任意）。 */
-  nextAction: text("next_action").notNull().default(""),
-  /** 状態・進捗メモ・次にやることを最後に変えた日時。まだ変えていなければ null。 */
-  progressUpdatedAt: integer("progress_updated_at", { mode: "timestamp_ms" }),
+    .references(() => wikis.id),
+  /**
+   * Claude Code に渡すディレクトリ（絶対パスの JSON 配列）。
+   * 先頭が新しいスレッドの作業ディレクトリ、残りは追加のディレクトリ（--add-dir）。
+   */
+  directories: text("directories", { mode: "json" })
+    .notNull()
+    .$type<string[]>()
+    .default(sql`'[]'`),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`),
@@ -67,6 +65,45 @@ export const tasks = sqliteTable("tasks", {
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`),
 });
+
+/** 複数の会話をまとめる単位。1 つの環境に属する。 */
+export const tasks = sqliteTable(
+  "tasks",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    /**
+     * 所属する環境。既存の行に後から足した列なので DB では null を許すが、アプリは必ず設定する。
+     */
+    environmentId: text("environment_id").references(() => environments.id),
+    /**
+     * 参照する Wiki。所属する環境の Wiki の写しで、環境の Wiki を変えたとき・環境を移したときに
+     * リポジトリが合わせる（列を外すには表の作り直しが要るので、写しとして残している）。
+     */
+    wikiId: text("wiki_id").references(() => wikis.id),
+    /** 回答から用語ページを自動で作るか（回答ごとに Claude を追加で呼び出す）。 */
+    autoTerms: integer("auto_terms", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    /** 進捗の状態。既存のタスクは未着手として扱う。 */
+    status: text("status", { enum: TASK_STATUSES })
+      .notNull()
+      .default("not_started"),
+    /** 進捗メモ（任意）。 */
+    progressNote: text("progress_note").notNull().default(""),
+    /** 次にやること（任意）。 */
+    nextAction: text("next_action").notNull().default(""),
+    /** 状態・進捗メモ・次にやることを最後に変えた日時。まだ変えていなければ null。 */
+    progressUpdatedAt: integer("progress_updated_at", { mode: "timestamp_ms" }),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+  },
+  (table) => [index("tasks_environment_id_idx").on(table.environmentId)],
+);
 
 export const chats = sqliteTable(
   "chats",
@@ -250,6 +287,7 @@ export const queuedMessages = sqliteTable(
 );
 
 export type TaskRow = typeof tasks.$inferSelect;
+export type EnvironmentRow = typeof environments.$inferSelect;
 export type QueuedMessageRow = typeof queuedMessages.$inferSelect;
 export type TaskLinkRow = typeof taskLinks.$inferSelect;
 export type WikiPageRow = typeof wikiPages.$inferSelect;

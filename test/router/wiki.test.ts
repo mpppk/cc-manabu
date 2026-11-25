@@ -271,7 +271,10 @@ describe("Wiki の個別ページからの質問", () => {
   test("共有 Wiki でも履歴を分け、範囲外や削除済みのページを送信できない", async () => {
     const { client, calls } = await setup();
     const a = await client.tasks.create({ name: "開発" });
-    const b = await client.tasks.create({ name: "運用", wikiId: a.wikiId });
+    const b = await client.tasks.create({
+      name: "運用",
+      environmentId: a.environmentId ?? "",
+    });
     const other = await client.tasks.create({ name: "別の Wiki" });
     const page = await client.wiki.create({
       taskId: a.id,
@@ -323,7 +326,7 @@ describe("Wiki の個別ページからの質問", () => {
 });
 
 describe("Wiki の共有", () => {
-  test("既存の Wiki を選んで作ったタスクは、同じページを読み書きし、回答の参照資料にも使う", async () => {
+  test("同じ環境に作ったタスクは、同じページを読み書きし、回答の参照資料にも使う", async () => {
     const { client } = await setup();
     const a = await client.tasks.create({ name: "認可基盤" });
     const page = await client.wiki.create({
@@ -334,7 +337,7 @@ describe("Wiki の共有", () => {
     });
     const b = await client.tasks.create({
       name: "監査ログ",
-      wikiId: a.wikiId,
+      environmentId: a.environmentId ?? "",
     });
     expect(b.wikiId).toBe(a.wikiId);
     expect((await client.wiki.list({ taskId: b.id })).map((p) => p.id)).toEqual(
@@ -346,15 +349,15 @@ describe("Wiki の共有", () => {
     await client.wikis.rename({ id: a.wikiId, name: "共通用語集" });
     expect((await client.wikis.list())[0]?.name).toBe("共通用語集");
 
-    // 新しい Wiki を作ったタスクには見えない
+    // 新しい環境（と Wiki）を作ったタスクには見えない
     const c = await client.tasks.create({ name: "別件" });
     expect(c.wikiId).not.toBe(a.wikiId);
     expect(await client.wiki.list({ taskId: c.id })).toEqual([]);
 
-    // 無い Wiki は指定できない
+    // 無い環境は指定できない
     await expect(
-      client.tasks.create({ name: "x", wikiId: "missing" }),
-    ).rejects.toThrow();
+      client.tasks.create({ name: "x", environmentId: "missing" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
 

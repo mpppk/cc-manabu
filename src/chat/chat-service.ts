@@ -198,6 +198,8 @@ export const createChatService = (deps: {
   /** タスクの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
   readWikiPage?: WikiPageReader;
+  /** タスクが属する環境のディレクトリ（追加のディレクトリとして渡す）。 */
+  directoriesOf?: (taskId: string) => string[] | undefined;
   /**
    * タスクの会話で回答が最後まで終わったとき（中断・エラーを除く）に呼ぶ。
    * 用語ページの自動作成（#80）に使う。回答の保存のあとに呼び、結果は待たない。
@@ -219,6 +221,19 @@ export const createChatService = (deps: {
   const readWikiPage: WikiPageReader = (taskId, pageId) =>
     deps.readWikiPage?.(taskId, pageId) ??
     Result.fail(new WikiPageUnavailableError());
+
+  /**
+   * 会話の作業ディレクトリと、追加のディレクトリ。作業ディレクトリは会話を作ったときのまま
+   * （セッションはディレクトリごとに保存されるので、変えると resume できない）。
+   * 追加のディレクトリは、送信のたびに環境の設定から読む。
+   */
+  const workspaceOf = (chat: Pick<ChatRow, "cwd" | "taskId">) => ({
+    cwd: chat.cwd,
+    additionalDirectories: (chat.taskId === null
+      ? []
+      : (deps.directoriesOf?.(chat.taskId) ?? [])
+    ).filter((dir) => dir !== chat.cwd),
+  });
 
   /** ページにひも付く会話は、ページを参照できない場合に生成を始めない。 */
   const contextFor = (chat: ChatRow, parts: ChatUIMessage["parts"]) => {
@@ -244,6 +259,10 @@ export const createChatService = (deps: {
     content: UserContent;
     /** 会話の所属タスク（回答後の用語ページ作成に使う）。 */
     taskId: string | null;
+    /** 作業ディレクトリ（会話を作ったときに決まる。セッションの resume に要る）。 */
+    cwd: string;
+    /** 作業ディレクトリのほかに扱えるディレクトリ（環境の設定）。 */
+    additionalDirectories: string[];
     /** 質問の本文（回答後の用語ページ作成に使う）。 */
     question: string;
     /** 質問とは別に渡す Wiki の参照資料。DB の発話には保存しない。 */
@@ -279,6 +298,10 @@ export const createChatService = (deps: {
                 ...(params.context === undefined
                   ? {}
                   : { context: params.context.text }),
+                cwd: params.cwd,
+                ...(params.additionalDirectories.length === 0
+                  ? {}
+                  : { additionalDirectories: params.additionalDirectories }),
               },
             },
             abortSignal: signal,
@@ -429,6 +452,7 @@ export const createChatService = (deps: {
           ...resumeOf(chat),
           content: toUserContent(input.message.parts),
           taskId: chat.taskId,
+          ...workspaceOf(chat),
           question: textOf(input.message.parts),
           context,
         }),
@@ -567,6 +591,7 @@ export const createChatService = (deps: {
               ...resumeOf(created),
               content: toUserContent(input.message.parts),
               taskId: created.taskId,
+              ...workspaceOf(created),
               question: textOf(input.message.parts),
               context,
             }),
@@ -621,6 +646,7 @@ export const createChatService = (deps: {
               : (chat.sessionId ?? chat.forkSessionId),
           content: toUserContent(userMessage.parts),
           taskId: chat.taskId,
+          ...workspaceOf(chat),
           question: textOf(userMessage.parts),
           context: context.value,
           ...(forkPoint === undefined

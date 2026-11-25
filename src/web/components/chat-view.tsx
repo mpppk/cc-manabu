@@ -3,7 +3,9 @@ import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import {
   ChevronRight,
   FilePlus,
+  Folder,
   GitBranch,
+  Loader2,
   Pencil,
   RotateCcw,
   TextQuote,
@@ -27,13 +29,15 @@ import {
   type TermEntry,
   type TermMatch,
 } from "../../wiki/term-matcher.ts";
+import { isPageTerm, normalizeTerm } from "../../wiki/terms.ts";
 import { OrpcChatTransport, type SendSettings } from "../lib/chat-transport.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
-import { type PageDraft, pageDraftFromSelection } from "../lib/page-draft.ts";
+import { pendingTermId } from "../lib/rehype-wiki-terms.ts";
 import { pathForWiki } from "../lib/route.ts";
+import { describeSteps, groupSteps } from "../lib/steps.ts";
 import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { cn } from "../lib/utils.ts";
 import { ApprovalCard } from "./approval-card.tsx";
@@ -44,7 +48,8 @@ import { ModelPicker } from "./model-picker.tsx";
 import { PromptCacheTimer } from "./prompt-cache-timer.tsx";
 import { QueuePanel, type QueueState } from "./queue-panel.tsx";
 import { Reasoning } from "./reasoning.tsx";
-import { ToolCard } from "./tool-card.tsx";
+import { StepGroup } from "./step-group.tsx";
+import { isDenied, ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
 import { WikiTermsContext, type WikiTermsContextValue } from "./wiki-term.tsx";
 
@@ -244,47 +249,100 @@ const MessageView = ({
       .join("\n"),
     wikiIds,
   ).flatMap((id) => wiki?.pages.filter((page) => page.id === id) ?? []);
+  const renderPart = (part: (typeof message.parts)[number], i: number) => {
+    switch (part.type) {
+      case "text":
+        return (
+          <Markdown
+            key={i}
+            text={linkWikiCitations(part.text, wikiIds)}
+            streaming={streaming}
+            cosenseLinks
+            {...(wikiLinks === undefined ? {} : { wikiLinks })}
+            {...(termMatcher === undefined ? {} : { termMatcher })}
+          />
+        );
+      case "reasoning":
+        return (
+          <Reasoning
+            key={i}
+            text={part.text}
+            streaming={streaming && part.state === "streaming"}
+          />
+        );
+      case "dynamic-tool":
+        return <ToolCard key={part.toolCallId} part={part} />;
+      case "data-approval":
+        // 承認待ちのカードは回答を閉じても操作できる位置に出す。
+        return part.data.status === "pending" ? null : (
+          <ApprovalCard
+            key={part.data.approvalId}
+            approval={part.data}
+            onRespond={(behavior, reason) =>
+              onRespond(part.data.approvalId, behavior, reason)
+            }
+          />
+        );
+      default:
+        return null;
+    }
+  };
+  // 思考・ツールの実行が続くところは、1 つの「手順」にまとめて開閉できるようにする
+  const segments = groupSteps(
+    message.parts,
+    (part) =>
+      part.type === "dynamic-tool" ||
+      (part.type === "reasoning" &&
+        (part.text.trim() !== "" || (streaming && part.state === "streaming"))),
+    (part) =>
+      part.type === "step-start" ||
+      (part.type === "reasoning" &&
+        part.text.trim() === "" &&
+        !(streaming && part.state === "streaming")),
+  );
   return (
     <div className="flex flex-col gap-2" data-assistant-message={message.id}>
-      {message.parts.map((part, i) => {
-        switch (part.type) {
-          case "text":
-            return (
-              <Markdown
-                // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
-                key={i}
-                text={linkWikiCitations(part.text, wikiIds)}
-                streaming={streaming}
-                cosenseLinks
-                {...(wikiLinks === undefined ? {} : { wikiLinks })}
-                {...(termMatcher === undefined ? {} : { termMatcher })}
-              />
-            );
-          case "reasoning":
-            return (
-              <Reasoning
-                // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
-                key={i}
-                text={part.text}
-                streaming={streaming && part.state === "streaming"}
-              />
-            );
-          case "dynamic-tool":
-            return <ToolCard key={part.toolCallId} part={part} />;
-          case "data-approval":
-            // 承認待ちのカードは回答を閉じても操作できる位置に出す。
-            return part.data.status === "pending" ? null : (
-              <ApprovalCard
-                key={part.data.approvalId}
-                approval={part.data}
-                onRespond={(behavior, reason) =>
-                  onRespond(part.data.approvalId, behavior, reason)
-                }
-              />
-            );
-          default:
-            return null;
+      {segments.map((segment, s) => {
+        if (segment.kind === "single") {
+          return renderPart(segment.part, segment.index);
         }
+        const tools = segment.items.flatMap(({ part }) =>
+          part.type === "dynamic-tool" ? [part] : [],
+        );
+        const running = tools.some(
+          (tool) =>
+            tool.state !== "output-available" && tool.state !== "output-error",
+        );
+        const failed = tools.some(
+          (tool) => tool.state === "output-error" && !isDenied(tool),
+        );
+        return (
+          <StepGroup
+            key={`steps-${segment.items[0]?.index ?? s}`}
+            count={segment.items.length}
+            breakdown={describeSteps(
+              segment.items.map(({ part }) =>
+                part.type === "dynamic-tool" ? part.toolName : "思考",
+              ),
+            )}
+            live={streaming && s === segments.length - 1}
+            status={
+              running ? (
+                <Loader2
+                  className="size-3.5 shrink-0 animate-spin"
+                  aria-label="実行中"
+                />
+              ) : failed ? (
+                <X
+                  className="size-3.5 shrink-0 text-destructive"
+                  aria-label="エラーあり"
+                />
+              ) : undefined
+            }
+          >
+            {segment.items.map(({ part, index }) => renderPart(part, index))}
+          </StepGroup>
+        );
       })}
       {!streaming && cited.length > 0 && wikiLinks !== undefined && (
         <nav
@@ -347,6 +405,13 @@ const MessageView = ({
     </div>
   );
 };
+
+/** パスの最後のフォルダ名（入力欄の下に出す。全体は title で見せる）。 */
+const folderName = (cwd: string): string =>
+  cwd
+    .split(/[\\/]/)
+    .filter((part) => part !== "")
+    .at(-1) ?? cwd;
 
 const UsageTotal = ({ messages }: { messages: ChatUIMessage[] }) => {
   const total = totalUsage(messages);
@@ -451,12 +516,15 @@ const SelectionPopup = ({
   selection,
   onAsk,
   onCreatePage,
+  createPageTitle,
 }: {
   selection: AnswerSelection;
   /** 質問する（分岐できる回答だけ）。 */
   onAsk: (() => void) | undefined;
-  /** Wiki のページを作る（タスクの会話だけ）。 */
+  /** 選んだ語句の Wiki のページを AI で作る（タスクの会話だけ）。 */
   onCreatePage: (() => void) | undefined;
+  /** 「ページを作成」の説明（押せない理由を含む）。 */
+  createPageTitle: string;
 }) => {
   const { rect } = selection;
   const above = rect.top - POPUP_HEIGHT - POPUP_GAP;
@@ -501,11 +569,7 @@ const SelectionPopup = ({
         size="sm"
         className="h-7 px-2 text-xs"
         disabled={onCreatePage === undefined}
-        title={
-          onCreatePage === undefined
-            ? "タスクの会話でだけ、Wiki のページを作れます"
-            : "選んだ部分から Wiki のページを作ります"
-        }
+        title={createPageTitle}
         onClick={onCreatePage}
       >
         <FilePlus className="size-3.5" />
@@ -617,12 +681,19 @@ const InheritedDivider = ({ parent }: { parent: ChatDto | undefined }) => (
 /** 用語の照合を取り直す間隔（自動作成・編集されたページを反映する）。 */
 const TERMS_REFRESH_MS = 10_000;
 
-/** タスクの用語ページ（タイトルと別名）から、本文の用語の照合を作る。 */
-const useTaskTerms = (api: ApiClient, taskId: string | null) => {
+/**
+ * タスクの用語ページ（タイトルと別名）から、本文の用語の照合を作る。
+ * 生成中の語句（generating）も、生成中の表示にするために照合に含める。
+ */
+const useTaskTerms = (
+  api: ApiClient,
+  taskId: string | null,
+  generating: readonly string[],
+) => {
   const [entries, setEntries] = useState<TermEntry[]>([]);
-  const refreshTerms = useCallback(() => {
+  const refreshTerms = useCallback(async () => {
     if (taskId === null) return;
-    api.wiki
+    await api.wiki
       .list({ taskId })
       .then((pages) => {
         const next = pages.map((page) => ({
@@ -637,17 +708,22 @@ const useTaskTerms = (api: ApiClient, taskId: string | null) => {
       .catch(() => {});
   }, [api, taskId]);
   useEffect(() => {
-    refreshTerms();
-    const timer = setInterval(refreshTerms, TERMS_REFRESH_MS);
+    void refreshTerms();
+    const timer = setInterval(() => void refreshTerms(), TERMS_REFRESH_MS);
     return () => clearInterval(timer);
   }, [refreshTerms]);
-  const termMatcher = useMemo(
-    () =>
-      taskId === null || entries.length === 0
-        ? undefined
-        : createTermMatcher(entries),
-    [taskId, entries],
-  );
+  const termMatcher = useMemo(() => {
+    const all = [
+      ...entries,
+      ...generating.map((term) => ({
+        pageId: pendingTermId(term),
+        names: [term],
+      })),
+    ];
+    return taskId === null || all.length === 0
+      ? undefined
+      : createTermMatcher(all);
+  }, [taskId, entries, generating]);
   return { termMatcher, refreshTerms };
 };
 
@@ -740,8 +816,11 @@ const useQueue = (
 };
 
 export type ChatViewProps = {
-  /** 選択範囲から Wiki のページを作る（タスクの会話だけ、#121）。 */
-  onCreateWikiPage?: (taskId: string, draft: PageDraft) => void;
+  /**
+   * 渡すと、回答の選択範囲から Wiki のページを AI で作れる（タスクの会話だけ、#121）。
+   * ページを作ったあとに呼ぶ。
+   */
+  onWikiPageCreated?: (taskId: string) => void;
   /** 検索結果から開いたときに移動する発言（#115）。 */
   focusMessage?: { messageId: string };
   api: ApiClient;
@@ -757,10 +836,19 @@ export type ChatViewProps = {
   models: ModelInfo[];
   /** 送信・完了など、一覧の表示（タイトル・状態）が変わりうるときに呼ぶ。 */
   onActivity?: () => void;
-  /** 回答から引用された Wiki ページを開く。 */
+  /** 回答から引用された Wiki ページを開く（Wiki 画面へ移る）。 */
   onOpenWikiPage?: (taskId: string, pageId: string) => void;
+  /**
+   * 回答中の用語・引用した Wiki ページを、会話の右側のペインで開く。
+   * あれば、用語や引用リンクのクリックは Wiki 画面へ移らずにこちらを使う。
+   */
+  onOpenWikiPane?: (taskId: string, pageId: string) => void;
   side?: boolean;
   onAskSelection?: (quote: QuoteData, settings: SendSettings) => void;
+  /** 作業フォルダ（入力欄の下に出す）。 */
+  cwd?: string;
+  /** 作業フォルダのほかに Claude Code が扱えるディレクトリ（環境の設定）。 */
+  extraDirectories?: string[];
 };
 
 /** 1 つの分岐を表示し、その分岐 ID で送信・再接続する。 */
@@ -771,13 +859,16 @@ export const ChatView = ({
   models,
   onActivity,
   onOpenWikiPage,
+  onOpenWikiPane,
   branches = [],
   onSelectBranch,
   onOpenSideBranch,
   focusMessage,
-  onCreateWikiPage,
+  onWikiPageCreated,
   side = false,
   onAskSelection,
+  cwd,
+  extraDirectories = [],
 }: ChatViewProps) => {
   const [settings, setSettings] = useState<{
     model: string;
@@ -786,7 +877,26 @@ export const ChatView = ({
   // transport は作り直さず、送信時に最新の設定を読む
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
-  const { termMatcher, refreshTerms } = useTaskTerms(api, chat.taskId);
+  /** 選択範囲から AI で作っている最中のページの語句。 */
+  const [generatingTerms, setGeneratingTerms] = useState<string[]>([]);
+  /** ページ作成の結果（すでにある・失敗）を、元の回答の下に少しのあいだ出す。 */
+  const [termNotice, setTermNotice] = useState<{
+    messageId: string;
+    text: string;
+    tone: "info" | "error";
+  }>();
+  useEffect(() => {
+    if (termNotice === undefined) return;
+    const timer = setTimeout(() => setTermNotice(undefined), 8000);
+    return () => clearTimeout(timer);
+  }, [termNotice]);
+  const { termMatcher, refreshTerms } = useTaskTerms(
+    api,
+    chat.taskId,
+    generatingTerms,
+  );
+  // 引用リンクは、ペインがあればペインで開く
+  const openWikiPage = onOpenWikiPane ?? onOpenWikiPage;
   const wikiTerms = useMemo<WikiTermsContextValue | undefined>(
     () =>
       chat.taskId === null || onOpenWikiPage === undefined
@@ -796,8 +906,13 @@ export const ChatView = ({
               api.wiki.get({ id: pageId }).catch(() => undefined),
             open: (pageId) =>
               chat.taskId !== null && onOpenWikiPage(chat.taskId, pageId),
+            openPane:
+              onOpenWikiPane === undefined
+                ? undefined
+                : (pageId) =>
+                    chat.taskId !== null && onOpenWikiPane(chat.taskId, pageId),
           },
-    [api, chat.taskId, onOpenWikiPage],
+    [api, chat.taskId, onOpenWikiPage, onOpenWikiPane],
   );
   const { summaryOf, waitFor: waitForSummary } = useAnswerSummaries(
     api,
@@ -831,7 +946,7 @@ export const ChatView = ({
       // 予約があれば、サーバが次を送る
       setTimeout(() => void queue.refresh(), 200);
       // 回答のあとに用語ページが自動で作られるので、少し待ってから取り直す
-      setTimeout(refreshTerms, 3000);
+      setTimeout(() => void refreshTerms(), 3000);
     },
   });
   const busy = status === "submitted" || status === "streaming";
@@ -882,7 +997,7 @@ export const ChatView = ({
   const transcript = useRef<HTMLDivElement>(null);
   const selection = useAnswerSelection(
     transcript,
-    onAskSelection !== undefined || onCreateWikiPage !== undefined,
+    onAskSelection !== undefined || onWikiPageCreated !== undefined,
   );
   const cancelBranch = () => {
     setBranchFrom(undefined);
@@ -915,10 +1030,53 @@ export const ChatView = ({
         }
       : undefined;
   const taskId = chat.taskId;
+  /** 選んだ語句の Wiki のページを AI で作る。画面は移らず、できたら用語として表示する。 */
+  const generatePage = async (messageId: string, term: string) => {
+    if (taskId === null) return;
+    setTermNotice(undefined);
+    setGeneratingTerms((current) => [...current, term]);
+    try {
+      const { page, created } = await api.wiki.generate({
+        chatId: chat.id,
+        messageId,
+        term,
+      });
+      await refreshTerms();
+      onWikiPageCreated?.(taskId);
+      if (!created) {
+        setTermNotice({
+          messageId,
+          tone: "info",
+          text: `「${page.title}」のページはすでにあります。`,
+        });
+      }
+    } catch {
+      setTermNotice({
+        messageId,
+        tone: "error",
+        text: `「${term}」のページを作成できませんでした。もう一度お試しください。`,
+      });
+    } finally {
+      setGeneratingTerms((current) => current.filter((t) => t !== term));
+    }
+  };
+  const selectedTerm = selection?.text.trim();
+  const createPageBlocker =
+    taskId === null || onWikiPageCreated === undefined
+      ? "タスクの会話でだけ、Wiki のページを作れます"
+      : selectedTerm === undefined || !isPageTerm(selectedTerm)
+        ? "1 行・2〜40 文字の語句を選ぶと、Wiki のページを作れます"
+        : generatingTerms.some(
+              (term) => normalizeTerm(term) === normalizeTerm(selectedTerm),
+            )
+          ? "この語句のページを作成しています"
+          : undefined;
   const createPageFromSelection =
-    selection !== undefined && taskId !== null && onCreateWikiPage !== undefined
+    selection !== undefined &&
+    selectedTerm !== undefined &&
+    createPageBlocker === undefined
       ? () => {
-          onCreateWikiPage(taskId, pageDraftFromSelection(selection.text));
+          void generatePage(selection.messageId, selectedTerm);
           window.getSelection()?.removeAllRanges();
         }
       : undefined;
@@ -1093,10 +1251,26 @@ export const ChatView = ({
           onRegenerate={() => {
             void regenerate().then(() => onActivity?.());
           }}
-          {...(onOpenWikiPage === undefined ? {} : { onOpenWikiPage })}
+          {...(openWikiPage === undefined
+            ? {}
+            : { onOpenWikiPage: openWikiPage })}
           {...(termMatcher === undefined ? {} : { termMatcher })}
           onRespond={respond}
         />
+        {message.role === "assistant" &&
+          termNotice?.messageId === message.id && (
+            <p
+              role={termNotice.tone === "error" ? "alert" : "status"}
+              className={cn(
+                "mt-2 text-xs",
+                termNotice.tone === "error"
+                  ? "text-destructive"
+                  : "text-muted-foreground",
+              )}
+            >
+              {termNotice.text}
+            </p>
+          )}
       </div>
     </Fragment>
   );
@@ -1108,6 +1282,10 @@ export const ChatView = ({
           selection={selection}
           onAsk={askSelection}
           onCreatePage={createPageFromSelection}
+          createPageTitle={
+            createPageBlocker ??
+            "選んだ語句の Wiki のページを AI で作ります（画面は移りません）"
+          }
         />
       )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -1255,7 +1433,7 @@ export const ChatView = ({
             )}
           </div>
         </div>
-        <div className="border-t p-4">
+        <div className="px-4 pt-2 pb-3">
           {queueState !== undefined && (
             <QueuePanel
               state={queueState}
@@ -1280,14 +1458,42 @@ export const ChatView = ({
               {queueError}
             </p>
           )}
-          <div className="mx-auto mb-2 flex max-w-3xl items-center justify-between gap-2">
-            <ModelPicker
-              models={models}
-              model={settings.model}
-              effort={settings.effort}
-              disabled={busy}
-              onChange={setSettings}
-            />
+          <Composer
+            busy={busy}
+            pending={creatingBranch}
+            messageLabel={side ? "サイドチャットのメッセージ" : "メッセージ"}
+            queueing={queueing && branchFrom === undefined}
+            toolbar={
+              <ModelPicker
+                models={models}
+                model={settings.model}
+                effort={settings.effort}
+                disabled={busy}
+                onChange={setSettings}
+              />
+            }
+            onSubmit={submit}
+            onQueue={enqueue}
+            onStop={onStop}
+          />
+          <div className="mx-auto mt-1.5 flex max-w-3xl items-center justify-between gap-3 px-2">
+            {cwd === undefined || cwd === "" ? (
+              <span />
+            ) : (
+              <span
+                className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs"
+                title={[cwd, ...extraDirectories].join("\n")}
+              >
+                <Folder className="size-3.5 shrink-0" aria-hidden />
+                <span className="truncate">{folderName(cwd)}</span>
+                {extraDirectories.length > 0 && (
+                  <span className="shrink-0">
+                    ＋{extraDirectories.length}
+                    <span className="sr-only">個のディレクトリ</span>
+                  </span>
+                )}
+              </span>
+            )}
             <span className="flex min-w-0 items-center gap-3">
               <PromptCacheTimer
                 messages={messages}
@@ -1297,15 +1503,6 @@ export const ChatView = ({
               <UsageTotal messages={messages} />
             </span>
           </div>
-          <Composer
-            busy={busy}
-            pending={creatingBranch}
-            messageLabel={side ? "サイドチャットのメッセージ" : "メッセージ"}
-            queueing={queueing && branchFrom === undefined}
-            onSubmit={submit}
-            onQueue={enqueue}
-            onStop={onStop}
-          />
         </div>
       </div>
     </WikiTermsContext.Provider>

@@ -1,8 +1,9 @@
-import { Moon, Sun } from "lucide-react";
+import { Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
-import type { ChatDto, TaskDto, WikiDto } from "../router.ts";
+import type { ChatDto, EnvironmentDto, TaskDto, WikiDto } from "../router.ts";
 import { ChatWorkspace } from "./components/chat-workspace.tsx";
+import type { EnvironmentInput } from "./components/environment-dialogs.tsx";
 import { RateLimitBadge } from "./components/rate-limit-badge.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { TaskList } from "./components/task-list.tsx";
@@ -16,7 +17,6 @@ import {
   titleFor,
 } from "./lib/notify.ts";
 import type { ApiClient } from "./lib/orpc.ts";
-import type { PageDraft } from "./lib/page-draft.ts";
 import {
   chatIdFromPath,
   isTaskListPath,
@@ -49,7 +49,10 @@ const ClaudeStatusBadge = ({ status }: { status: Status | undefined }) => {
       );
     case "ready":
       return (
-        <span className="text-muted-foreground text-xs">
+        <span
+          className="hidden text-muted-foreground text-xs lg:inline"
+          title={`Claude Code ${claude.version ?? ""}${claude.account.subscriptionType ? `・${claude.account.subscriptionType}` : ""}`}
+        >
           Claude Code {claude.version ?? ""}
           {claude.account.subscriptionType
             ? `・${claude.account.subscriptionType}`
@@ -66,18 +69,56 @@ const ClaudeStatusBadge = ({ status }: { status: Status | undefined }) => {
   }
 };
 
+const SIDEBAR_KEY = "cc-manabu.sidebarOpen";
+
+/** サイドバーを開いているか（ブラウザに覚える。既定は開く）。 */
+const loadSidebarOpen = (): boolean => {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) !== "0";
+  } catch {
+    return true;
+  }
+};
+
+/** サイドバーの開閉のショートカットの表記（Mac は ⌘B、それ以外は Ctrl+B）。 */
+const SIDEBAR_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform)
+  ? "⌘B"
+  : "Ctrl+B";
+
 export const App = ({ api }: { api: ApiClient }) => {
   const [status, setStatus] = useState<Status>();
   const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [sidebarOpen, setSidebarOpen] = useState(loadSidebarOpen);
+  const toggleSidebar = useCallback(() => setSidebarOpen((open) => !open), []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, sidebarOpen ? "1" : "0");
+    } catch {
+      // 覚えられなくても開閉はできる
+    }
+  }, [sidebarOpen]);
+  // ⌘B（Ctrl+B）でサイドバーを開閉する
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        event.key.toLowerCase() === "b"
+      ) {
+        event.preventDefault();
+        toggleSidebar();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleSidebar]);
   const [chats, setChats] = useState<ChatDto[]>([]);
   const [tasks, setTasks] = useState<TaskDto[]>();
   const [path, setPath] = useState(() => window.location.pathname);
   const selectedId = chatIdFromPath(path);
   const wikiRoute = wikiFromPath(path);
-  const wikiState = window.history.state as {
-    returnTo?: string;
-    draft?: PageDraft;
-  } | null;
+  const wikiState = window.history.state as { returnTo?: string } | null;
   // 回答から Wiki を開いている間も、元のチャットの現在地と入力を保つ。
   const chatViewId =
     selectedId ??
@@ -136,13 +177,16 @@ export const App = ({ api }: { api: ApiClient }) => {
   }, [refreshChats]);
 
   const [wikis, setWikis] = useState<WikiDto[]>([]);
+  const [environments, setEnvironments] = useState<EnvironmentDto[]>([]);
   const refreshTasks = useCallback(async () => {
-    const [nextTasks, nextWikis] = await Promise.all([
+    const [nextTasks, nextWikis, nextEnvironments] = await Promise.all([
       api.tasks.list(),
       api.wikis.list(),
+      api.environments.list(),
     ]);
     setTasks(nextTasks);
     setWikis(nextWikis);
+    setEnvironments(nextEnvironments);
   }, [api]);
 
   useEffect(() => {
@@ -154,7 +198,7 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   // 選んだ会話・タスクを URL に反映し、ブラウザの戻る・進むにも対応する
   const navigate = useCallback(
-    (next: string, state?: { returnTo?: string; draft?: PageDraft }) => {
+    (next: string, state?: { returnTo?: string }) => {
       setFocus(undefined);
       if (window.location.pathname !== next) {
         window.history.pushState(state ?? null, "", next);
@@ -238,6 +282,18 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   const task = tasks?.find((p) => p.id === taskId);
   const showWiki = wikiRoute !== undefined && task !== undefined;
+  /** ヘッダーに出す、いま開いているものの名前。 */
+  const headerTitle = isTaskListPath(path)
+    ? "タスク一覧"
+    : showWiki
+      ? `Wiki: ${wikis.find((w) => w.id === task.wikiId)?.name ?? task.name}`
+      : selectedId !== undefined
+        ? selectedChat === undefined
+          ? ""
+          : selectedChat.title === ""
+            ? "新しい会話"
+            : selectedChat.title
+        : (task?.name ?? "");
   // Wiki のページ一覧（サイドバーの一覧とメインのページ表示で共有する）
   const wiki = useWikiPages(api, showWiki ? task.id : undefined);
   const navigateWiki = (pageId: string | undefined) => {
@@ -252,6 +308,16 @@ export const App = ({ api }: { api: ApiClient }) => {
   };
   const models = status?.claude.state === "ready" ? status.claude.models : [];
   const workspace = chatViewId === undefined ? undefined : current;
+  /** 会話の作業ディレクトリのほかに扱える、環境のディレクトリ。 */
+  const extraDirectoriesOf = (chat: ChatDto): string[] => {
+    const environmentId = tasks?.find(
+      (item) => item.id === chat.taskId,
+    )?.environmentId;
+    return (
+      environments.find((environment) => environment.id === environmentId)
+        ?.directories ?? []
+    ).filter((directory) => directory !== chat.cwd);
+  };
   const workspaceGroup =
     chats.find((chat) => chat.id === chatViewId)?.groupId ??
     workspace?.chat.groupId;
@@ -262,15 +328,37 @@ export const App = ({ api }: { api: ApiClient }) => {
     select(chat.id);
   };
 
-  /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
-  const createTask = async (name: string, wikiId?: string) => {
+  /** environmentId を渡すとその環境に、無ければ同じ名前の環境を新しく作って入れる。 */
+  const createTask = async (name: string, environmentId?: string) => {
     const task = await api.tasks.create({
       name,
-      ...(wikiId === undefined ? {} : { wikiId }),
+      ...(environmentId === undefined ? {} : { environmentId }),
     });
     await refreshTasks();
     navigate(pathForTask(task.id));
   };
+
+  const createEnvironment = async (input: EnvironmentInput) => {
+    await api.environments.create(input);
+    await refreshTasks();
+  };
+
+  const updateEnvironment = async (id: string, input: EnvironmentInput) => {
+    await api.environments.update({ id, ...input });
+    await refreshTasks();
+  };
+
+  const deleteEnvironment = async (id: string) => {
+    await api.environments.delete({ id });
+    await refreshTasks();
+  };
+
+  const setTaskEnvironment = async (id: string, environmentId: string) => {
+    await api.tasks.setEnvironment({ id, environmentId });
+    await refreshTasks();
+  };
+
+  const pickDirectory = async () => (await api.system.pickDirectory()).path;
 
   const renameTask = async (id: string, name: string) => {
     await api.tasks.rename({ id, name });
@@ -319,9 +407,13 @@ export const App = ({ api }: { api: ApiClient }) => {
   return (
     <div className="flex h-full">
       <Sidebar
+        id="sidebar"
+        hidden={!sidebarOpen}
         chats={chats}
         tasks={tasks ?? []}
+        environments={environments}
         wikis={wikis}
+        defaultDirectory={status?.cwd}
         taskId={taskId}
         selectedId={selectedId}
         openTaskId={
@@ -330,7 +422,6 @@ export const App = ({ api }: { api: ApiClient }) => {
             : undefined
         }
         openWikiTaskId={showWiki ? task.id : undefined}
-        onNew={() => void newChat(taskId)}
         onNewInTask={(id) => void newChat(id)}
         onSelect={select}
         onRename={rename}
@@ -338,6 +429,11 @@ export const App = ({ api }: { api: ApiClient }) => {
         onOpenTask={(id) => navigate(pathForTask(id))}
         onOpenWiki={(id) => navigate(pathForWiki(id))}
         onCreateTask={createTask}
+        onCreateEnvironment={createEnvironment}
+        onUpdateEnvironment={updateEnvironment}
+        onDeleteEnvironment={deleteEnvironment}
+        onPickDirectory={pickDirectory}
+        onSetTaskEnvironment={setTaskEnvironment}
         onRenameWiki={renameWiki}
         onRenameTask={renameTask}
         onDeleteTask={deleteTask}
@@ -348,11 +444,23 @@ export const App = ({ api }: { api: ApiClient }) => {
         onOpenSearchHit={openSearchHit}
       />
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b px-4">
-          <span className="truncate text-muted-foreground text-sm">
-            {status?.cwd ?? ""}
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground"
+            aria-label={sidebarOpen ? "サイドバーを閉じる" : "サイドバーを開く"}
+            title={`${sidebarOpen ? "サイドバーを閉じる" : "サイドバーを開く"}（${SIDEBAR_SHORTCUT}）`}
+            aria-expanded={sidebarOpen}
+            aria-controls="sidebar"
+            onClick={toggleSidebar}
+          >
+            {sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+          </Button>
+          <span className="min-w-0 flex-1 truncate font-medium text-sm">
+            {headerTitle}
           </span>
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             <RateLimitBadge
               api={api}
               activity={chats
@@ -389,14 +497,15 @@ export const App = ({ api }: { api: ApiClient }) => {
               initialMessages={workspace.messages}
               loading={workspace.chat.id !== chatViewId}
               models={models}
+              cwd={workspace.chat.cwd}
+              extraDirectories={extraDirectoriesOf(workspace.chat)}
               onActivity={() => void refreshChats()}
               branches={chats.filter(
                 (chat) => chat.groupId === workspace.chat.groupId,
               )}
               onSelectBranch={select}
-              onCreateWikiPage={(taskId, draft) =>
-                navigate(pathForWiki(taskId), { returnTo: path, draft })
-              }
+              onOpenChat={select}
+              onWikiPageCreated={() => void wiki.refresh()}
               {...(focus?.chatId === workspace.chat.id
                 ? { focusMessage: focus }
                 : {})}
@@ -436,7 +545,6 @@ export const App = ({ api }: { api: ApiClient }) => {
             onChatActivity={() => void refreshChats()}
             onOpenChat={select}
             returnTo={wikiState?.returnTo}
-            initialDraft={wikiState?.draft}
             onReturn={(to) => navigate(to)}
             onNavigate={navigateWiki}
           />

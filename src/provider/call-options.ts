@@ -81,5 +81,11 @@ export const readCallOptions = (
     resumeSessionAt: pick("resumeSessionAt"),
     forkSession: raw.forkSession === true,
     context: pick("context"),
+    cwd: pick("cwd"),
+    additionalDirectories: Array.isArray(raw.additionalDirectories)
+      ? raw.additionalDirectories.filter(
+          (dir): dir is string => typeof dir === "string",
+        )
+      : undefined,
   };
 };

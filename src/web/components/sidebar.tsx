@@ -1,10 +1,12 @@
 import {
   BookOpen,
+  Boxes,
   Check,
   ChevronRight,
   FileText,
   FolderMinus,
   FolderPlus,
+  FolderTree,
   GitBranch,
   LayoutDashboard,
   LayoutList,
@@ -12,16 +14,35 @@ import {
   Loader2,
   MessageSquarePlus,
   MessagesSquare,
+  PackagePlus,
   Pencil,
+  Search,
   Settings,
   SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
-import type { ChatDto, TaskDto, WikiDto } from "../../router.ts";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import type {
+  ChatDto,
+  EnvironmentDto,
+  TaskDto,
+  WikiDto,
+} from "../../router.ts";
 import { type ChatGroup, groupChats } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
+import {
+  type EnvironmentDialog,
+  EnvironmentDialogs,
+  type EnvironmentInput,
+} from "./environment-dialogs.tsx";
 import {
   SearchBox,
   type SearchResult,
@@ -198,8 +219,8 @@ const ChatItem = ({
 const EXPANDED_KEY = "cc-manabu.sidebarExpanded";
 
 /**
- * 行（`wiki:<id>` / `task:<id>` / `unassigned`）を開閉した記録。ブラウザに覚える。
- * 記録の無い行は、Wiki と未所属は開き、タスクは閉じる。
+ * 行（`env:<id>` / `task:<id>` / `unassigned`）を開閉した記録。ブラウザに覚える。
+ * 記録の無い行は、環境と未所属は開き、タスクは閉じる。
  */
 type Expanded = Record<string, boolean>;
 
@@ -231,11 +252,30 @@ const saveExpanded = (expanded: Expanded) => {
   }
 };
 
+const GROUP_KEY = "cc-manabu.sidebarGroupByEnvironment";
+
+/** タスクを環境ごとにまとめるか（ブラウザに覚える。既定はまとめる）。 */
+const loadGroupByEnvironment = (): boolean => {
+  try {
+    return localStorage.getItem(GROUP_KEY) !== "0";
+  } catch {
+    return true;
+  }
+};
+
+const saveGroupByEnvironment = (value: boolean) => {
+  try {
+    localStorage.setItem(GROUP_KEY, value ? "1" : "0");
+  } catch {
+    // 覚えられなくても切り替えはできる
+  }
+};
+
 const isExpanded = (expanded: Expanded, key: string): boolean =>
   expanded[key] ?? !key.startsWith("task:");
 
 /**
- * スレッドの行の字下げ。親の行（Wiki・タスク・未所属）の名前の位置にそろえる
+ * スレッドの行の字下げ。親の行（環境・タスク・未所属）の名前の位置にそろえる
  * （親の字下げ＋開閉の矢印とアイコンの幅。行の内側の余白 extra を足す）。
  */
 const threadIndent = (level: number, extra = 0): string =>
@@ -263,7 +303,7 @@ const RowAction = ({
   </Button>
 );
 
-/** 開閉できる行（Wiki・タスク・未所属）。行を押すと開閉する。 */
+/** 開閉できる行（環境・タスク・未所属）。行を押すと開閉する。 */
 const TreeRow = ({
   level,
   expanded,
@@ -321,14 +361,17 @@ const TreeRow = ({
 );
 
 export const Sidebar = ({
+  id,
+  hidden = false,
   chats,
   tasks,
+  environments,
   wikis,
+  defaultDirectory,
   taskId,
   selectedId,
   openTaskId,
   openWikiTaskId,
-  onNew,
   onNewInTask,
   onSelect,
   onRename,
@@ -336,29 +379,39 @@ export const Sidebar = ({
   onOpenTask,
   onOpenWiki,
   onCreateTask,
+  onCreateEnvironment,
+  onUpdateEnvironment,
+  onDeleteEnvironment,
+  onPickDirectory,
   onRenameWiki,
   onRenameTask,
   onDeleteTask,
   onSetTask,
   onSetAutoTerms,
+  onSetTaskEnvironment,
   onOpenTaskList,
   onSearch,
   onOpenSearchHit,
 }: {
+  id?: string;
+  /** 畳んでいるか（⌘B）。畳んでも状態（検索・開閉）は保つ。 */
+  hidden?: boolean;
   /** すべての会話。 */
   chats: ChatDto[];
   tasks: TaskDto[];
-  /** Wiki（タスクで共有できる）。サイドバーでは Wiki → タスク → スレッドの順に入れ子にする。 */
+  /** 環境。サイドバーでは環境 → タスク → スレッドの順に入れ子にする。 */
+  environments: EnvironmentDto[];
+  /** Wiki（環境の設定で選ぶ）。 */
   wikis: WikiDto[];
+  /** 新しい環境に最初から入れておくディレクトリ（起動したディレクトリ）。 */
+  defaultDirectory: string | undefined;
   /** いま開いている会話・画面の所属先のタスク（null は未所属）。 */
   taskId: string | null;
   selectedId: string | undefined;
   /** メインに概要を出しているタスク。 */
   openTaskId: string | undefined;
-  /** メインに Wiki を出しているタスク（その Wiki の行を強調する）。 */
+  /** メインに Wiki を出しているタスク（その環境の行を強調する）。 */
   openWikiTaskId: string | undefined;
-  /** 今のタスク（無ければ未所属）に新しい会話を作る。 */
-  onNew: () => void;
   /** タスク（null は未所属）に新しい会話を作る。 */
   onNewInTask: (taskId: string | null) => void;
   onSelect: (id: string) => void;
@@ -368,14 +421,26 @@ export const Sidebar = ({
   onOpenTask: (taskId: string) => void;
   /** タスクの Wiki（ページ一覧）を開く。 */
   onOpenWiki: (taskId: string) => void;
-  /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
-  onCreateTask: (name: string, wikiId?: string) => Promise<void>;
+  /** environmentId を渡すとその環境に、無ければ同じ名前の環境を新しく作って入れる。 */
+  onCreateTask: (name: string, environmentId?: string) => Promise<void>;
+  onCreateEnvironment: (input: EnvironmentInput) => Promise<void>;
+  onUpdateEnvironment: (
+    environmentId: string,
+    input: EnvironmentInput,
+  ) => Promise<void>;
+  onDeleteEnvironment: (environmentId: string) => Promise<void>;
+  /** OS のフォルダを選ぶダイアログを開く（キャンセルなら null）。 */
+  onPickDirectory: () => Promise<string | null>;
   onRenameWiki: (wikiId: string, name: string) => Promise<void>;
   onRenameTask: (taskId: string, name: string) => Promise<void>;
   onDeleteTask: (taskId: string) => Promise<void>;
   /** 会話の所属を変える（null で未所属に戻す）。 */
   onSetTask: (chatId: string, taskId: string | null) => Promise<void>;
   onSetAutoTerms: (taskId: string, enabled: boolean) => Promise<void>;
+  onSetTaskEnvironment: (
+    taskId: string,
+    environmentId: string,
+  ) => Promise<void>;
   onOpenTaskList: () => void;
   /** 会話を検索する（#115）。 */
   onSearch: (q: string) => Promise<SearchResult>;
@@ -387,9 +452,21 @@ export const Sidebar = ({
   const searching = query.trim() !== "";
   const search = useSearch(query, onSearch);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [groupByEnvironment, setGroupByEnvironment] = useState(
+    loadGroupByEnvironment,
+  );
+  const searchId = useId();
+  const searchButton = useRef<HTMLButtonElement>(null);
+  const closeSearch = (restoreFocus: boolean) => {
+    setQuery("");
+    setSearchOpen(false);
+    if (restoreFocus) searchButton.current?.focus();
+  };
   /** 既存のスレッドを追加する先のタスク。 */
   const [addingTo, setAddingTo] = useState<TaskDto>();
   const [taskDialog, setTaskDialog] = useState<TaskDialog>();
+  const [environmentDialog, setEnvironmentDialog] =
+    useState<EnvironmentDialog>();
   // 分岐は会話ごとに 1 行にまとめる（#76）
   const groups = groupChats(chats);
   const task = tasks.find((p) => p.id === taskId);
@@ -402,7 +479,7 @@ export const Sidebar = ({
       return next;
     });
   // 開いた会話・タスクが見えるように、その親を開く
-  const wikiOfTask = task?.wikiId;
+  const environmentOfTask = task?.environmentId ?? undefined;
   useEffect(() => {
     const keys =
       taskId === null
@@ -411,7 +488,9 @@ export const Sidebar = ({
           : ["unassigned"]
         : [
             `task:${taskId}`,
-            ...(wikiOfTask === undefined ? [] : [`wiki:${wikiOfTask}`]),
+            ...(environmentOfTask === undefined
+              ? []
+              : [`env:${environmentOfTask}`]),
           ];
     setExpanded((current) => {
       if (keys.every((key) => isExpanded(current, key))) return current;
@@ -420,7 +499,7 @@ export const Sidebar = ({
       saveExpanded(next);
       return next;
     });
-  }, [taskId, wikiOfTask, selectedId]);
+  }, [taskId, environmentOfTask, selectedId]);
 
   const threadsOf = (owner: string | null) =>
     groups.filter((group) => group.primary.taskId === owner);
@@ -465,7 +544,7 @@ export const Sidebar = ({
     const key = `task:${item.id}`;
     const open = isExpanded(expanded, key);
     return (
-      <li key={item.id}>
+      <li key={item.id} data-task-id={item.id}>
         <TreeRow
           level={level}
           expanded={open}
@@ -536,20 +615,23 @@ export const Sidebar = ({
     );
   };
 
-  const openWikiId = tasks.find((p) => p.id === openWikiTaskId)?.wikiId;
-  const wikiGroups = wikis.flatMap((wiki) => {
-    const members = tasks.filter((p) => p.wikiId === wiki.id);
-    return members.length === 0 ? [] : [{ wiki, members }];
-  });
+  const openWikiEnvironmentId = tasks.find(
+    (p) => p.id === openWikiTaskId,
+  )?.environmentId;
   const orphans = tasks.filter(
-    (p) => !wikis.some((wiki) => wiki.id === p.wikiId),
+    (p) =>
+      !environments.some((environment) => environment.id === p.environmentId),
   );
   const unassignedOpen = isExpanded(expanded, "unassigned");
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-      <div className="flex items-center justify-between p-3">
-        <span className="font-semibold">cc-manabu</span>
+    <aside
+      id={id}
+      hidden={hidden}
+      aria-label="サイドバー"
+      className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground [&[hidden]]:hidden"
+    >
+      <div className="flex items-center p-2">
         <div className="flex items-center">
           <Button
             variant="ghost"
@@ -572,24 +654,57 @@ export const Sidebar = ({
           <Button
             variant="ghost"
             size="icon"
-            aria-label="新しい会話"
-            title={
-              task === undefined ? "新しい会話" : `「${task.name}」に新しい会話`
-            }
-            onClick={onNew}
+            aria-label="新しい環境"
+            title="新しい環境"
+            onClick={() => setEnvironmentDialog({ kind: "create" })}
           >
-            <MessageSquarePlus />
+            <PackagePlus />
+          </Button>
+          <Button
+            variant={groupByEnvironment ? "secondary" : "ghost"}
+            size="icon"
+            aria-label="環境ごとにまとめる"
+            title={
+              groupByEnvironment
+                ? "環境ごとにまとめる（オン）"
+                : "環境ごとにまとめる（オフ）"
+            }
+            aria-pressed={groupByEnvironment}
+            onClick={() => {
+              setGroupByEnvironment(!groupByEnvironment);
+              saveGroupByEnvironment(!groupByEnvironment);
+            }}
+          >
+            <FolderTree />
+          </Button>
+          <Button
+            ref={searchButton}
+            variant={searchOpen ? "secondary" : "ghost"}
+            size="icon"
+            aria-label="会話を検索"
+            title="会話を検索"
+            aria-expanded={searchOpen}
+            aria-controls={searchOpen ? searchId : undefined}
+            // 開いているときは、押しても検索欄からフォーカスを外さない（外れると先に閉じてしまう）
+            onMouseDown={(event) => {
+              if (searchOpen) event.preventDefault();
+            }}
+            onClick={() =>
+              searchOpen ? closeSearch(false) : setSearchOpen(true)
+            }
+          >
+            <Search />
           </Button>
         </div>
       </div>
-      <div className="flex px-3 pb-2">
+      {searchOpen && (
         <SearchBox
+          id={searchId}
           value={query}
           onChange={setQuery}
-          open={searchOpen}
-          onOpenChange={setSearchOpen}
+          onClose={closeSearch}
         />
-      </div>
+      )}
       {searching ? (
         <nav
           className="flex-1 overflow-y-auto px-2 pb-2"
@@ -606,50 +721,93 @@ export const Sidebar = ({
       ) : (
         <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
           <ul className="flex flex-col gap-0.5">
-            {wikiGroups.map(({ wiki, members }) => {
-              const key = `wiki:${wiki.id}`;
-              const open = isExpanded(expanded, key);
-              const first = members[0];
-              return (
-                <li key={wiki.id}>
-                  <TreeRow
-                    level={0}
-                    expanded={open}
-                    onToggle={() => toggle(key)}
-                    icon={<BookOpen />}
-                    label={wiki.name}
-                    selected={openWikiId === wiki.id}
-                    actions={
-                      <>
-                        {first !== undefined && (
+            {!groupByEnvironment && tasks.map((item) => renderTask(item, 0))}
+            {groupByEnvironment &&
+              environments.map((environment) => {
+                const key = `env:${environment.id}`;
+                const open = isExpanded(expanded, key);
+                const members = tasks.filter(
+                  (p) => p.environmentId === environment.id,
+                );
+                const first = members[0];
+                return (
+                  <li key={environment.id} data-environment-id={environment.id}>
+                    <TreeRow
+                      level={0}
+                      expanded={open}
+                      onToggle={() => toggle(key)}
+                      icon={<Boxes />}
+                      label={environment.name}
+                      selected={openWikiEnvironmentId === environment.id}
+                      actions={
+                        <>
+                          {first !== undefined && (
+                            <RowAction
+                              label={`環境「${environment.name}」の Wiki を開く`}
+                              onClick={() => onOpenWiki(first.id)}
+                            >
+                              <BookOpen className="size-3.5" />
+                            </RowAction>
+                          )}
                           <RowAction
-                            label={`Wiki「${wiki.name}」のページを開く`}
-                            onClick={() => onOpenWiki(first.id)}
+                            label={`環境「${environment.name}」に新しいタスク`}
+                            onClick={() =>
+                              setTaskDialog({
+                                kind: "create",
+                                environmentId: environment.id,
+                              })
+                            }
                           >
-                            <FileText className="size-3.5" />
+                            <FolderPlus className="size-3.5" />
                           </RowAction>
-                        )}
-                        <RowAction
-                          label={`Wiki「${wiki.name}」で新しいタスク`}
-                          onClick={() =>
-                            setTaskDialog({ kind: "create", wikiId: wiki.id })
-                          }
+                          <DropdownMenu
+                            label={`環境「${environment.name}」のメニュー`}
+                            triggerClassName="size-6"
+                            icon={<Settings className="size-3.5" />}
+                            items={[
+                              {
+                                label: "環境の設定",
+                                icon: <SlidersHorizontal />,
+                                onSelect: () =>
+                                  setEnvironmentDialog({
+                                    kind: "settings",
+                                    environmentId: environment.id,
+                                  }),
+                              },
+                              {
+                                label: "環境を削除",
+                                icon: <Trash2 />,
+                                onSelect: () =>
+                                  setEnvironmentDialog({
+                                    kind: "delete",
+                                    environmentId: environment.id,
+                                  }),
+                                variant: "destructive",
+                              },
+                            ]}
+                          />
+                        </>
+                      }
+                    />
+                    {open &&
+                      (members.length === 0 ? (
+                        <p
+                          className="py-1 text-muted-foreground text-xs"
+                          style={{ paddingLeft: threadIndent(1, 0.5) }}
                         >
-                          <FolderPlus className="size-3.5" />
-                        </RowAction>
-                      </>
-                    }
-                  />
-                  {open && (
-                    <ul className="flex flex-col gap-0.5">
-                      {members.map((member) => renderTask(member, 1))}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-            {orphans.map((orphan) => renderTask(orphan, 0))}
-            <li>
+                          まだタスクがありません。
+                        </p>
+                      ) : (
+                        <ul className="flex flex-col gap-0.5">
+                          {members.map((member) => renderTask(member, 1))}
+                        </ul>
+                      ))}
+                  </li>
+                );
+              })}
+            {groupByEnvironment &&
+              orphans.map((orphan) => renderTask(orphan, 0))}
+            <li data-unassigned>
               <TreeRow
                 level={0}
                 expanded={unassignedOpen}
@@ -674,12 +832,24 @@ export const Sidebar = ({
         dialog={taskDialog}
         onClose={() => setTaskDialog(undefined)}
         tasks={tasks}
-        wikis={wikis}
+        environments={environments}
         onCreate={onCreateTask}
         onRename={onRenameTask}
         onDelete={onDeleteTask}
         onSetAutoTerms={onSetAutoTerms}
+        onSetEnvironment={onSetTaskEnvironment}
+      />
+      <EnvironmentDialogs
+        dialog={environmentDialog}
+        onClose={() => setEnvironmentDialog(undefined)}
+        environments={environments}
+        wikis={wikis}
+        defaultDirectory={defaultDirectory}
+        onCreate={onCreateEnvironment}
+        onUpdate={onUpdateEnvironment}
         onRenameWiki={onRenameWiki}
+        onDelete={onDeleteEnvironment}
+        onPickDirectory={onPickDirectory}
       />
       <AddThreadsDialog
         open={addingTo !== undefined}

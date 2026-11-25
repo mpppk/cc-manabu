@@ -18,6 +18,7 @@ import { RunnerRegistry } from "./chat/runner-registry.ts";
 import { resolveClaudePath } from "./claude/detect.ts";
 import { createClaudeStatus } from "./claude/status.ts";
 import { createChatRepository } from "./db/chat-repository.ts";
+import { createEnvironmentRepository } from "./db/environment-repository.ts";
 import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
 import { createQueueRepository } from "./db/queue-repository.ts";
@@ -25,6 +26,7 @@ import { createRateLimitRepository } from "./db/rate-limit-repository.ts";
 import { createSearchRepository } from "./db/search-repository.ts";
 import { createTaskRepository } from "./db/task-repository.ts";
 import { createWikiRepository } from "./db/wiki-repository.ts";
+import { createDirectoryPicker } from "./environment/directory-picker.ts";
 import { CliExit } from "./errors/index.ts";
 import { createClaudeCode } from "./provider/index.ts";
 import { router } from "./router.ts";
@@ -38,6 +40,11 @@ import {
   createWikiContextBuilder,
   createWikiPageReader,
 } from "./wiki/context.ts";
+import {
+  createWikiPageGenerator,
+  PAGE_GENERATION_MODEL,
+  PAGE_GENERATION_SETTINGS,
+} from "./wiki/page-generation.ts";
 import {
   TERM_EXTRACTION_MODEL,
   TERM_EXTRACTION_SETTINGS,
@@ -56,6 +63,9 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
     Result.andThen(({ db }) => {
       const chats = createChatRepository(db);
       const tasks = createTaskRepository(db);
+      const environments = createEnvironmentRepository(db);
+      // 移行で作った、会話の無かった環境は、起動したディレクトリを使う
+      environments.fillEmptyDirectories(process.cwd());
       const wiki = createWikiRepository(db);
       const queue = createQueueRepository(db);
       const rateLimits = createRateLimitRepository(db);
@@ -102,6 +112,21 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           (await generateText({ model: termModel, prompt, reasoning: "none" }))
             .text,
       });
+      // 回答の選択範囲からのページ作成も同じく軽い呼び出し
+      const pageModel = createClaudeCode({
+        ...providerSettings,
+        ...PAGE_GENERATION_SETTINGS,
+      })(PAGE_GENERATION_MODEL);
+      const generateWikiPage = createWikiPageGenerator({
+        tasks,
+        chats,
+        wiki,
+        generate: async (prompt) =>
+          (await generateText({ model: pageModel, prompt, reasoning: "none" }))
+            .text,
+        onError: (error) =>
+          console.warn("Wiki のページを生成できませんでした:", error),
+      });
       // 回答の要約も同じく軽い呼び出し（閉じた回答に出す）
       const summaryModel = createClaudeCode({
         ...providerSettings,
@@ -128,6 +153,10 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           createClaudeCode({ ...providerSettings, canUseTool })(modelId),
         wikiContext: createWikiContextBuilder(wiki, tasks),
         readWikiPage: createWikiPageReader(wiki, tasks),
+        directoriesOf: (taskId) => {
+          const directories = environments.directoriesOfTask(taskId);
+          return Result.isSuccess(directories) ? directories.value : undefined;
+        },
         onAnswerComplete: (event) => void writeTermPages(event),
         onAnswerFinish: (event) => void summarizeAnswer(event),
         onRunnerFinish: (chatId, outcome) =>
@@ -147,6 +176,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         context: {
           chats,
           tasks,
+          environments,
           wiki,
           queue,
           queueDispatcher,
@@ -155,7 +185,9 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           chatService,
           approvals,
           claude,
+          generateWikiPage,
           cwd: process.cwd(),
+          pickDirectory: createDirectoryPicker(),
         },
       });
     }),

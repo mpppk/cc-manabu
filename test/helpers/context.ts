@@ -11,6 +11,7 @@ import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
+import { createEnvironmentRepository } from "../../src/db/environment-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
 import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts";
@@ -27,6 +28,7 @@ import {
   createWikiContextBuilder,
   createWikiPageReader,
 } from "../../src/wiki/context.ts";
+import { createWikiPageGenerator } from "../../src/wiki/page-generation.ts";
 
 /**
  * インメモリ DB と、差し替えた query() を使うルータのコンテキストを作る。
@@ -40,6 +42,10 @@ export const createTestContext = (
     extract?: (prompt: string) => Promise<string>;
     /** 回答の要約のモデル呼び出し。指定すると回答後に要約を作る。 */
     summarize?: (prompt: string) => Promise<string>;
+    /** フォルダを選ぶダイアログ。省略するとキャンセルした扱い。 */
+    pickDirectory?: RouterContext["pickDirectory"];
+    /** 選択範囲からのページ生成のモデル呼び出し。省略すると、呼ばれたら失敗する。 */
+    generatePage?: (prompt: string) => Promise<string>;
   } = {},
 ) => {
   const opened = openDatabase(":memory:");
@@ -48,6 +54,7 @@ export const createTestContext = (
   }
   const chats = createChatRepository(opened.value.db);
   const tasks = createTaskRepository(opened.value.db);
+  const environments = createEnvironmentRepository(opened.value.db);
   const wiki = createWikiRepository(opened.value.db);
   const queue = createQueueRepository(opened.value.db);
   const rateLimits = createRateLimitRepository(opened.value.db);
@@ -89,6 +96,10 @@ export const createTestContext = (
       ),
     wikiContext: createWikiContextBuilder(wiki, tasks),
     readWikiPage: createWikiPageReader(wiki, tasks),
+    directoriesOf: (taskId) => {
+      const directories = environments.directoriesOfTask(taskId);
+      return Result.isSuccess(directories) ? directories.value : undefined;
+    },
     onRunnerFinish: (chatId, outcome) =>
       queueDispatcher?.onRunnerFinish(chatId, outcome),
     ...(writeTermPages === undefined
@@ -129,6 +140,7 @@ export const createTestContext = (
   const context: RouterContext = {
     chats,
     tasks,
+    environments,
     wiki,
     queue,
     queueDispatcher,
@@ -137,12 +149,26 @@ export const createTestContext = (
     chatService,
     approvals,
     claude,
+    generateWikiPage: createWikiPageGenerator({
+      tasks,
+      chats,
+      wiki,
+      generate:
+        options.generatePage ??
+        (() => {
+          throw new Error("generatePage is not configured in this test");
+        }),
+    }),
     cwd: "/work",
+    pickDirectory:
+      options.pickDirectory ??
+      (async () => Result.succeed<string | null>(null)),
   };
   return {
     context,
     chats,
     tasks,
+    environments,
     wiki,
     queue,
     rateLimits,

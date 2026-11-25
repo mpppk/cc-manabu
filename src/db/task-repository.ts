@@ -1,9 +1,15 @@
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
-import { and, asc, count, eq, ne } from "drizzle-orm";
+import { asc, count, eq } from "drizzle-orm";
 import { DatabaseError } from "./chat-repository.ts";
+import {
+  EnvironmentNotFoundError,
+  insertEnvironment,
+  WikiNotFoundError,
+} from "./environment-repository.ts";
 import type { Db } from "./index.ts";
 import {
+  environments,
   type TaskLinkRow,
   type TaskRow,
   type TaskStatus,
@@ -13,11 +19,7 @@ import {
   wikis,
 } from "./schema.ts";
 
-export class WikiNotFoundError extends ErrorFactory({
-  name: "WikiNotFoundError",
-  message: (fields) => `Wiki not found: ${fields.wikiId}`,
-  fields: ErrorFactory.fields<{ wikiId: string }>(),
-}) {}
+export { WikiNotFoundError };
 
 /** タスクが参照する Wiki。古い行で未設定なら、移行で作った同じ ID の Wiki。 */
 export const wikiIdOf = (task: Pick<TaskRow, "id" | "wikiId">): string =>
@@ -60,43 +62,40 @@ const requireTask = (
 /** タスクの永続化。会話の所属は chats.task_id に持つ。 */
 export const createTaskRepository = (db: Db) => ({
   /**
-   * タスクを作る。wikiId があればその Wiki を共有し、無ければ同じ名前の Wiki を新しく作る。
+   * タスクを作る。environmentId があればその環境に入れ、無ければタスクと同じ名前の環境
+   * （directories のディレクトリと、新しい Wiki）を作って入れる。
    */
   createTask: (input: {
     name: string;
     id?: string;
-    wikiId?: string;
-  }): Result.Result<TaskRow, WikiNotFoundError | DatabaseError> =>
+    environmentId?: string;
+    /** 環境を新しく作るときのディレクトリ。 */
+    directories?: string[];
+  }): Result.Result<TaskRow, EnvironmentNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() =>
         db.transaction((tx) => {
           const now = new Date();
-          let wikiId = input.wikiId;
-          if (wikiId === undefined) {
-            wikiId = crypto.randomUUID();
-            tx.insert(wikis)
-              .values({
-                id: wikiId,
-                name: input.name,
-                createdAt: now,
-                updatedAt: now,
-              })
-              .run();
-          } else if (
-            tx
-              .select({ id: wikis.id })
-              .from(wikis)
-              .where(eq(wikis.id, wikiId))
-              .get() === undefined
-          ) {
-            return undefined;
-          }
+          const environment =
+            input.environmentId === undefined
+              ? insertEnvironment(
+                  tx,
+                  { name: input.name, directories: input.directories ?? [] },
+                  now,
+                )
+              : tx
+                  .select()
+                  .from(environments)
+                  .where(eq(environments.id, input.environmentId))
+                  .get();
+          if (environment === undefined) return undefined;
           return tx
             .insert(tasks)
             .values({
               id: input.id ?? crypto.randomUUID(),
               name: input.name,
-              wikiId,
+              environmentId: environment.id,
+              wikiId: environment.wikiId,
               createdAt: now,
               updatedAt: now,
             })
@@ -106,8 +105,51 @@ export const createTaskRepository = (db: Db) => ({
       ),
       Result.andThen((row) =>
         row === undefined
-          ? Result.fail(new WikiNotFoundError({ wikiId: input.wikiId ?? "" }))
+          ? Result.fail(
+              new EnvironmentNotFoundError({
+                environmentId: input.environmentId ?? "",
+              }),
+            )
           : Result.succeed(row),
+      ),
+    ),
+
+  /** タスクを別の環境に移す。参照する Wiki も移った環境のものになる。 */
+  setEnvironment: (
+    taskId: string,
+    environmentId: string,
+  ): Result.Result<
+    TaskRow,
+    TaskNotFoundError | EnvironmentNotFoundError | DatabaseError
+  > =>
+    Result.pipe(
+      run(() =>
+        db.transaction((tx) => {
+          const environment = tx
+            .select()
+            .from(environments)
+            .where(eq(environments.id, environmentId))
+            .get();
+          if (environment === undefined) {
+            return { kind: "environment-not-found" as const };
+          }
+          const row = tx
+            .update(tasks)
+            .set({
+              environmentId,
+              wikiId: environment.wikiId,
+              updatedAt: new Date(),
+            })
+            .where(eq(tasks.id, taskId))
+            .returning()
+            .get();
+          return { kind: "updated" as const, row };
+        }),
+      ),
+      Result.andThen((result) =>
+        result.kind === "environment-not-found"
+          ? Result.fail(new EnvironmentNotFoundError({ environmentId }))
+          : requireTask(result.row, taskId),
       ),
     ),
 
@@ -198,32 +240,13 @@ export const createTaskRepository = (db: Db) => ({
 
   /**
    * タスクを消す。所属していた会話は消さず、未所属に戻す（外部キーの ON DELETE SET NULL）。
-   * 参照していた Wiki は、ほかのタスクが使っていなければページごと消す。
+   * Wiki は環境のものなので残る。
    */
   deleteTask: (
     taskId: string,
   ): Result.Result<TaskRow, TaskNotFoundError | DatabaseError> =>
     Result.pipe(
-      run(() =>
-        db.transaction((tx) => {
-          const row = tx
-            .delete(tasks)
-            .where(eq(tasks.id, taskId))
-            .returning()
-            .get();
-          if (row === undefined) return undefined;
-          const wikiId = wikiIdOf(row);
-          const shared = tx
-            .select({ id: tasks.id })
-            .from(tasks)
-            .where(and(eq(tasks.wikiId, wikiId), ne(tasks.id, taskId)))
-            .get();
-          if (shared === undefined) {
-            tx.delete(wikis).where(eq(wikis.id, wikiId)).run();
-          }
-          return row;
-        }),
-      ),
+      run(() => db.delete(tasks).where(eq(tasks.id, taskId)).returning().get()),
       Result.andThen((row) => requireTask(row, taskId)),
     ),
 

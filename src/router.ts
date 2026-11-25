@@ -12,6 +12,11 @@ import {
   type DatabaseError,
   WikiChatTaskError,
 } from "./db/chat-repository.ts";
+import {
+  EnvironmentNotFoundError,
+  type EnvironmentRepository,
+  type EnvironmentSummary,
+} from "./db/environment-repository.ts";
 import type { QueueRepository } from "./db/queue-repository.ts";
 import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
 import {
@@ -29,13 +34,18 @@ import {
   wikiIdOf,
 } from "./db/task-repository.ts";
 import type { WikiRepository } from "./db/wiki-repository.ts";
+import { normalizeDirectories } from "./environment/directories.ts";
+import type { DirectoryPicker } from "./environment/directory-picker.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
 import { version } from "./version.ts";
+import type { WikiPageGenerator } from "./wiki/page-generation.ts";
+import { MAX_PAGE_TERM_LENGTH } from "./wiki/terms.ts";
 
 /** oRPC ハンドラに渡すコンテキスト。 */
 export type RouterContext = {
   chats: ChatRepository;
   tasks: TaskRepository;
+  environments: EnvironmentRepository;
   queue: QueueRepository;
   queueDispatcher: QueueDispatcher;
   search: SearchRepository;
@@ -44,8 +54,15 @@ export type RouterContext = {
   chatService: ChatService;
   approvals: ApprovalBroker;
   claude: ClaudeStatusHolder;
-  /** 新しい会話の作業ディレクトリ（起動時のカレントディレクトリ）。 */
+  /** 回答の中の語句から Wiki のページを Claude に書かせる。 */
+  generateWikiPage: WikiPageGenerator;
+  /**
+   * 起動時のカレントディレクトリ。タスクに属さない会話の作業ディレクトリと、
+   * 環境を選ばずに作ったタスクの環境のディレクトリに使う。
+   */
   cwd: string;
+  /** OS のフォルダを選ぶダイアログを開く。 */
+  pickDirectory: DirectoryPicker;
 };
 
 export const base = os.$context<RouterContext>();
@@ -53,11 +70,21 @@ export const base = os.$context<RouterContext>();
 const ERROR_CODES: OrpcErrorCodeMap = {
   ChatNotFoundError: "NOT_FOUND",
   TaskNotFoundError: "NOT_FOUND",
+  EnvironmentNotFoundError: "NOT_FOUND",
+  EnvironmentNotEmptyError: "CONFLICT",
+  WikiNotFoundError: "NOT_FOUND",
+  DirectoryNotFoundError: "BAD_REQUEST",
+  RelativeDirectoryError: "BAD_REQUEST",
+  DirectoryPickerUnavailableError: "SERVICE_UNAVAILABLE",
+  DirectoryPickerError: "INTERNAL_SERVER_ERROR",
   TaskLinkNotFoundError: "NOT_FOUND",
   QueuedMessageNotFoundError: "NOT_FOUND",
   WikiPageNotFoundError: "NOT_FOUND",
   WikiPageUnavailableError: "NOT_FOUND",
   WikiChatTaskError: "BAD_REQUEST",
+  ChatWithoutTaskError: "BAD_REQUEST",
+  AnswerNotFoundError: "NOT_FOUND",
+  InvalidPageTermError: "BAD_REQUEST",
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
   ApprovalNotFoundError: "NOT_FOUND",
@@ -145,13 +172,16 @@ export type TaskDto = Pick<
   | "progressUpdatedAt"
   | "createdAt"
 > & {
-  /** 参照する Wiki（ほかのタスクと共有していることがある）。 */
+  /** 所属する環境。 */
+  environmentId: string | null;
+  /** 参照する Wiki（所属する環境の Wiki）。 */
   wikiId: string;
 };
 
 const toTaskDto = (row: TaskRow): TaskDto => ({
   id: row.id,
   name: row.name,
+  environmentId: row.environmentId,
   wikiId: wikiIdOf(row),
   autoTerms: row.autoTerms,
   status: row.status,
@@ -160,6 +190,60 @@ const toTaskDto = (row: TaskRow): TaskDto => ({
   progressUpdatedAt: row.progressUpdatedAt,
   createdAt: row.createdAt,
 });
+
+/** クライアントに返す環境。 */
+export type EnvironmentDto = Pick<
+  EnvironmentSummary,
+  "id" | "name" | "wikiId" | "wikiName" | "directories" | "taskCount"
+>;
+
+const toEnvironmentDto = (row: EnvironmentSummary): EnvironmentDto => ({
+  id: row.id,
+  name: row.name,
+  wikiId: row.wikiId,
+  wikiName: row.wikiName,
+  directories: row.directories,
+  taskCount: row.taskCount,
+});
+
+/** 環境の入力。ディレクトリは 1 つ以上（先頭が作業ディレクトリ）。 */
+const environmentName = z.string().trim().min(1).max(100);
+const directoriesInput = z
+  .array(z.string().trim().min(1).max(4096))
+  .min(1)
+  .max(20);
+
+/** 環境を 1 件、一覧と同じ形（Wiki の名前・タスクの数つき）で返す。 */
+const environmentDto = (
+  context: RouterContext,
+  environmentId: string,
+): Result.Result<EnvironmentDto, EnvironmentNotFoundError | DatabaseError> =>
+  Result.pipe(
+    context.environments.listEnvironments(),
+    Result.andThen((list) => {
+      const found = list.find(
+        (environment) => environment.id === environmentId,
+      );
+      return found === undefined
+        ? Result.fail(new EnvironmentNotFoundError({ environmentId }))
+        : Result.succeed(toEnvironmentDto(found));
+    }),
+  );
+
+/**
+ * タスクの会話の作業ディレクトリ（環境の先頭のディレクトリ）。タスクに属さない、
+ * または環境にディレクトリが無ければ、起動したディレクトリ。
+ */
+const cwdForTask = (
+  context: RouterContext,
+  taskId: string | null | undefined,
+): Result.Result<string, DatabaseError> =>
+  taskId === null || taskId === undefined
+    ? Result.succeed(context.cwd)
+    : Result.pipe(
+        context.environments.directoriesOfTask(taskId),
+        Result.map((directories) => directories?.[0] ?? context.cwd),
+      );
 
 /** クライアントに返す Wiki（複数のタスクで共有できる）。 */
 export type WikiDto = { id: string; name: string; taskCount: number };
@@ -321,6 +405,87 @@ export const router = {
       cwd: context.cwd,
       claude: context.claude.get(),
     })),
+    /** OS のフォルダを選ぶダイアログを開き、選んだディレクトリを返す（キャンセルなら null）。 */
+    pickDirectory: base.handler(async ({ context }) => ({
+      path: await unwrapForOrpc(context.pickDirectory(), ERROR_CODES),
+    })),
+  },
+  environments: {
+    /** 環境（作った順）と、参照する Wiki の名前・タスクの数。 */
+    list: base.handler(async ({ context }) =>
+      (
+        await unwrapForOrpc(
+          context.environments.listEnvironments(),
+          ERROR_CODES,
+        )
+      ).map(toEnvironmentDto),
+    ),
+    /** 環境を作る。wikiId を渡すとその Wiki を共有し、無ければ同じ名前の Wiki を新しく作る。 */
+    create: base
+      .input(
+        z.object({
+          name: environmentName,
+          directories: directoriesInput,
+          wikiId: z.string().min(1).optional(),
+        }),
+      )
+      .handler(async ({ context, input }) =>
+        unwrapForOrpc(
+          Result.pipe(
+            normalizeDirectories(input.directories),
+            Result.andThen((directories) =>
+              context.environments.createEnvironment({
+                name: input.name,
+                directories,
+                ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
+              }),
+            ),
+            Result.andThen((row) => environmentDto(context, row.id)),
+          ),
+          ERROR_CODES,
+        ),
+      ),
+    /**
+     * 名前・ディレクトリ・参照する Wiki を変える（指定した項目だけ）。
+     * ディレクトリの先頭を変えても、作業ディレクトリは新しいスレッドからしか変わらない。
+     */
+    update: base
+      .input(
+        z.object({
+          id: z.string().min(1),
+          name: environmentName.optional(),
+          directories: directoriesInput.optional(),
+          wikiId: z.string().min(1).optional(),
+        }),
+      )
+      .handler(async ({ context, input }) =>
+        unwrapForOrpc(
+          Result.pipe(
+            input.directories === undefined
+              ? Result.succeed(undefined)
+              : normalizeDirectories(input.directories),
+            Result.andThen((directories) =>
+              context.environments.updateEnvironment(input.id, {
+                ...(input.name === undefined ? {} : { name: input.name }),
+                ...(directories === undefined ? {} : { directories }),
+                ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
+              }),
+            ),
+            Result.andThen((row) => environmentDto(context, row.id)),
+          ),
+          ERROR_CODES,
+        ),
+      ),
+    /** 環境を消す。タスクがあれば消さない。ほかの環境が使っていない Wiki はページごと消す。 */
+    delete: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(
+          context.environments.deleteEnvironment(input.id),
+          ERROR_CODES,
+        );
+        return { id: input.id };
+      }),
   },
   tasks: {
     list: base.handler(async ({ context }) =>
@@ -328,16 +493,39 @@ export const router = {
         toTaskDto,
       ),
     ),
-    /** タスクを作る。wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
+    /**
+     * タスクを作る。environmentId を渡すとその環境に入れ、無ければタスクと同じ名前の環境
+     * （起動したディレクトリと、新しい Wiki）を作って入れる。
+     */
     create: base
-      .input(z.object({ name: taskName, wikiId: z.string().min(1).optional() }))
+      .input(
+        z.object({
+          name: taskName,
+          environmentId: z.string().min(1).optional(),
+        }),
+      )
       .handler(async ({ context, input }) =>
         toTaskDto(
           await unwrapForOrpc(
             context.tasks.createTask({
               name: input.name,
-              ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
+              ...(input.environmentId === undefined
+                ? { directories: [context.cwd] }
+                : { environmentId: input.environmentId }),
             }),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** タスクを別の環境に移す。Wiki は移った環境のものになり、スレッドの作業ディレクトリはそのまま。 */
+    setEnvironment: base
+      .input(
+        z.object({ id: z.string().min(1), environmentId: z.string().min(1) }),
+      )
+      .handler(async ({ context, input }) =>
+        toTaskDto(
+          await unwrapForOrpc(
+            context.tasks.setEnvironment(input.id, input.environmentId),
             ERROR_CODES,
           ),
         ),
@@ -493,13 +681,18 @@ export const router = {
       .input(wikiChatTarget.extend({ message: userMessage, ...sendSettings }))
       .handler(async ({ context, input }) => {
         const runner = await unwrapForOrpc(
-          context.chatService.sendToWikiPage({
-            ...input,
-            cwd: context.cwd,
-            message: input.message as Parameters<
-              ChatService["send"]
-            >[0]["message"],
-          }),
+          Result.pipe(
+            cwdForTask(context, input.taskId),
+            Result.andThen((cwd) =>
+              context.chatService.sendToWikiPage({
+                ...input,
+                cwd,
+                message: input.message as Parameters<
+                  ChatService["send"]
+                >[0]["message"],
+              }),
+            ),
+          ),
           ERROR_CODES,
         );
         return { chatId: runner.chatId };
@@ -545,6 +738,25 @@ export const router = {
           ),
         ),
       ),
+    /**
+     * 回答の中で選んだ語句のページを Claude に書かせて保存する。
+     * 同じ名前のページがすでにあれば作らずに返す（created: false）。
+     */
+    generate: base
+      .input(
+        z.object({
+          chatId: z.string().min(1),
+          messageId: z.string().min(1),
+          term: z.string().trim().min(1).max(MAX_PAGE_TERM_LENGTH),
+        }),
+      )
+      .handler(async ({ context, input }) => {
+        const { page, created } = await unwrapForOrpc(
+          context.generateWikiPage(input),
+          ERROR_CODES,
+        );
+        return { page: toWikiPageDto(page), created };
+      }),
     update: base
       .input(wikiPageInput.extend({ id: z.string().min(1) }))
       .handler(async ({ context, input }) =>
@@ -602,9 +814,10 @@ export const router = {
           await unwrapForOrpc(
             Result.pipe(
               requireTask(context, input.taskId),
-              Result.andThen(() =>
+              Result.andThen(() => cwdForTask(context, input.taskId)),
+              Result.andThen((cwd) =>
                 context.chats.createChat({
-                  cwd: context.cwd,
+                  cwd,
                   taskId: input.taskId ?? null,
                   model: input.model,
                   effort: input.effort,
