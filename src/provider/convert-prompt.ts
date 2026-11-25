@@ -157,15 +157,24 @@ export const buildQueryOptions = (params: {
   abortController: AbortController;
 }): Options => {
   const { modelId, settings, callOptions, abortController } = params;
-  const { sessionId, resumeSessionAt, forkSession } =
-    readCallOptions(callOptions);
+  const {
+    sessionId,
+    resumeSessionAt,
+    forkSession,
+    cwd,
+    additionalDirectories,
+  } = readCallOptions(callOptions);
   const { effort, thinkingDisabled } = toEffort(callOptions.reasoning);
 
   return {
     abortController,
     includePartialMessages: true,
     ...(modelId === "default" ? {} : { model: modelId }),
-    cwd: settings.cwd ?? process.cwd(),
+    cwd: cwd ?? settings.cwd ?? process.cwd(),
+    ...(additionalDirectories === undefined ||
+    additionalDirectories.length === 0
+      ? {}
+      : { additionalDirectories }),
     settingSources: [...(settings.settingSources ?? DEFAULT_SETTING_SOURCES)],
     systemPrompt:
       settings.systemPrompt ??

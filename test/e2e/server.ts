@@ -5,6 +5,8 @@
  *
  *   bun test/e2e/server.ts   （playwright.config.ts の webServer から起動される）
  */
+import { realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
@@ -23,6 +25,7 @@ import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
+import { createEnvironmentRepository } from "../../src/db/environment-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
 import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts";
@@ -58,6 +61,7 @@ const opened = openDatabase(":memory:");
 if (Result.isFailure(opened)) throw opened.error;
 const chats = createChatRepository(opened.value.db);
 const tasks = createTaskRepository(opened.value.db);
+const environments = createEnvironmentRepository(opened.value.db);
 const wiki = createWikiRepository(opened.value.db);
 const queue = createQueueRepository(opened.value.db);
 const rateLimits = createRateLimitRepository(opened.value.db);
@@ -112,6 +116,10 @@ const chatService = createChatService({
     createClaudeCode({ cwd: "/e2e", query, canUseTool, onRateLimit })(modelId),
   wikiContext: createWikiContextBuilder(wiki, tasks),
   readWikiPage: createWikiPageReader(wiki, tasks),
+  directoriesOf: (taskId) => {
+    const directories = environments.directoriesOfTask(taskId);
+    return Result.isSuccess(directories) ? directories.value : undefined;
+  },
   onRunnerFinish: (chatId, outcome) =>
     queueDispatcher?.onRunnerFinish(chatId, outcome),
   onAnswerComplete: (event) => void writeTermPages(event),
@@ -147,6 +155,7 @@ const started = startServer({
   context: {
     chats,
     tasks,
+    environments,
     wiki,
     queue,
     queueDispatcher,
@@ -157,6 +166,9 @@ const started = startServer({
     claude,
     generateWikiPage,
     cwd: "/e2e",
+    // フォルダを選ぶダイアログの代わりに、E2E_PICKED_DIR（無ければ一時ディレクトリ）を返す
+    pickDirectory: async () =>
+      Result.succeed(process.env.E2E_PICKED_DIR ?? realpathSync(tmpdir())),
   },
 });
 if (Result.isFailure(started)) throw started.error;

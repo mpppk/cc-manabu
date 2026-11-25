@@ -14,7 +14,7 @@ Bun 製の CLI ツールとして TypeScript で実装し、単一バイナリ�
 | 統合方式 | Agent SDK の `query()` を包む最小限の AI SDK `LanguageModel` を自前実装する。community provider は使わない |
 | 履歴管理 | Agent SDK のセッション resume。2 回目以降は `sessionId` を resume し、最新のユーザー発話だけを送る |
 | 永続化 | SQLite＋Drizzle（XDG パス） |
-| cwd | 起動時のカレントディレクトリ |
+| cwd | スレッドを作ったときの作業ディレクトリ（タスクのスレッドは環境の先頭のディレクトリ、それ以外は起動時のカレントディレクトリ）。環境の残りのディレクトリは additionalDirectories で渡す |
 | 承認フロー | `canUseTool` でサーバを待機させ、Web UI で Allow/Deny する。読み取り系のツールは自動で許可する |
 | 設定の読み込み | `settingSources: ["user", "project", "local"]`（CLAUDE.md・settings.json・MCP・skills が効く） |
 | システムプロンプト | `claude_code` preset に、チャット向けの指示を append する |

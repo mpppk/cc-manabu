@@ -2,6 +2,10 @@ import { Database } from "bun:sqlite";
 import { beforeEach, expect, test } from "bun:test";
 import { Result } from "@praha/byethrow";
 import { drizzle } from "drizzle-orm/bun-sqlite";
+import {
+  createEnvironmentRepository,
+  type EnvironmentRepository,
+} from "../../src/db/environment-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { MIGRATIONS, runMigrations } from "../../src/db/migrate.ts";
 import * as schema from "../../src/db/schema.ts";
@@ -23,11 +27,13 @@ const unwrap = <T>(result: Result.Result<T, unknown>): T => {
 };
 
 let tasks: TaskRepository;
+let environments: EnvironmentRepository;
 let wiki: WikiRepository;
 
 beforeEach(() => {
   const { db } = unwrap(openDatabase(":memory:"));
   tasks = createTaskRepository(db);
+  environments = createEnvironmentRepository(db);
   wiki = createWikiRepository(db);
 });
 
@@ -89,7 +95,7 @@ test("ページの作成・一覧（タイトル順、タスクごと）・更�
   }
 });
 
-test("タスクを消すとページも消える", () => {
+test("タスクを消してもページは環境の Wiki に残り、環境を消すとページも消える", () => {
   const task = unwrap(tasks.createTask({ name: "p" }));
   unwrap(
     wiki.createPage({
@@ -100,12 +106,16 @@ test("タスクを消すとページも消える", () => {
     }),
   );
   unwrap(tasks.deleteTask(task.id));
+  expect(unwrap(wiki.listPages(wikiIdOf(task)))).toHaveLength(1);
+  unwrap(environments.deleteEnvironment(task.environmentId ?? ""));
   expect(unwrap(wiki.listPages(wikiIdOf(task)))).toEqual([]);
 });
 
-test("既存の Wiki を共有してタスクを作り、最後のタスクを消すまで Wiki は残る", () => {
+test("同じ環境のタスクは Wiki を共有し、タスクを消しても Wiki は環境に残る", () => {
   const a = unwrap(tasks.createTask({ name: "a" }));
-  const b = unwrap(tasks.createTask({ name: "b", wikiId: wikiIdOf(a) }));
+  const b = unwrap(
+    tasks.createTask({ name: "b", environmentId: a.environmentId ?? "" }),
+  );
   expect(wikiIdOf(b)).toBe(wikiIdOf(a));
   unwrap(
     wiki.createPage({
@@ -124,12 +134,13 @@ test("既存の Wiki を共有してタスクを作り、最後のタスクを�
     "共有ページ",
   ]);
   unwrap(tasks.deleteTask(b.id));
-  expect(unwrap(tasks.listWikis())).toEqual([]);
-  expect(unwrap(wiki.listPages(wikiIdOf(b)))).toEqual([]);
+  expect(unwrap(wiki.listPages(wikiIdOf(b))).map((p) => p.title)).toEqual([
+    "共有ページ",
+  ]);
 });
 
-test("無い Wiki を指定するとタスクを作らない", () => {
-  const result = tasks.createTask({ name: "x", wikiId: "missing" });
+test("無い環境を指定するとタスクを作らない", () => {
+  const result = tasks.createTask({ name: "x", environmentId: "missing" });
   expect(Result.isFailure(result)).toBe(true);
   expect(unwrap(tasks.listTasks())).toEqual([]);
 });
@@ -157,6 +168,7 @@ test("移行: 既存のタスクはそれぞれ同じ ID・名前の Wiki を持
     "0009_shared_wikis",
     "0010_wiki_page_chats",
     "0011_tasks",
+    "0012_environments",
   ]);
   const db = drizzle(sqlite, { schema });
   const repoTasks = createTaskRepository(db);
