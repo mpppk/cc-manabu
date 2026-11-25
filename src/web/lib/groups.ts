@@ -11,6 +11,23 @@ export type ChatGroup = {
   status: ChatDto["status"];
 };
 
+/**
+ * まだ何も送っていない会話（＋で作ったまま）。タイトルは最初の送信で付くので、
+ * 名前もセッションもない元の会話を空とみなす。
+ */
+export const isBlankChat = (chat: ChatDto): boolean =>
+  chat.title === "" &&
+  !chat.hasSession &&
+  chat.parentId === null &&
+  chat.status === "idle";
+
+/** 一覧に出す会話。空の会話は、開いているときだけ出す。 */
+export const listedChats = (
+  chats: readonly ChatDto[],
+  openId: string | undefined,
+): ChatDto[] =>
+  chats.filter((chat) => !isBlankChat(chat) || chat.id === openId);
+
 const STATUS_PRIORITY: ChatDto["status"][] = [
   "awaiting_approval",
   "running",
