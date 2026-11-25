@@ -1,5 +1,6 @@
 export type PwaOptions = {
-  readonly profile: string;
+  /** 未指定なら、PWA がインストールされたプロファイルを探す。 */
+  readonly profile: string | undefined;
   readonly appId: string | undefined;
 };
 
@@ -43,7 +44,7 @@ export const loadRuntimeConfig = (
   ...(pwa
     ? {
         pwa: {
-          profile: env.CC_MANABU_CHROME_PROFILE?.trim() || "Default",
+          profile: env.CC_MANABU_CHROME_PROFILE?.trim() || undefined,
           appId: env.CC_MANABU_CHROME_APP_ID?.trim() || undefined,
         },
       }
