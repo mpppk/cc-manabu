@@ -82,6 +82,26 @@ describe("loadRuntimeConfig", () => {
     );
   });
 
+  test("--pwa は Chrome の設定を読み、ブラウザを開かない指定とトークン認証を保つ", () => {
+    expect(
+      loadRuntimeConfig(
+        {
+          CC_MANABU_PORT: "4000",
+          CC_MANABU_CHROME_PROFILE: "Profile 2",
+          CC_MANABU_CHROME_APP_ID: "jceoalhlcmiheiojpbghilhgglnodbme",
+          CC_MANABU_NO_AUTH: "1",
+          CC_MANABU_NO_OPEN: "1",
+        },
+        true,
+      ),
+    ).toMatchObject({
+      port: 4000,
+      openBrowser: false,
+      requireToken: true,
+      pwa: { profile: "Profile 2", appId: "jceoalhlcmiheiojpbghilhgglnodbme" },
+    });
+  });
+
   test("不正なポートは既定値にする", () => {
     expect(loadRuntimeConfig({ CC_MANABU_PORT: "99999" }).port).toBe(0);
     expect(loadRuntimeConfig({ CC_MANABU_PORT: "abc" }).port).toBe(0);

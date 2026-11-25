@@ -1,5 +1,8 @@
 const STORAGE_KEY = "cc-manabu:token";
 
+export const launchTokenFromHash = (hash: string): string | undefined =>
+  new URLSearchParams(hash.replace(/^#/, "")).get("token") || undefined;
+
 /**
  * 起動時トークンを取り出す。
  * URL の fragment（#token=...）にあれば sessionStorage に移し、アドレスバーから消す（開発計画 §2.6）。
@@ -9,9 +12,8 @@ export const takeToken = (
   storage: Pick<Storage, "getItem" | "setItem">,
   replaceUrl: (url: string) => void,
 ): string | undefined => {
-  const params = new URLSearchParams(location.hash.replace(/^#/, ""));
-  const fromHash = params.get("token");
-  if (fromHash !== null && fromHash !== "") {
+  const fromHash = launchTokenFromHash(location.hash);
+  if (fromHash !== undefined) {
     storage.setItem(STORAGE_KEY, fromHash);
     replaceUrl(`${location.pathname}${location.search}`);
     return fromHash;

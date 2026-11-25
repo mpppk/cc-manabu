@@ -1,3 +1,8 @@
+export type PwaOptions = {
+  readonly profile: string;
+  readonly appId: string | undefined;
+};
+
 /** 実行時の設定。環境変数から読み、既定値を持つ。 */
 export type RuntimeConfig = {
   /** 待ち受けるホスト。セキュリティのため 127.0.0.1 固定（開発計画 §2.6）。 */
@@ -11,6 +16,8 @@ export type RuntimeConfig = {
    * `bun run dev` の再起動でトークンが変わり、開いているページが 401 になるのを避ける。
    */
   readonly requireToken: boolean;
+  /** インストール済みの Chrome PWA を開く設定（--pwa）。 */
+  readonly pwa?: PwaOptions;
 };
 
 const DEFAULT_PORT = 0;
@@ -27,9 +34,18 @@ const parsePort = (value: string | undefined): number => {
 
 export const loadRuntimeConfig = (
   env: Record<string, string | undefined> = process.env,
+  pwa = false,
 ): RuntimeConfig => ({
   hostname: "127.0.0.1",
   port: parsePort(env.CC_MANABU_PORT),
   openBrowser: env.CC_MANABU_NO_OPEN !== "1",
-  requireToken: env.CC_MANABU_NO_AUTH !== "1",
+  requireToken: pwa || env.CC_MANABU_NO_AUTH !== "1",
+  ...(pwa
+    ? {
+        pwa: {
+          profile: env.CC_MANABU_CHROME_PROFILE?.trim() || "Default",
+          appId: env.CC_MANABU_CHROME_APP_ID?.trim() || undefined,
+        },
+      }
+    : {}),
 });

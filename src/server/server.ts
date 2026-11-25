@@ -8,6 +8,7 @@ import {
   checkLocalRequest,
 } from "./access-control.ts";
 import { AUTH_MODE_PATH, type AuthMode } from "./auth-mode.ts";
+import { pwaRoutes } from "./pwa-assets.ts";
 
 export class PortInUseError extends ErrorFactory({
   name: "PortInUseError",
@@ -67,6 +68,7 @@ export const startServer = (
             ? { development: { hmr: true } }
             : {}),
           routes: {
+            ...pwaRoutes,
             "/orpc/*": async (request) => {
               const access = checkApiRequest(request, {
                 port: actualPort,

@@ -24,6 +24,7 @@ Claude Code のログインを使って、ブラウザから Claude と会話す
 
 使い方:
   ${commandName}              ローカルサーバを起動してブラウザを開く
+  ${commandName} --pwa        固定ポートで起動して Chrome の PWA を開く（macOS）
   ${commandName} update       最新版に更新する
   ${commandName} --help, -h   このヘルプを表示する
   ${commandName} --version, -v
@@ -31,7 +32,9 @@ Claude Code のログインを使って、ブラウザから Claude と会話す
 
 環境変数:
   CC_MANABU_PORT              待ち受けるポート（既定: 空いているポート）
-  CC_MANABU_NO_OPEN=1         起動時にブラウザを開かない
+  CC_MANABU_NO_OPEN=1         起動時にブラウザや PWA を開かない
+  CC_MANABU_CHROME_PROFILE    --pwa で使う Chrome のプロファイルディレクトリ（既定: Default）
+  CC_MANABU_CHROME_APP_ID     --pwa で使う Chrome のアプリ ID（既定: 起動 URL から算出）
   CC_MANABU_NO_AUTH=1         アクセストークンを要求しない（デバッグ用。
                               同じマシンの他のプロセスからも API を呼べる）
 `;

@@ -32,7 +32,8 @@ import { createClaudeCode } from "./provider/index.ts";
 import { router } from "./router.ts";
 import type { RuntimeConfig } from "./runtime-config.ts";
 import { generateToken } from "./server/access-control.ts";
-import { openBrowser, startServer } from "./server/server.ts";
+import { openPwa } from "./server/open-pwa.ts";
+import { openBrowser, PortInUseError, startServer } from "./server/server.ts";
 import index from "./web/index.html";
 import { createTermPageWriter } from "./wiki/auto-terms.ts";
 import {
@@ -49,8 +50,14 @@ import {
   TERM_EXTRACTION_SETTINGS,
 } from "./wiki/terms.ts";
 
-/** 引数なしで起動したときの処理: DB を開き、サーバを立ち上げてブラウザを開く。 */
+/** DB を開いてサーバを立ち上げ、設定に応じてブラウザを開く。 */
 export const serve = async (config: RuntimeConfig): Promise<void> => {
+  if (config.pwa !== undefined && config.port === 0) {
+    console.error(
+      "--pwa には CC_MANABU_PORT が必要です。PWA をインストールしたときのポート（1〜65535）を指定してください。",
+    );
+    throw new CliExit({ code: 1 });
+  }
   const result = Result.pipe(
     openDatabase(resolveDbPath()),
     Result.andThen(({ db }) => {
@@ -186,7 +193,11 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
     }),
   );
   if (Result.isFailure(result)) {
-    console.error(result.error.message);
+    console.error(
+      result.error instanceof PortInUseError && config.pwa !== undefined
+        ? `ポート ${config.port} は使用中です。インストール時と同じポートを空けてから再実行してください。`
+        : result.error.message,
+    );
     throw new CliExit({ code: 1 });
   }
   const server = result.value;
@@ -197,7 +208,13 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
   }
   console.log(`cc-manabu を起動しました: ${server.url}`);
   console.log("終了するには Ctrl+C を押してください。");
-  if (config.openBrowser) {
-    openBrowser(server.url);
+  if (!config.openBrowser) return;
+  if (config.pwa !== undefined) {
+    const launch = await openPwa(server.url, config.pwa);
+    if (Result.isSuccess(launch)) return;
+    console.warn(
+      `PWA を開けませんでした。 ${launch.error.message} 通常のブラウザで開きます。`,
+    );
   }
+  openBrowser(server.url);
 };

@@ -6,10 +6,26 @@ import { createRoot } from "react-dom/client";
 import { AUTH_MODE_PATH } from "../server/auth-mode.ts";
 import { App } from "./app.tsx";
 import { createApiClient } from "./lib/orpc.ts";
-import { type Access, resolveAccess, takeToken } from "./lib/token.ts";
+import {
+  type Access,
+  launchTokenFromHash,
+  resolveAccess,
+  takeToken,
+} from "./lib/token.ts";
 
 const token = takeToken(window.location, window.sessionStorage, (url) =>
   window.history.replaceState(null, "", url),
+);
+
+// 開いている PWA に Chrome がフラグメントだけを渡した場合も、新しいトークンで起動し直す。
+const reloadWithLaunchToken = () => {
+  if (launchTokenFromHash(window.location.hash) !== undefined) {
+    window.location.reload();
+  }
+};
+window.addEventListener("hashchange", reloadWithLaunchToken);
+import.meta.hot.dispose?.(() =>
+  window.removeEventListener("hashchange", reloadWithLaunchToken),
 );
 
 const root = document.getElementById("root");
