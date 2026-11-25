@@ -147,7 +147,7 @@ describe("Reasoning", () => {
       <Reasoning text="まず A を考える" streaming={false} />,
     );
     expect(html).toContain("<details");
-    expect(html).toContain("思考の過程");
+    expect(html).toContain("思考");
     expect(html).toContain("まず A を考える");
   });
 

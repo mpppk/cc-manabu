@@ -5,6 +5,7 @@ import {
   FilePlus,
   Folder,
   GitBranch,
+  Loader2,
   Pencil,
   RotateCcw,
   TextQuote,
@@ -35,6 +36,7 @@ import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { type PageDraft, pageDraftFromSelection } from "../lib/page-draft.ts";
 import { pathForWiki } from "../lib/route.ts";
+import { describeSteps, groupSteps } from "../lib/steps.ts";
 import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { cn } from "../lib/utils.ts";
 import { ApprovalCard } from "./approval-card.tsx";
@@ -45,7 +47,8 @@ import { ModelPicker } from "./model-picker.tsx";
 import { PromptCacheTimer } from "./prompt-cache-timer.tsx";
 import { QueuePanel, type QueueState } from "./queue-panel.tsx";
 import { Reasoning } from "./reasoning.tsx";
-import { ToolCard } from "./tool-card.tsx";
+import { StepGroup } from "./step-group.tsx";
+import { isDenied, ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
 import { WikiTermsContext, type WikiTermsContextValue } from "./wiki-term.tsx";
 
@@ -245,47 +248,100 @@ const MessageView = ({
       .join("\n"),
     wikiIds,
   ).flatMap((id) => wiki?.pages.filter((page) => page.id === id) ?? []);
+  const renderPart = (part: (typeof message.parts)[number], i: number) => {
+    switch (part.type) {
+      case "text":
+        return (
+          <Markdown
+            key={i}
+            text={linkWikiCitations(part.text, wikiIds)}
+            streaming={streaming}
+            cosenseLinks
+            {...(wikiLinks === undefined ? {} : { wikiLinks })}
+            {...(termMatcher === undefined ? {} : { termMatcher })}
+          />
+        );
+      case "reasoning":
+        return (
+          <Reasoning
+            key={i}
+            text={part.text}
+            streaming={streaming && part.state === "streaming"}
+          />
+        );
+      case "dynamic-tool":
+        return <ToolCard key={part.toolCallId} part={part} />;
+      case "data-approval":
+        // 承認待ちのカードは回答を閉じても操作できる位置に出す。
+        return part.data.status === "pending" ? null : (
+          <ApprovalCard
+            key={part.data.approvalId}
+            approval={part.data}
+            onRespond={(behavior, reason) =>
+              onRespond(part.data.approvalId, behavior, reason)
+            }
+          />
+        );
+      default:
+        return null;
+    }
+  };
+  // 思考・ツールの実行が続くところは、1 つの「手順」にまとめて開閉できるようにする
+  const segments = groupSteps(
+    message.parts,
+    (part) =>
+      part.type === "dynamic-tool" ||
+      (part.type === "reasoning" &&
+        (part.text.trim() !== "" || (streaming && part.state === "streaming"))),
+    (part) =>
+      part.type === "step-start" ||
+      (part.type === "reasoning" &&
+        part.text.trim() === "" &&
+        !(streaming && part.state === "streaming")),
+  );
   return (
     <div className="flex flex-col gap-2" data-assistant-message={message.id}>
-      {message.parts.map((part, i) => {
-        switch (part.type) {
-          case "text":
-            return (
-              <Markdown
-                // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
-                key={i}
-                text={linkWikiCitations(part.text, wikiIds)}
-                streaming={streaming}
-                cosenseLinks
-                {...(wikiLinks === undefined ? {} : { wikiLinks })}
-                {...(termMatcher === undefined ? {} : { termMatcher })}
-              />
-            );
-          case "reasoning":
-            return (
-              <Reasoning
-                // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
-                key={i}
-                text={part.text}
-                streaming={streaming && part.state === "streaming"}
-              />
-            );
-          case "dynamic-tool":
-            return <ToolCard key={part.toolCallId} part={part} />;
-          case "data-approval":
-            // 承認待ちのカードは回答を閉じても操作できる位置に出す。
-            return part.data.status === "pending" ? null : (
-              <ApprovalCard
-                key={part.data.approvalId}
-                approval={part.data}
-                onRespond={(behavior, reason) =>
-                  onRespond(part.data.approvalId, behavior, reason)
-                }
-              />
-            );
-          default:
-            return null;
+      {segments.map((segment, s) => {
+        if (segment.kind === "single") {
+          return renderPart(segment.part, segment.index);
         }
+        const tools = segment.items.flatMap(({ part }) =>
+          part.type === "dynamic-tool" ? [part] : [],
+        );
+        const running = tools.some(
+          (tool) =>
+            tool.state !== "output-available" && tool.state !== "output-error",
+        );
+        const failed = tools.some(
+          (tool) => tool.state === "output-error" && !isDenied(tool),
+        );
+        return (
+          <StepGroup
+            key={`steps-${segment.items[0]?.index ?? s}`}
+            count={segment.items.length}
+            breakdown={describeSteps(
+              segment.items.map(({ part }) =>
+                part.type === "dynamic-tool" ? part.toolName : "思考",
+              ),
+            )}
+            live={streaming && s === segments.length - 1}
+            status={
+              running ? (
+                <Loader2
+                  className="size-3.5 shrink-0 animate-spin"
+                  aria-label="実行中"
+                />
+              ) : failed ? (
+                <X
+                  className="size-3.5 shrink-0 text-destructive"
+                  aria-label="エラーあり"
+                />
+              ) : undefined
+            }
+          >
+            {segment.items.map(({ part, index }) => renderPart(part, index))}
+          </StepGroup>
+        );
       })}
       {!streaming && cited.length > 0 && wikiLinks !== undefined && (
         <nav
