@@ -847,6 +847,8 @@ export type ChatViewProps = {
   onAskSelection?: (quote: QuoteData, settings: SendSettings) => void;
   /** 作業フォルダ（入力欄の下に出す）。 */
   cwd?: string;
+  /** 作業フォルダのほかに Claude Code が扱えるディレクトリ（環境の設定）。 */
+  extraDirectories?: string[];
 };
 
 /** 1 つの分岐を表示し、その分岐 ID で送信・再接続する。 */
@@ -866,6 +868,7 @@ export const ChatView = ({
   side = false,
   onAskSelection,
   cwd,
+  extraDirectories = [],
 }: ChatViewProps) => {
   const [settings, setSettings] = useState<{
     model: string;
@@ -1479,10 +1482,16 @@ export const ChatView = ({
             ) : (
               <span
                 className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs"
-                title={cwd}
+                title={[cwd, ...extraDirectories].join("\n")}
               >
                 <Folder className="size-3.5 shrink-0" aria-hidden />
                 <span className="truncate">{folderName(cwd)}</span>
+                {extraDirectories.length > 0 && (
+                  <span className="shrink-0">
+                    ＋{extraDirectories.length}
+                    <span className="sr-only">個のディレクトリ</span>
+                  </span>
+                )}
               </span>
             )}
             <span className="flex min-w-0 items-center gap-3">

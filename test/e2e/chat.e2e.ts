@@ -359,11 +359,11 @@ test("画像だけでも送れて、タイトルは「画像」になる", async
   ).toBeVisible();
 });
 
-/** サイドバーのツリー（Wiki → タスク → スレッド）。 */
+/** サイドバーのツリー（環境 → タスク → スレッド）。 */
 const sidebarTree = (page: Page) =>
   page.getByRole("navigation", { name: "会話一覧" });
 
-/** 行（Wiki・タスク・未所属）を、行の操作（ホバーで出る）の名前で見分ける。has に渡せるよう相対で書く。 */
+/** 行（環境・タスク・未所属）を、行の操作（ホバーで出る）の名前で見分ける。has に渡せるよう相対で書く。 */
 const rowMatching = (page: Page, actionLabel: string) =>
   page
     .locator("div.group")
@@ -376,8 +376,9 @@ const treeRow = (page: Page, actionLabel: string) =>
 const taskRow = (page: Page, name: string) =>
   treeRow(page, `「${name}」の概要を開く`);
 
-const wikiRow = (page: Page, name: string) =>
-  treeRow(page, `Wiki「${name}」のページを開く`);
+/** 環境の行（「新しいタスク」の操作はタスクが無くても出る）。 */
+const environmentRow = (page: Page, name: string) =>
+  treeRow(page, `環境「${name}」に新しいタスク`);
 
 /** タスクの行と、その下のスレッド。 */
 const taskItem = (page: Page, name: string) =>
@@ -386,11 +387,11 @@ const taskItem = (page: Page, name: string) =>
     .filter({ has: rowMatching(page, `「${name}」の概要を開く`) })
     .last();
 
-/** Wiki の行と、その下のタスク。 */
-const wikiItem = (page: Page, name: string) =>
+/** 環境の行と、その下のタスク。 */
+const environmentItem = (page: Page, name: string) =>
   sidebarTree(page)
     .locator("li")
-    .filter({ has: rowMatching(page, `Wiki「${name}」のページを開く`) })
+    .filter({ has: rowMatching(page, `環境「${name}」に新しいタスク`) })
     .first();
 
 /** 「未所属のスレッド」の行と、その下のスレッド。 */
@@ -423,10 +424,19 @@ const openTask = async (page: Page, name: string) => {
   await expect(page).toHaveURL(/\/t\/[^/]+$/);
 };
 
-/** Wiki のページ一覧を開く。 */
-const openWiki = async (page: Page, name: string) => {
-  await rowAction(wikiRow(page, name), `Wiki「${name}」のページを開く`);
+/** 環境の Wiki のページ一覧を開く。 */
+const openWiki = async (page: Page, environment: string) => {
+  await rowAction(
+    environmentRow(page, environment),
+    `環境「${environment}」の Wiki を開く`,
+  );
   await expect(page).toHaveURL(/\/wiki$/);
+};
+
+/** 環境の行のメニュー（歯車）を開いて項目を選ぶ。 */
+const openEnvironmentMenu = async (page: Page, name: string, item: string) => {
+  await rowAction(environmentRow(page, name), `環境「${name}」のメニュー`);
+  await page.getByRole("menuitem", { name: item }).click();
 };
 
 /** タスクの行のメニュー（歯車）を開いて項目を選ぶ。 */
@@ -435,9 +445,13 @@ const openTaskMenu = async (page: Page, name: string, item: string) => {
   await page.getByRole("menuitem", { name: item }).click();
 };
 
+/** タスクを、同じ名前の新しい環境（と Wiki）で作る。 */
 const createTask = async (page: Page, name: string) => {
   await page.getByRole("button", { name: "新しいタスク", exact: true }).click();
   await page.getByRole("textbox", { name: "タスクの名前" }).fill(name);
+  await page
+    .getByRole("combobox", { name: "タスクの環境" })
+    .selectOption({ label: "新しい環境を作る（起動したディレクトリ）" });
   await page.getByRole("button", { name: "作成" }).click();
   await expect(page).toHaveURL(/\/t\/.+/);
   await expect(taskRow(page, name)).toBeVisible();
@@ -1800,14 +1814,16 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
   );
 });
 
-test("既存の Wiki を共有するタスクを作り、サイドバーで Wiki ごとにまとまる", async ({
+test("環境のタスクは Wiki を共有し、サイドバーで環境ごとにまとまる", async ({
   page,
 }) => {
   await open(page);
-  const taskNames = (wiki: string) =>
-    wikiItem(page, wiki).locator("li div.group > button[aria-expanded]");
+  const taskNames = (environment: string) =>
+    environmentItem(page, environment).locator(
+      "li div.group > button[aria-expanded]",
+    );
 
-  // 1 つ目は新しい Wiki で作り、ページを書く
+  // 1 つ目は新しい環境で作り、Wiki にページを書く
   await createTask(page, "共有元");
   await openWiki(page, "共有元");
   await page.getByRole("button", { name: "新しいページ" }).click();
@@ -1817,15 +1833,17 @@ test("既存の Wiki を共有するタスクを作り、サイドバーで Wiki
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("heading", { name: "共有用語" })).toBeVisible();
 
-  // 2 つ目は Wiki の行から作ると、その Wiki を共有する
-  await rowAction(wikiRow(page, "共有元"), "Wiki「共有元」で新しいタスク");
+  // 2 つ目は環境の行から作ると、その環境に入る
+  await rowAction(
+    environmentRow(page, "共有元"),
+    "環境「共有元」に新しいタスク",
+  );
   await page.getByRole("textbox", { name: "タスクの名前" }).fill("共有先");
   await expect(
-    page.getByRole("radio", { name: "既存の Wiki を使う" }),
-  ).toBeChecked();
-  await expect(
-    page.getByRole("combobox", { name: "使う Wiki" }).locator("option:checked"),
-  ).toHaveText("共有元（1 件のタスクで使用中）");
+    page
+      .getByRole("combobox", { name: "タスクの環境" })
+      .locator("option:checked"),
+  ).toHaveText("共有元");
   await page.getByRole("button", { name: "作成" }).click();
   await expect(taskNames("共有元")).toHaveText(["共有元", "共有先"]);
 
@@ -1836,17 +1854,17 @@ test("既存の Wiki を共有するタスクを作り、サイドバーで Wiki
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "共有用語" })).toBeVisible();
 
-  // 3 つ目は別の Wiki になる
-  await createTask(page, "別の Wiki");
-  await expect(taskNames("別の Wiki")).toHaveText(["別の Wiki"]);
+  // 3 つ目は別の環境になる
+  await createTask(page, "別の環境");
+  await expect(taskNames("別の環境")).toHaveText(["別の環境"]);
 
-  // まとめるのをやめると、タスクが Wiki の下ではなく平らに並ぶ（リロードしても保たれる）
-  const groupToggle = page.getByRole("button", { name: "Wiki ごとにまとめる" });
+  // まとめるのをやめると、タスクが環境の下ではなく平らに並ぶ（リロードしても保たれる）
+  const groupToggle = page.getByRole("button", { name: "環境ごとにまとめる" });
   await expect(groupToggle).toHaveAttribute("aria-pressed", "true");
   await groupToggle.click();
   await expect(groupToggle).toHaveAttribute("aria-pressed", "false");
-  await expect(wikiRow(page, "共有元")).toHaveCount(0);
-  for (const name of ["共有元", "共有先", "別の Wiki"]) {
+  await expect(environmentRow(page, "共有元")).toHaveCount(0);
+  for (const name of ["共有元", "共有先", "別の環境"]) {
     await expect(
       sidebarTree(page)
         .locator(":scope > ul > li[data-task-id]")
@@ -1859,8 +1877,8 @@ test("既存の Wiki を共有するタスクを作り、サイドバーで Wiki
   await groupToggle.click();
   await expect(taskNames("共有元")).toHaveText(["共有元", "共有先"]);
 
-  // Wiki の行を押すと、その下のタスクを開閉する（リロードしても保たれる）
-  const sharedToggle = wikiRow(page, "共有元").locator(
+  // 環境の行を押すと、その下のタスクを開閉する（リロードしても保たれる）
+  const sharedToggle = environmentRow(page, "共有元").locator(
     ":scope > button[aria-expanded]",
   );
   await sharedToggle.click();
@@ -1870,28 +1888,84 @@ test("既存の Wiki を共有するタスクを作り、サイドバーで Wiki
   await sharedToggle.click();
   await expect(taskNames("共有元")).toHaveText(["共有元", "共有先"]);
 
-  // 設定で Wiki の名前を変えると、ツリーの Wiki の行にも反映される
-  await openTaskMenu(page, "共有先", "タスクの設定");
-  await page.getByRole("textbox", { name: "Wiki の名前" }).fill("共通用語集");
-  await page.getByRole("button", { name: "名前を保存" }).click();
-  await expect(page.getByRole("button", { name: "名前を保存" })).toBeDisabled();
-  await page.getByRole("button", { name: "閉じる" }).click();
-  await expect(taskNames("共通用語集")).toHaveText(["共有元", "共有先"]);
+  // 環境の設定: 無いディレクトリは保存できない。フォルダを選んで追加し、名前と Wiki の名前を変える
+  await openEnvironmentMenu(page, "共有元", "環境の設定");
+  const settings = page.getByRole("dialog", { name: "環境の設定" });
+  const directories = settings.getByRole("list", {
+    name: "環境のディレクトリ",
+  });
+  await expect(directories.locator("[data-directory]")).toHaveAttribute(
+    "data-directory",
+    "/e2e",
+  );
+  await settings.getByRole("button", { name: "/e2e を外す" }).click();
+  await settings
+    .getByRole("textbox", { name: "追加するディレクトリのパス" })
+    .fill("/no/such/directory");
+  await settings.getByRole("button", { name: "追加", exact: true }).click();
+  await settings.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(settings.getByRole("alert")).toContainText(
+    "ディレクトリが見つかりません: /no/such/directory",
+  );
+  await settings
+    .getByRole("button", { name: "/no/such/directory を外す" })
+    .click();
+  await settings.getByRole("button", { name: "選ぶ" }).click();
+  await expect(directories.getByRole("listitem")).toHaveCount(1);
+  const picked =
+    (await directories
+      .locator("[data-directory]")
+      .first()
+      .getAttribute("data-directory")) ?? "";
+  expect(picked).not.toBe("");
+  await settings.getByRole("textbox", { name: "環境の名前" }).fill("共通環境");
+  await settings
+    .getByRole("textbox", { name: "Wiki の名前" })
+    .fill("共通用語集");
+  await settings.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  await expect(taskNames("共通環境")).toHaveText(["共有元", "共有先"]);
+  await openWiki(page, "共通環境");
+  await expect(page.locator("main header")).toContainText("Wiki: 共通用語集");
 
-  // 共有している Wiki は、タスクを消しても残る
-  await openTaskMenu(page, "共有先", "タスクを削除");
+  // 環境のスレッドは、選んだディレクトリで動く
+  await rowAction(taskRow(page, "共有先"), "「共有先」に新しいスレッド");
+  await expect(page).toHaveURL(/\/c\/.+/);
   await expect(
-    page.getByText(
-      "Wiki「共通用語集」はほかのタスクでも使っているので残ります。",
-      {
-        exact: false,
-      },
-    ),
+    page
+      .getByRole("region", { name: "メインのチャット" })
+      .locator(`[title="${picked}"]`),
+  ).toBeVisible();
+
+  // タスクを別の環境に移すと、その環境の下に移る
+  await openTaskMenu(page, "共有先", "タスクの設定");
+  await page
+    .getByRole("combobox", { name: "タスクの環境" })
+    .selectOption({ label: "別の環境" });
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await expect(taskNames("別の環境")).toHaveText(["共有先", "別の環境"]);
+  await expect(taskNames("共通環境")).toHaveText(["共有元"]);
+
+  // タスクのある環境は消せない。タスクを消すと消せて、Wiki もページごと消える
+  await openEnvironmentMenu(page, "共通環境", "環境を削除");
+  await expect(
+    page.getByRole("dialog", { name: "この環境は削除できません" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "閉じる" }).click();
+  await openTaskMenu(page, "共有元", "タスクを削除");
+  await page.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(taskRow(page, "共有元")).toHaveCount(0);
+  await expect(
+    environmentItem(page, "共通環境").getByText("まだタスクがありません。"),
+  ).toBeVisible();
+  await openEnvironmentMenu(page, "共通環境", "環境を削除");
+  await expect(
+    page.getByText("Wiki「共通用語集」とそのページも削除されます。", {
+      exact: false,
+    }),
   ).toBeVisible();
   await page.getByRole("button", { name: "削除", exact: true }).click();
-  await expect(taskNames("共通用語集")).toHaveText(["共有元"]);
-  await openWiki(page, "共通用語集");
-  await expect(page.getByRole("button", { name: "共有用語" })).toBeVisible();
+  await expect(environmentRow(page, "共通環境")).toHaveCount(0);
 });
 
 test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロードしても保たれる", async ({

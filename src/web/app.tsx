@@ -1,8 +1,9 @@
 import { Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
-import type { ChatDto, TaskDto, WikiDto } from "../router.ts";
+import type { ChatDto, EnvironmentDto, TaskDto, WikiDto } from "../router.ts";
 import { ChatWorkspace } from "./components/chat-workspace.tsx";
+import type { EnvironmentInput } from "./components/environment-dialogs.tsx";
 import { RateLimitBadge } from "./components/rate-limit-badge.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { TaskList } from "./components/task-list.tsx";
@@ -176,13 +177,16 @@ export const App = ({ api }: { api: ApiClient }) => {
   }, [refreshChats]);
 
   const [wikis, setWikis] = useState<WikiDto[]>([]);
+  const [environments, setEnvironments] = useState<EnvironmentDto[]>([]);
   const refreshTasks = useCallback(async () => {
-    const [nextTasks, nextWikis] = await Promise.all([
+    const [nextTasks, nextWikis, nextEnvironments] = await Promise.all([
       api.tasks.list(),
       api.wikis.list(),
+      api.environments.list(),
     ]);
     setTasks(nextTasks);
     setWikis(nextWikis);
+    setEnvironments(nextEnvironments);
   }, [api]);
 
   useEffect(() => {
@@ -304,6 +308,16 @@ export const App = ({ api }: { api: ApiClient }) => {
   };
   const models = status?.claude.state === "ready" ? status.claude.models : [];
   const workspace = chatViewId === undefined ? undefined : current;
+  /** 会話の作業ディレクトリのほかに扱える、環境のディレクトリ。 */
+  const extraDirectoriesOf = (chat: ChatDto): string[] => {
+    const environmentId = tasks?.find(
+      (item) => item.id === chat.taskId,
+    )?.environmentId;
+    return (
+      environments.find((environment) => environment.id === environmentId)
+        ?.directories ?? []
+    ).filter((directory) => directory !== chat.cwd);
+  };
   const workspaceGroup =
     chats.find((chat) => chat.id === chatViewId)?.groupId ??
     workspace?.chat.groupId;
@@ -314,15 +328,37 @@ export const App = ({ api }: { api: ApiClient }) => {
     select(chat.id);
   };
 
-  /** wikiId を渡すとその Wiki を共有し、無ければ新しい Wiki を作る。 */
-  const createTask = async (name: string, wikiId?: string) => {
+  /** environmentId を渡すとその環境に、無ければ同じ名前の環境を新しく作って入れる。 */
+  const createTask = async (name: string, environmentId?: string) => {
     const task = await api.tasks.create({
       name,
-      ...(wikiId === undefined ? {} : { wikiId }),
+      ...(environmentId === undefined ? {} : { environmentId }),
     });
     await refreshTasks();
     navigate(pathForTask(task.id));
   };
+
+  const createEnvironment = async (input: EnvironmentInput) => {
+    await api.environments.create(input);
+    await refreshTasks();
+  };
+
+  const updateEnvironment = async (id: string, input: EnvironmentInput) => {
+    await api.environments.update({ id, ...input });
+    await refreshTasks();
+  };
+
+  const deleteEnvironment = async (id: string) => {
+    await api.environments.delete({ id });
+    await refreshTasks();
+  };
+
+  const setTaskEnvironment = async (id: string, environmentId: string) => {
+    await api.tasks.setEnvironment({ id, environmentId });
+    await refreshTasks();
+  };
+
+  const pickDirectory = async () => (await api.system.pickDirectory()).path;
 
   const renameTask = async (id: string, name: string) => {
     await api.tasks.rename({ id, name });
@@ -375,7 +411,9 @@ export const App = ({ api }: { api: ApiClient }) => {
         hidden={!sidebarOpen}
         chats={chats}
         tasks={tasks ?? []}
+        environments={environments}
         wikis={wikis}
+        defaultDirectory={status?.cwd}
         taskId={taskId}
         selectedId={selectedId}
         openTaskId={
@@ -391,6 +429,11 @@ export const App = ({ api }: { api: ApiClient }) => {
         onOpenTask={(id) => navigate(pathForTask(id))}
         onOpenWiki={(id) => navigate(pathForWiki(id))}
         onCreateTask={createTask}
+        onCreateEnvironment={createEnvironment}
+        onUpdateEnvironment={updateEnvironment}
+        onDeleteEnvironment={deleteEnvironment}
+        onPickDirectory={pickDirectory}
+        onSetTaskEnvironment={setTaskEnvironment}
         onRenameWiki={renameWiki}
         onRenameTask={renameTask}
         onDeleteTask={deleteTask}
@@ -454,7 +497,8 @@ export const App = ({ api }: { api: ApiClient }) => {
               initialMessages={workspace.messages}
               loading={workspace.chat.id !== chatViewId}
               models={models}
-              {...(status?.cwd === undefined ? {} : { cwd: status.cwd })}
+              cwd={workspace.chat.cwd}
+              extraDirectories={extraDirectoriesOf(workspace.chat)}
               onActivity={() => void refreshChats()}
               branches={chats.filter(
                 (chat) => chat.groupId === workspace.chat.groupId,
