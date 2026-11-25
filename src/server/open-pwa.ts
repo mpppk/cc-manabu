@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Result } from "@praha/byethrow";
@@ -30,6 +30,13 @@ const systemDefaults = {
   platform: process.platform,
   home: homedir,
   exists: (path: string) => existsSync(path),
+  list: (path: string) => {
+    try {
+      return readdirSync(path);
+    } catch {
+      return [];
+    }
+  },
   spawn: (command: string[]) => {
     const child = Bun.spawn(command, {
       detached: true,
@@ -41,6 +48,19 @@ const systemDefaults = {
     return child.exited;
   },
 };
+
+const isProfileDirectory = (name: string) =>
+  name !== "" && name !== "." && name !== ".." && !/[/\\\\]/.test(name);
+
+/** ユーザーデータディレクトリの中から Chrome のプロファイル（Default、Profile N）を探す順に並べる。 */
+const chromeProfiles = (entries: readonly string[]) =>
+  entries
+    .filter((name) => name === "Default" || /^Profile \d+$/.test(name))
+    .sort(
+      (a, b) =>
+        (a === "Default" ? 0 : Number(a.slice("Profile ".length))) -
+        (b === "Default" ? 0 : Number(b.slice("Profile ".length))),
+    );
 
 /** Chrome のバイナリに直接渡し、実行中であれば同じ Chrome プロセスに起動を引き継がせる。 */
 export const openPwa = async (
@@ -62,18 +82,6 @@ export const openPwa = async (
     return failure("Google Chrome が Applications に見つかりません。");
   }
 
-  const { profile } = options;
-  if (
-    profile === "" ||
-    profile === "." ||
-    profile === ".." ||
-    /[/\\\\]/.test(profile)
-  ) {
-    return failure(
-      "CC_MANABU_CHROME_PROFILE に Chrome のプロファイルのディレクトリ名を指定してください。",
-    );
-  }
-
   const manifestId = new URL("/", url).href;
   const expectedAppId = chromeAppId(manifestId);
   const appId = options.appId ?? expectedAppId;
@@ -83,18 +91,33 @@ export const openPwa = async (
     );
   }
 
-  const resources = join(
+  const userData = join(
     home,
     "Library",
     "Application Support",
     "Google",
     "Chrome",
-    profile,
-    "Web Applications",
-    "Manifest Resources",
-    appId,
   );
-  if (!system.exists(resources)) {
+  const installedIn = (profile: string) =>
+    system.exists(
+      join(userData, profile, "Web Applications", "Manifest Resources", appId),
+    );
+
+  const { profile: requested } = options;
+  if (requested !== undefined && !isProfileDirectory(requested)) {
+    return failure(
+      "CC_MANABU_CHROME_PROFILE に Chrome のプロファイルのディレクトリ名を指定してください。",
+    );
+  }
+  const profile =
+    requested ??
+    chromeProfiles(system.list(userData)).find((name) => installedIn(name));
+  if (profile === undefined) {
+    return failure(
+      `Chrome のどのプロファイルにも cc-manabu が見つかりません。${manifestId} からインストールしてください。`,
+    );
+  }
+  if (!installedIn(profile)) {
     return failure(
       `Chrome プロファイル「${profile}」に cc-manabu が見つかりません。${manifestId} からインストールしてください。`,
     );

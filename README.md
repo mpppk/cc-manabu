@@ -81,7 +81,7 @@ cc-manabu --help
 | --- | --- |
 | `CC_MANABU_PORT` | 待ち受けるポート（既定: 空いているポート） |
 | `CC_MANABU_NO_OPEN=1` | 起動時にブラウザや PWA を開かない |
-| `CC_MANABU_CHROME_PROFILE` | `--pwa` で使う Chrome のプロファイルディレクトリ（既定値は `Default`） |
+| `CC_MANABU_CHROME_PROFILE` | `--pwa` で使う Chrome のプロファイルディレクトリ（既定: PWA をインストールしたプロファイルを探す） |
 | `CC_MANABU_CHROME_APP_ID` | `--pwa` で使う Chrome のアプリ ID（省略時は起動 URL から算出） |
 | `CC_MANABU_CLAUDE_PATH` | 使う `claude` のパス（既定: PATH から探す） |
 | `CC_MANABU_NO_AUTH=1` | API にアクセストークンを要求しない（デバッグ用。`--pwa` では常にトークンを要求） |
@@ -97,7 +97,7 @@ cc-manabu --help
    CC_MANABU_PORT=4000 cc-manabu --pwa
    ```
 
-Chrome の別プロファイルでインストールした場合は、`chrome://version` に表示される「プロフィール パス」の末尾（例 `Profile 2`）を指定します。アプリ ID は起動 URL から求めます。明示的に指定する場合は、`chrome://web-app-internals` で `http://127.0.0.1:4000/` の `app_id` を確認して `CC_MANABU_CHROME_APP_ID` に渡します。
+PWA をインストールした Chrome プロファイルは自動で探します。複数のプロファイルにインストールした場合は、`chrome://version` に表示される「プロフィール パス」の末尾（例 `Profile 2`）を `CC_MANABU_CHROME_PROFILE` に指定します。アプリ ID は起動 URL から求めます。明示的に指定する場合は、`chrome://web-app-internals` で `http://127.0.0.1:4000/` の `app_id` を確認して `CC_MANABU_CHROME_APP_ID` に渡します。
 
 ```sh
 CC_MANABU_PORT=4000 CC_MANABU_CHROME_PROFILE='Profile 2' cc-manabu --pwa

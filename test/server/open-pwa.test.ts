@@ -6,9 +6,22 @@ const chrome = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const url = "http://127.0.0.1:4000/#token=launch-token";
 const appId = "jceoalhlcmiheiojpbghilhgglnodbme";
 const profile = "Profile 2";
-const resources = `/Users/test/Library/Application Support/Google/Chrome/${profile}/Web Applications/Manifest Resources/${appId}`;
+const userData = "/Users/test/Library/Application Support/Google/Chrome";
+const resourcesIn = (name: string) =>
+  `${userData}/${name}/Web Applications/Manifest Resources/${appId}`;
+const resources = resourcesIn(profile);
 
-const setup = (exitCode = 0, paths = [chrome, resources]) => {
+const setup = (
+  exitCode = 0,
+  paths = [chrome, resources],
+  entries = [
+    "Default",
+    "Local State",
+    "Profile 10",
+    "Profile 2",
+    "System Profile",
+  ],
+) => {
   const commands: string[][] = [];
   return {
     commands,
@@ -16,6 +29,7 @@ const setup = (exitCode = 0, paths = [chrome, resources]) => {
       platform: "darwin" as const,
       home: () => "/Users/test",
       exists: (path: string) => paths.includes(path),
+      list: (path: string) => (path === userData ? entries : []),
       spawn: async (command: string[]) => {
         commands.push(command);
         return exitCode;
@@ -37,6 +51,37 @@ describe("openPwa", () => {
         `--app-launch-url-for-shortcuts-menu-item=${url}`,
       ],
     ]);
+  });
+
+  test("プロファイルを指定しなければ、インストールしたプロファイルを探す", async () => {
+    for (const [paths, expected] of [
+      [[chrome, resources], "Profile 2"],
+      [[chrome, resourcesIn("Profile 10"), resources], "Profile 2"],
+      [[chrome, resources, resourcesIn("Default")], "Default"],
+    ] as const) {
+      const { system, commands } = setup(0, [...paths]);
+      const result = await openPwa(
+        url,
+        { profile: undefined, appId: undefined },
+        system,
+      );
+      expect(Result.isSuccess(result)).toBe(true);
+      expect(commands[0]?.[1]).toBe(`--profile-directory=${expected}`);
+    }
+
+    const { system, commands } = setup(0, [
+      chrome,
+      resourcesIn("System Profile"),
+    ]);
+    const result = await openPwa(
+      url,
+      { profile: undefined, appId: undefined },
+      system,
+    );
+    expect(Result.isFailure(result) && result.error.message).toBe(
+      "Chrome のどのプロファイルにも cc-manabu が見つかりません。http://127.0.0.1:4000/ からインストールしてください。",
+    );
+    expect(commands).toEqual([]);
   });
 
   test("Chrome、インストール、または対象ポートが一致しなければ起動しない", async () => {
