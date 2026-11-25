@@ -44,37 +44,66 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0012_environments", sql: environments },
 ];
 
-/** 未適用のマイグレーションを順に適用する。 */
-export const runMigrations = (
-  sqlite: Database,
-  migrations: readonly { name: string; sql: string }[] = MIGRATIONS,
-): string[] => {
-  sqlite.exec(`CREATE TABLE IF NOT EXISTS __migrations (
+/** マイグレーションを当てる先。SQLite のドライバ（bun:sqlite / sql.js）ごとに用意する。 */
+export type MigrationTarget = {
+  /** 複数の文を含む SQL を実行する。 */
+  exec: (sql: string) => void;
+  /** 適用済みのマイグレーションの名前。 */
+  appliedNames: () => string[];
+  /** 適用済みとして記録する。 */
+  markApplied: (name: string, appliedAt: number) => void;
+  /** fn をトランザクションの中で実行する。 */
+  transaction: (fn: () => void) => void;
+};
+
+const MIGRATIONS_TABLE = `CREATE TABLE IF NOT EXISTS __migrations (
     name TEXT PRIMARY KEY NOT NULL,
     applied_at INTEGER NOT NULL
-  )`);
-  const applied = new Set(
-    sqlite
-      .query<{ name: string }, []>("SELECT name FROM __migrations")
-      .all()
-      .map((row) => row.name),
-  );
+  )`;
+
+/** 未適用のマイグレーションを順に適用する（ドライバに依存しない部分）。 */
+export const applyMigrations = (
+  target: MigrationTarget,
+  migrations: readonly { name: string; sql: string }[] = MIGRATIONS,
+): string[] => {
+  target.exec(MIGRATIONS_TABLE);
+  const applied = new Set(target.appliedNames());
   const newlyApplied: string[] = [];
   for (const migration of migrations) {
     if (applied.has(migration.name)) {
       continue;
     }
-    sqlite.transaction(() => {
+    target.transaction(() => {
       for (const statement of migration.sql.split("--> statement-breakpoint")) {
         if (statement.trim() !== "") {
-          sqlite.exec(statement);
+          target.exec(statement);
         }
       }
-      sqlite
-        .query("INSERT INTO __migrations (name, applied_at) VALUES (?, ?)")
-        .run(migration.name, Date.now());
-    })();
+      target.markApplied(migration.name, Date.now());
+    });
     newlyApplied.push(migration.name);
   }
   return newlyApplied;
 };
+
+/** 未適用のマイグレーションを順に適用する（bun:sqlite）。 */
+export const runMigrations = (
+  sqlite: Database,
+  migrations: readonly { name: string; sql: string }[] = MIGRATIONS,
+): string[] =>
+  applyMigrations(
+    {
+      exec: (sql) => sqlite.exec(sql),
+      appliedNames: () =>
+        sqlite
+          .query<{ name: string }, []>("SELECT name FROM __migrations")
+          .all()
+          .map((row) => row.name),
+      markApplied: (name, appliedAt) =>
+        sqlite
+          .query("INSERT INTO __migrations (name, applied_at) VALUES (?, ?)")
+          .run(name, appliedAt),
+      transaction: (fn) => sqlite.transaction(fn)(),
+    },
+    migrations,
+  );

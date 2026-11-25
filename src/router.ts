@@ -34,7 +34,7 @@ import {
   wikiIdOf,
 } from "./db/task-repository.ts";
 import type { WikiRepository } from "./db/wiki-repository.ts";
-import { normalizeDirectories } from "./environment/directories.ts";
+import type { DirectoryNormalizer } from "./environment/directories.ts";
 import type { DirectoryPicker } from "./environment/directory-picker.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
 import { version } from "./version.ts";
@@ -63,6 +63,8 @@ export type RouterContext = {
   cwd: string;
   /** OS のフォルダを選ぶダイアログを開く。 */
   pickDirectory: DirectoryPicker;
+  /** 環境のディレクトリを確かめて整える（~ の展開、実在の確認、重複の除去）。 */
+  normalizeDirectories: DirectoryNormalizer;
 };
 
 export const base = os.$context<RouterContext>();
@@ -432,7 +434,7 @@ export const router = {
       .handler(async ({ context, input }) =>
         unwrapForOrpc(
           Result.pipe(
-            normalizeDirectories(input.directories),
+            context.normalizeDirectories(input.directories),
             Result.andThen((directories) =>
               context.environments.createEnvironment({
                 name: input.name,
@@ -463,7 +465,7 @@ export const router = {
           Result.pipe(
             input.directories === undefined
               ? Result.succeed(undefined)
-              : normalizeDirectories(input.directories),
+              : context.normalizeDirectories(input.directories),
             Result.andThen((directories) =>
               context.environments.updateEnvironment(input.id, {
                 ...(input.name === undefined ? {} : { name: input.name }),

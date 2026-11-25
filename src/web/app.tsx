@@ -10,6 +10,7 @@ import { TaskList } from "./components/task-list.tsx";
 import { TaskOverview } from "./components/task-overview.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { WikiView } from "./components/wiki-view.tsx";
+import { appHistory } from "./lib/app-history.ts";
 import { groupChats, isBlankChat, listedChats } from "./lib/groups.ts";
 import {
   newlyAwaiting,
@@ -115,10 +116,10 @@ export const App = ({ api }: { api: ApiClient }) => {
   }, [toggleSidebar]);
   const [chats, setChats] = useState<ChatDto[]>([]);
   const [tasks, setTasks] = useState<TaskDto[]>();
-  const [path, setPath] = useState(() => window.location.pathname);
+  const [path, setPath] = useState(() => appHistory().location().pathname);
   const selectedId = chatIdFromPath(path);
   const wikiRoute = wikiFromPath(path);
-  const wikiState = window.history.state as { returnTo?: string } | null;
+  const wikiState = appHistory().state() as { returnTo?: string } | null;
   // 回答から Wiki を開いている間も、元のチャットの現在地と入力を保つ。
   const chatViewId =
     selectedId ??
@@ -200,8 +201,8 @@ export const App = ({ api }: { api: ApiClient }) => {
   const navigate = useCallback(
     (next: string, state?: { returnTo?: string }) => {
       setFocus(undefined);
-      if (window.location.pathname !== next) {
-        window.history.pushState(state ?? null, "", next);
+      if (appHistory().location().pathname !== next) {
+        appHistory().push(next, state ?? null);
       }
       setPath(next);
     },
@@ -234,12 +235,10 @@ export const App = ({ api }: { api: ApiClient }) => {
   );
 
   useEffect(() => {
-    const onPopState = () => {
+    return appHistory().listen(() => {
       setFocus(undefined);
-      setPath(window.location.pathname);
-    };
-    window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+      setPath(appHistory().location().pathname);
+    });
   }, []);
 
   useEffect(() => {

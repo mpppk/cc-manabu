@@ -5,6 +5,7 @@ import { Result } from "@praha/byethrow";
 import {
   expandDirectory,
   normalizeDirectories,
+  normalizeDirectoriesAsync,
 } from "../../src/environment/directories.ts";
 import {
   createDirectoryPicker,
@@ -33,6 +34,27 @@ describe("normalizeDirectories", () => {
     const missing = normalizeDirectories(["/repo", "/missing"], isDirectory);
     expect(Result.isFailure(missing) && missing.error.message).toContain(
       "/missing",
+    );
+  });
+});
+
+describe("normalizeDirectoriesAsync", () => {
+  test("ホームを引数で受け取り、非同期の確認で同じ規則を当てる", async () => {
+    const deps = {
+      home: "/Users/me",
+      isDirectory: async (path: string) =>
+        ["/repo", "/Users/me/notes"].includes(path),
+    };
+    expect(
+      await normalizeDirectoriesAsync(["/repo/", "~/notes", "/repo"], deps),
+    ).toEqual(Result.succeed(["/repo", "/Users/me/notes"]));
+    const relative = await normalizeDirectoriesAsync(["repo"], deps);
+    expect(Result.isFailure(relative) && relative.error.name).toBe(
+      "RelativeDirectoryError",
+    );
+    const missing = await normalizeDirectoriesAsync(["/missing"], deps);
+    expect(Result.isFailure(missing) && missing.error.name).toBe(
+      "DirectoryNotFoundError",
     );
   });
 });

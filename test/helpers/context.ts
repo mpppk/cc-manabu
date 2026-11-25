@@ -18,6 +18,7 @@ import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts
 import { createSearchRepository } from "../../src/db/search-repository.ts";
 import { createTaskRepository } from "../../src/db/task-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
+import { normalizeDirectories } from "../../src/environment/directories.ts";
 import {
   createClaudeCode,
   type QueryFunction,
@@ -163,6 +164,7 @@ export const createTestContext = (
     pickDirectory:
       options.pickDirectory ??
       (async () => Result.succeed<string | null>(null)),
+    normalizeDirectories: (paths) => normalizeDirectories(paths),
   };
   return {
     context,

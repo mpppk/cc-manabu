@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { TaskStatus } from "../../db/schema.ts";
 import type { TaskDto } from "../../router.ts";
+import { appHistory } from "../lib/app-history.ts";
 import {
   formatDateTime,
   isTaskStatus,
@@ -12,7 +13,9 @@ import { Button } from "./ui/button.tsx";
 
 /** URL の ?status= から絞り込みを読む（リロードしても保つ）。 */
 const statusFromUrl = (): TaskStatus | undefined => {
-  const value = new URLSearchParams(window.location.search).get("status");
+  const value = new URLSearchParams(appHistory().location().search).get(
+    "status",
+  );
   return value !== null && isTaskStatus(value) ? value : undefined;
 };
 
@@ -27,10 +30,15 @@ export const TaskList = ({
   const [filter, setFilter] = useState<TaskStatus | undefined>(statusFromUrl);
   const choose = (next: TaskStatus | undefined) => {
     setFilter(next);
-    const url = new URL(window.location.href);
-    if (next === undefined) url.searchParams.delete("status");
-    else url.searchParams.set("status", next);
-    window.history.replaceState(window.history.state, "", url);
+    const { pathname, search } = appHistory().location();
+    const params = new URLSearchParams(search);
+    if (next === undefined) params.delete("status");
+    else params.set("status", next);
+    const query = params.toString();
+    appHistory().replace(
+      `${pathname}${query === "" ? "" : `?${query}`}`,
+      appHistory().state(),
+    );
   };
   const visible =
     filter === undefined

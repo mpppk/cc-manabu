@@ -32,6 +32,7 @@ import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts
 import { createSearchRepository } from "../../src/db/search-repository.ts";
 import { createTaskRepository } from "../../src/db/task-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
+import { normalizeDirectories } from "../../src/environment/directories.ts";
 import { createClaudeCode } from "../../src/provider/index.ts";
 import { router } from "../../src/router.ts";
 import { startServer } from "../../src/server/server.ts";
@@ -169,6 +170,7 @@ const started = startServer({
     // フォルダを選ぶダイアログの代わりに、E2E_PICKED_DIR（無ければ一時ディレクトリ）を返す
     pickDirectory: async () =>
       Result.succeed(process.env.E2E_PICKED_DIR ?? realpathSync(tmpdir())),
+    normalizeDirectories: (paths) => normalizeDirectories(paths),
   },
 });
 if (Result.isFailure(started)) throw started.error;

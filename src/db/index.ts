@@ -3,11 +3,16 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
-import { type BunSQLiteDatabase, drizzle } from "drizzle-orm/bun-sqlite";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { runMigrations } from "./migrate.ts";
 import * as schema from "./schema.ts";
 
-export type Db = BunSQLiteDatabase<typeof schema>;
+/**
+ * リポジトリが使う DB。同期の SQLite ドライバなら何でもよい
+ * （CLI は bun:sqlite、デスクトップアプリ版は sql.js）。
+ */
+export type Db = BaseSQLiteDatabase<"sync", void, typeof schema>;
 
 export class DatabaseOpenError extends ErrorFactory({
   name: "DatabaseOpenError",
