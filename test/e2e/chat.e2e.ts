@@ -1771,6 +1771,20 @@ test("回答の選択範囲から AI で Wiki のページを作り、チャッ�
     hasText: "冪等性キー",
   });
   await expect(generating).toBeVisible();
+  // 背景の光が流れる（@keyframes がバンドル後も残っている。#165）
+  const glowPosition = () =>
+    generating.evaluate((el) => getComputedStyle(el).backgroundPosition);
+  const firstPosition = await glowPosition();
+  await expect.poll(glowPosition, { timeout: 800 }).not.toBe(firstPosition);
+  // 動きを減らす設定では、止まった背景色で作成中と分かる
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const reduced = await generating.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { animation: style.animationName, color: style.backgroundColor };
+  });
+  expect(reduced.animation).toBe("none");
+  expect(reduced.color).not.toBe("rgba(0, 0, 0, 0)");
+  await page.emulateMedia({ reducedMotion: null });
   await expect(page).toHaveURL(new RegExp(`${chatPath}$`));
   const term = main.locator("button[data-wiki-term]", {
     hasText: "冪等性キー",
