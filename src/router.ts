@@ -22,6 +22,7 @@ import type { QueueRepository } from "./db/queue-repository.ts";
 import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
 import type {
   ChatRow,
+  GoalRunRow,
   MessageRow,
   TaskLinkRow,
   TaskRow,
@@ -45,6 +46,7 @@ import type { WikiRepository } from "./db/wiki-repository.ts";
 import { normalizeDirectories } from "./environment/directories.ts";
 import type { DirectoryPicker } from "./environment/directory-picker.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
+import type { GoalRuns } from "./task/goal-runs.ts";
 import { taskLinkInput, taskName, taskProgressFields } from "./task/inputs.ts";
 import { version } from "./version.ts";
 import type { WikiPageGenerator } from "./wiki/page-generation.ts";
@@ -75,6 +77,8 @@ export type RouterContext = {
   cwd: string;
   /** OS のフォルダを選ぶダイアログを開く。 */
   pickDirectory: DirectoryPicker;
+  /** タスクのゴールの実行（#198）。 */
+  goalRuns: GoalRuns;
 };
 
 export const base = os.$context<RouterContext>();
@@ -90,6 +94,9 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   DirectoryPickerUnavailableError: "SERVICE_UNAVAILABLE",
   DirectoryPickerError: "INTERNAL_SERVER_ERROR",
   TaskLinkNotFoundError: "NOT_FOUND",
+  GoalNotSetError: "BAD_REQUEST",
+  GoalRunAlreadyActiveError: "CONFLICT",
+  GoalRunNotActiveError: "CONFLICT",
   QueuedMessageNotFoundError: "NOT_FOUND",
   WikiPageNotFoundError: "NOT_FOUND",
   WikiPageUnavailableError: "NOT_FOUND",
@@ -269,6 +276,23 @@ const cwdForTask = (
         context.environments.directoriesOfTask(taskId),
         Result.map((directories) => directories?.[0] ?? context.cwd),
       );
+
+/** クライアントに返すゴールの実行（#198）。 */
+export type GoalRunDto = Pick<
+  GoalRunRow,
+  "id" | "taskId" | "chatId" | "goal" | "state" | "reason"
+> & { createdAt: string; updatedAt: string };
+
+const toGoalRunDto = (row: GoalRunRow): GoalRunDto => ({
+  id: row.id,
+  taskId: row.taskId,
+  chatId: row.chatId,
+  goal: row.goal,
+  state: row.state,
+  reason: row.reason,
+  createdAt: row.createdAt.toISOString(),
+  updatedAt: row.updatedAt.toISOString(),
+});
 
 /** クライアントに返す Wiki（複数のタスクで共有できる）。 */
 export type WikiDto = { id: string; name: string; taskCount: number };
@@ -611,7 +635,7 @@ export const router = {
           ),
         ),
       ),
-    /** 進捗（状態・進捗メモ・次にやること）を更新する。指定した項目だけを変える。 */
+    /** 進捗（状態・進捗メモ・ゴール）を更新する。指定した項目だけを変える。 */
     updateProgress: base
       .input(
         z.object({
@@ -633,6 +657,37 @@ export const router = {
             }),
             ERROR_CODES,
           ),
+        ),
+      ),
+    /** タスクの最新のゴールの実行（#198）。無ければ null。 */
+    goalRun: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        const run = await unwrapForOrpc(
+          Result.pipe(
+            requireTask(context, input.id),
+            Result.andThen(() => context.goalRuns.latest(input.id)),
+          ),
+          ERROR_CODES,
+        );
+        return run === undefined ? null : toGoalRunDto(run);
+      }),
+    /** 保存済みのゴールで実行を始める。作ったスレッドを返す（#198）。 */
+    runGoal: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        const started = await unwrapForOrpc(
+          context.goalRuns.start(input.id),
+          ERROR_CODES,
+        );
+        return { chatId: started.chatId, run: toGoalRunDto(started.run) };
+      }),
+    /** 進行中のゴールの実行を止める（#198）。 */
+    stopGoal: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        toGoalRunDto(
+          await unwrapForOrpc(context.goalRuns.stop(input.id), ERROR_CODES),
         ),
       ),
     /** 回答からの用語ページの自動作成を切り替える。 */

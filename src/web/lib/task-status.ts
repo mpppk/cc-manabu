@@ -3,6 +3,7 @@ import type { TaskStatus } from "../../db/schema.ts";
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   not_started: "未着手",
   in_progress: "進行中",
+  needs_review: "要確認",
   on_hold: "保留",
   done: "完了",
 };
@@ -11,6 +12,7 @@ export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
 export const TASK_STATUS_ORDER: TaskStatus[] = [
   "not_started",
   "in_progress",
+  "needs_review",
   "on_hold",
   "done",
 ];
@@ -22,6 +24,7 @@ export const isTaskStatus = (value: string): value is TaskStatus =>
 export const TASK_STATUS_CLASSES: Record<TaskStatus, string> = {
   not_started: "bg-muted text-muted-foreground",
   in_progress: "bg-sky-500/15 text-sky-700 dark:text-sky-400",
+  needs_review: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
   on_hold: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
   done: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
 };

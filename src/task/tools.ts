@@ -81,7 +81,7 @@ const taskText = (task: TaskRow, links: readonly TaskLinkRow[]) =>
     `状態: ${statusText(task.status)}`,
     "進捗メモ:",
     multiline(task.progressNote),
-    "次にやること:",
+    "ゴール:",
     multiline(task.nextAction),
     "関連リンク:",
     ...(links.length === 0 ? ["（なし）"] : links.map(linkText)),
@@ -105,7 +105,7 @@ const changeLines = (before: TaskRow, after: TaskRow): string[] => {
   }
   if (before.nextAction !== after.nextAction) {
     lines.push(
-      `次にやること: ${multiline(before.nextAction)} → ${multiline(after.nextAction)}`,
+      `ゴール: ${multiline(before.nextAction)} → ${multiline(after.nextAction)}`,
     );
   }
   return lines;
@@ -144,16 +144,16 @@ export const createTaskToolHandlers = (deps: Deps, taskId: string) => {
       name?: string | undefined;
       status?: TaskStatus | undefined;
       progress_note?: string | undefined;
-      next_action?: string | undefined;
+      goal?: string | undefined;
     }): Result.Result<string, TaskToolError> => {
       if (
         input.name === undefined &&
         input.status === undefined &&
         input.progress_note === undefined &&
-        input.next_action === undefined
+        input.goal === undefined
       ) {
         return fail(
-          "変える項目がありません。name・status・progress_note・next_action のうち、変えるものだけを指定してください。",
+          "変える項目がありません。name・status・progress_note・goal のうち、変えるものだけを指定してください。",
         );
       }
       return Result.pipe(
@@ -169,7 +169,7 @@ export const createTaskToolHandlers = (deps: Deps, taskId: string) => {
             {
               status: input.status,
               progressNote: input.progress_note,
-              nextAction: input.next_action,
+              nextAction: input.goal,
             },
             "進捗",
           ),
@@ -283,7 +283,7 @@ const toCallToolResult = (result: Result.Result<string, TaskToolError>) =>
 /** Claude に伝える、ツールの使い方。 */
 export const TASK_TOOL_INSTRUCTIONS = [
   "cc-manabu で、この会話が属するタスクの進捗と関連リンクを読み書きするツールです。対象のタスクはこの会話の所属で決まります。",
-  "利用者がタスクの名前・状態・進捗メモ・次にやることの更新や、関連リンクの追加・編集を求めたら、これらのツールで反映してください。",
+  "利用者がタスクの名前・状態・進捗メモ・ゴールの更新や、関連リンクの追加・編集を求めたら、これらのツールで反映してください。",
   "- 今の内容やリンクの id は get_task で確かめる",
   "- update_task では、利用者が変えるように求めた項目だけを指定する（指定しなかった項目は変わらない）",
   `- 状態は ${TASK_STATUSES.map((s) => `${s}（${TASK_STATUS_LABELS[s]}）`).join("・")} のどれか`,
@@ -304,14 +304,14 @@ export const createTaskMcpServer = (
     tools: [
       tool(
         "get_task",
-        "この会話が属するタスクの名前・状態・進捗メモ・次にやることと、関連リンク（id・表示名・URL）を返す。",
+        "この会話が属するタスクの名前・状態・進捗メモ・ゴールと、関連リンク（id・表示名・URL）を返す。",
         {},
         async () => toCallToolResult(handlers.getTask()),
         { annotations: { readOnlyHint: true } },
       ),
       tool(
         "update_task",
-        "この会話が属するタスクの名前・状態・進捗メモ・次にやることを更新する。指定した項目だけを変える。",
+        "この会話が属するタスクの名前・状態・進捗メモ・ゴールを更新する。指定した項目だけを変える。",
         {
           name: z.string().optional().describe("タスクの名前"),
           status: z
@@ -324,10 +324,7 @@ export const createTaskMcpServer = (
             .string()
             .optional()
             .describe("進捗メモ全体（置き換える）"),
-          next_action: z
-            .string()
-            .optional()
-            .describe("次にやること（置き換える）"),
+          goal: z.string().optional().describe("ゴール（置き換える）"),
         },
         async (args) => toCallToolResult(handlers.updateTask(args)),
       ),

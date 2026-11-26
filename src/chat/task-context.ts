@@ -49,7 +49,7 @@ export const buildTaskContextText = ({
     `状態: ${TASK_STATUS_LABELS[task.status]}`,
     "進捗メモ:",
     block(task.progressNote),
-    "次にやること:",
+    "ゴール:",
     block(task.nextAction),
     "関連リンク:",
     ...(links.length === 0
