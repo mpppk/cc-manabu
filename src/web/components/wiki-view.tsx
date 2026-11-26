@@ -16,7 +16,7 @@ import { cn } from "../lib/utils.ts";
 import { SideChat } from "./chat-workspace.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
-import { WikiPageContent } from "./wiki-pane.tsx";
+import { WikiPageContent, WikiPane } from "./wiki-pane.tsx";
 
 type Draft = { title: string; aliases: string; body: string };
 
@@ -230,9 +230,37 @@ export const WikiView = ({
   /** 本文から選んで、次の質問に添える引用。 */
   const [quote, setQuote] = useState<WikiPageQuote>();
   const askButton = useRef<HTMLButtonElement>(null);
+  /**
+   * サイドチャットの回答中の用語から、サイドチャットの上に重ねて開いた Wiki ページ（#168）。
+   * 閉じると、隠していたサイドチャットに入力途中のまま戻る。
+   */
+  const [termPane, setTermPane] = useState<{
+    id: string;
+    pageId: string;
+    returnFocus: HTMLElement | null;
+  }>();
+  const openTermPane = (termPageId: string) => {
+    const active = document.activeElement;
+    setTermPane({
+      id: crypto.randomUUID(),
+      pageId: termPageId,
+      returnFocus:
+        active instanceof HTMLElement && active !== document.body
+          ? active
+          : null,
+    });
+  };
+  const closeTermPane = () => {
+    const returnFocus = termPane?.returnFocus;
+    setTermPane(undefined);
+    requestAnimationFrame(() => {
+      if (returnFocus?.isConnected) returnFocus.focus();
+    });
+  };
   const closeChat = () => {
     setAskingPageId(undefined);
     setQuote(undefined);
+    setTermPane(undefined);
     requestAnimationFrame(() => askButton.current?.focus());
   };
 
@@ -244,6 +272,7 @@ export const WikiView = ({
     setMode("view");
     setAskingPageId(undefined);
     setQuote(undefined);
+    setTermPane(undefined);
   }, [pageId]);
 
   const page = pages?.find((p) => p.id === pageId);
@@ -463,6 +492,7 @@ export const WikiView = ({
             }}
             api={api}
             models={models}
+            hidden={termPane !== undefined}
             onActivity={() => {
               onChatActivity();
               // Claude が Wiki のページを編集・作成していれば反映する
@@ -470,6 +500,19 @@ export const WikiView = ({
             }}
             onClose={closeChat}
             onOpenWikiPage={(_, id) => onNavigate(id)}
+            onOpenWikiPane={(_, id) => openTermPane(id)}
+            onWikiPageCreated={() => void refresh()}
+          />
+        )}
+        {asking && termPane !== undefined && (
+          <WikiPane
+            key={termPane.id}
+            api={api}
+            taskId={taskId}
+            pageId={termPane.pageId}
+            onClose={closeTermPane}
+            onOpenFull={() => onNavigate(termPane.pageId)}
+            onOpenPage={openTermPane}
             onWikiPageCreated={() => void refresh()}
           />
         )}
