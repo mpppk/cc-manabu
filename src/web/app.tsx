@@ -7,6 +7,7 @@ import { ChatWorkspace } from "./components/chat-workspace.tsx";
 import type { EnvironmentInput } from "./components/environment-dialogs.tsx";
 import { GeneralSettingsDialog } from "./components/settings-dialog.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
+import { SidebarResizer } from "./components/sidebar-resizer.tsx";
 import { TaskList } from "./components/task-list.tsx";
 import { TaskOverview } from "./components/task-overview.tsx";
 import { Button } from "./components/ui/button.tsx";
@@ -32,6 +33,12 @@ import {
   taskIdFromPath,
   wikiFromPath,
 } from "./lib/route.ts";
+import {
+  clampSidebarWidth,
+  DEFAULT_SIDEBAR_WIDTH,
+  loadSidebarWidth,
+  saveSidebarWidth,
+} from "./lib/sidebar-width.ts";
 import { applyTheme, loadTheme, type Theme } from "./lib/theme.ts";
 import { useWikiPages } from "./lib/use-wiki-pages.ts";
 
@@ -79,6 +86,17 @@ const loadSidebarOpen = (): boolean => {
   }
 };
 
+/** ウィンドウの幅。変わったら数え直す。 */
+const useViewportWidth = (): number => {
+  const [width, setWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
+};
+
 const USE_COMMAND_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform);
 const SIDEBAR_SHORTCUT = USE_COMMAND_SHORTCUT ? "⌘B" : "Ctrl+B";
 
@@ -89,6 +107,13 @@ export const App = ({ api }: { api: ApiClient }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(loadSidebarOpen);
   const toggleSidebar = useCallback(() => setSidebarOpen((open) => !open), []);
+  // 左サイドバーの幅（#185）。保存していなければ既定の幅で開き、画面の幅に収めて表示する
+  const [savedSidebarWidth, setSavedSidebarWidth] = useState(loadSidebarWidth);
+  const viewportWidth = useViewportWidth();
+  const sidebarWidth = clampSidebarWidth(
+    savedSidebarWidth ?? DEFAULT_SIDEBAR_WIDTH,
+    viewportWidth,
+  );
   useEffect(() => {
     try {
       localStorage.setItem(SIDEBAR_KEY, sidebarOpen ? "1" : "0");
@@ -423,6 +448,7 @@ export const App = ({ api }: { api: ApiClient }) => {
         <Sidebar
           id="sidebar"
           hidden={!sidebarOpen}
+          width={sidebarWidth}
           chats={listedChats(chats, selectedId)}
           tasks={tasks ?? []}
           environments={environments}
@@ -458,6 +484,15 @@ export const App = ({ api }: { api: ApiClient }) => {
           onSearch={searchChats}
           onOpenSearchHit={openSearchHit}
         />
+        {sidebarOpen && (
+          <SidebarResizer
+            controls="sidebar"
+            width={sidebarWidth}
+            viewportWidth={viewportWidth}
+            onResize={setSavedSidebarWidth}
+            onCommit={saveSidebarWidth}
+          />
+        )}
         <main
           className="flex min-w-0 flex-1 flex-col"
           data-claude-state={status?.claude.state ?? "connecting"}
