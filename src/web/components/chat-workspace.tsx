@@ -105,15 +105,16 @@ export const SideChat = ({
   useEffect(() => {
     panel.current?.focus();
   }, []);
-  // 引用を添えたら、続けて質問を書けるよう入力欄に移る。会話があれば ChatView が移すので、
-  // ここでは最初の質問の入力欄（会話が無いと分かってから出る）だけを扱う
+  // 引用を添えたら、続けて質問を書けるよう入力欄に移る（回答の選択範囲からの質問も。#220）。
+  // 会話があれば ChatView が移すので、ここでは最初の質問の入力欄（会話が無いと分かってから出る）だけを扱う
   const composingFirst = conversation === null;
+  const quoted = wikiQuote !== undefined || draft !== undefined;
   useEffect(() => {
-    if (wikiQuote === undefined || !composingFirst) return;
+    if (!quoted || !composingFirst) return;
     panel.current
       ?.querySelector<HTMLTextAreaElement>("textarea:not([disabled])")
       ?.focus();
-  }, [wikiQuote, composingFirst]);
+  }, [quoted, composingFirst]);
 
   const chatId = submittedId ?? (draft === undefined ? branchId : undefined);
   const loadConversation = useCallback(async () => {

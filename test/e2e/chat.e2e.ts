@@ -1791,21 +1791,26 @@ test("回答の選択範囲を引用して質問すると、引用付きの会�
     expect(gap).toBeLessThan(24);
   }
 
+  // 開くと、そのまま質問を書けるよう入力欄にフォーカスが移る（#220）。
   // 初回送信前に閉じると新しい会話はできない。メインの入力も残る。
   await ask.click();
   await expect(popup).toHaveCount(0);
   await expect(side.locator("blockquote")).toContainText(
     "方式A と 方式B の比較",
   );
+  await expect(sideInput).toBeFocused();
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
   await expect(mainInput).toBeFocused();
   await expect(mainInput).toHaveValue("メインの続き");
   await expect(page.getByRole("combobox", { name: "会話" })).toHaveCount(0);
 
+  // 閉じて開き直しても入力欄にフォーカスが移り、クリックせずに書き始められる。
   // 送ると、引用付きの会話ができ、モデルには引用と質問が区別して届く
   await selectLastAnswerParagraph(page);
   await ask.click();
-  await sideInput.fill("失敗時はどう復旧する？");
+  await expect(sideInput).toBeFocused();
+  await page.keyboard.type("失敗時はどう復旧する？");
+  await expect(sideInput).toHaveValue("失敗時はどう復旧する？");
   await sideInput.press("Enter");
   await expect(
     side.getByText(/了解: 以下は、直前までの回答から利用者が選んだ引用です/),
