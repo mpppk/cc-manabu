@@ -20,15 +20,14 @@ import {
 import type { PreferencesRepository } from "./db/preferences-repository.ts";
 import type { QueueRepository } from "./db/queue-repository.ts";
 import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
-import {
-  type ChatRow,
-  type MessageRow,
-  TASK_STATUSES,
-  type TaskLinkRow,
-  type TaskRow,
-  type WikiCheckpointRow,
-  type WikiPageRow,
-  type WikiPageVersionRow,
+import type {
+  ChatRow,
+  MessageRow,
+  TaskLinkRow,
+  TaskRow,
+  WikiCheckpointRow,
+  WikiPageRow,
+  WikiPageVersionRow,
 } from "./db/schema.ts";
 import type { SearchRepository } from "./db/search-repository.ts";
 import {
@@ -46,6 +45,7 @@ import type { WikiRepository } from "./db/wiki-repository.ts";
 import { normalizeDirectories } from "./environment/directories.ts";
 import type { DirectoryPicker } from "./environment/directory-picker.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
+import { taskLinkInput, taskName, taskProgressFields } from "./task/inputs.ts";
 import { version } from "./version.ts";
 import type { WikiPageGenerator } from "./wiki/page-generation.ts";
 import { MAX_PAGE_TERM_LENGTH } from "./wiki/terms.ts";
@@ -295,26 +295,6 @@ const toTaskLinkDto = (row: TaskLinkRow): TaskLinkDto => ({
   label: row.label,
 });
 
-/** 関連リンクの入力。URL は http / https だけ。表示名は空なら null（URL を表示する）。 */
-const taskLinkInput = z.object({
-  url: z
-    .string()
-    .trim()
-    .max(2000)
-    .url()
-    .refine(
-      (url) => URL.canParse(url) && /^https?:$/.test(new URL(url).protocol),
-      "http または https の URL を入力してください。",
-    ),
-  label: z
-    .string()
-    .trim()
-    .max(200)
-    .nullable()
-    .optional()
-    .transform((label) => (label === "" || label === undefined ? null : label)),
-});
-
 /** クライアントに返す Wiki ページ。 */
 export type WikiPageDto = Pick<
   WikiPageRow,
@@ -404,7 +384,6 @@ const wikiPageInput = z.object({
 });
 
 const chatId = z.object({ id: z.string().min(1) });
-const taskName = z.string().trim().min(1).max(100);
 const wikiChatTarget = z.object({
   taskId: z.string().min(1),
   pageId: z.string().min(1),
@@ -637,9 +616,7 @@ export const router = {
       .input(
         z.object({
           id: z.string().min(1),
-          status: z.enum(TASK_STATUSES).optional(),
-          progressNote: z.string().max(20_000).optional(),
-          nextAction: z.string().trim().max(500).optional(),
+          ...taskProgressFields,
         }),
       )
       .handler(async ({ context, input }) =>

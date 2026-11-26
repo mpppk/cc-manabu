@@ -195,6 +195,15 @@ export const App = ({ api }: { api: ApiClient }) => {
     void refreshTasks();
   }, [refreshTasks]);
 
+  /**
+   * 会話の送信・回答のあと。Claude がツールでタスクの進捗や名前を変えることがあるので（#187）、
+   * スレッドと一緒にタスクも取り直す。
+   */
+  const refreshAfterActivity = useCallback(() => {
+    void refreshChats();
+    void refreshTasks();
+  }, [refreshChats, refreshTasks]);
+
   /** 検索結果から開いた発言（#115）。開いた会話でその発言へ移動する。 */
   const [focus, setFocus] = useState<{ chatId: string; messageId: string }>();
 
@@ -495,7 +504,7 @@ export const App = ({ api }: { api: ApiClient }) => {
                 models={models}
                 cwd={workspace.chat.cwd}
                 extraDirectories={extraDirectoriesOf(workspace.chat)}
-                onActivity={() => void refreshChats()}
+                onActivity={refreshAfterActivity}
                 branches={chats.filter(
                   (chat) => chat.groupId === workspace.chat.groupId,
                 )}
@@ -538,7 +547,7 @@ export const App = ({ api }: { api: ApiClient }) => {
                   chat.parentId === null &&
                   chat.wikiPageId === wikiRoute.pageId,
               )}
-              onChatActivity={() => void refreshChats()}
+              onChatActivity={refreshAfterActivity}
               onOpenChat={select}
               returnTo={wikiState?.returnTo}
               onReturn={(to) => navigate(to)}

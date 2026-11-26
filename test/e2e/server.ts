@@ -43,6 +43,7 @@ import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import { createClaudeCode } from "../../src/provider/index.ts";
 import { router } from "../../src/router.ts";
 import { startServer } from "../../src/server/server.ts";
+import { createTaskToolServers } from "../../src/task/tools.ts";
 import index from "../../src/web/index.html";
 import { createTermPageWriter } from "../../src/wiki/auto-terms.ts";
 import {
@@ -155,6 +156,7 @@ const chatService = createChatService({
   approvals,
   languageModel: (modelId, options) =>
     createClaudeCode({ cwd: "/e2e", query, onRateLimit, ...options })(modelId),
+  taskTools: createTaskToolServers({ tasks }),
   wikiTools: createWikiToolServers({ wiki, tasks, history: wikiHistory }),
   onWikiBatchFinish: (batchId, messageId) =>
     wikiHistory.attachAnswer(batchId, messageId),
