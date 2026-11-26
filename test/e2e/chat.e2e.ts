@@ -1997,6 +1997,134 @@ test("回答を引用して質問するとき、メイン・サイドチャッ�
   ).toBeVisible();
 });
 
+test("メインの現在地を維持したまま、入力欄から分岐に送信できる（#225）", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const branches = page.getByRole("combobox", { name: "会話" });
+  const notice = main.getByRole("status").filter({
+    hasText: "現在地を維持して送信できません",
+  });
+  const sideIdle = () =>
+    expect(side.getByRole("button", { name: "送信", exact: true })).toBeVisible(
+      { timeout: 15_000 },
+    );
+
+  // 分岐元の回答がまだ無いと送らず、理由を出す（通常の送信にもならない）
+  await mainInput.fill("まだ送れない");
+  await mainInput.press("ControlOrMeta+Enter");
+  await expect(notice).toContainText("分岐元の回答がまだありません");
+  await expect(mainInput).toHaveValue("まだ送れない");
+  await expect(main.locator("[data-assistant-message]")).toHaveCount(0);
+
+  // 日本語 IME の変換確定（変換中の Enter）では、通常の送信も分岐への送信もしない
+  await mainInput.fill("変換中");
+  await expect(notice).toHaveCount(0);
+  for (const modifier of [{}, { ctrlKey: true }, { metaKey: true }]) {
+    await mainInput.evaluate((input, init) => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          isComposing: true,
+          bubbles: true,
+          cancelable: true,
+          ...init,
+        }),
+      );
+    }, modifier);
+  }
+  await expect(mainInput).toHaveValue("変換中");
+  await expect(notice).toHaveCount(0);
+  await expect(main.locator("[data-assistant-message]")).toHaveCount(0);
+
+  // Shift+Enter は改行、Enter は通常の送信のまま
+  await mainInput.fill("最初の質問");
+  await mainInput.press("Shift+Enter");
+  await expect(mainInput).toHaveValue("最初の質問\n");
+  await mainInput.press("Enter");
+  await expect(main.getByText("了解: 最初の質問")).toBeVisible();
+  await idle(page);
+  const chatUrl = page.url();
+
+  // 現在地（会話の末尾）から分岐して送り、回答はサイドチャットに出る
+  await mainInput.fill("分岐の質問");
+  await mainInput.press("ControlOrMeta+Enter");
+  await expect(side.getByText("了解: 分岐の質問")).toBeVisible();
+  await sideIdle();
+  await expect(mainInput).toHaveValue("");
+  await expect(main.getByText("了解: 分岐の質問")).toHaveCount(0);
+  await expect(page).toHaveURL(chatUrl);
+  await expect(branches.locator("option")).toHaveCount(2);
+  await expect(branches.locator("option:checked")).toHaveText("元の会話");
+
+  // サイドチャットを閉じて通常送信すると、元の現在地から続く
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await mainInput.fill("メインの続き");
+  await mainInput.press("Enter");
+  await expect(main.getByText("了解: メインの続き")).toBeVisible();
+  await idle(page);
+  await expect(page).toHaveURL(chatUrl);
+  await expect(branches.locator("option")).toHaveCount(2);
+
+  // 送信ボタン横のメニューにも置き、ショートカットを確かめられる
+  const menuButton = main.getByRole("button", { name: "送信のメニュー" });
+  const item = main.getByRole("menuitem", { name: /現在地を維持して送信/ });
+  await menuButton.click();
+  await expect(item).toHaveAttribute("aria-disabled", "true");
+  await expect(item).toContainText(/(⌘|Ctrl\+)Enter/);
+  await page.keyboard.press("Escape");
+  await mainInput.fill("メニューから分岐");
+  await menuButton.click();
+  await expect(item).not.toHaveAttribute("aria-disabled", "true");
+  await item.click();
+  await expect(side.getByText("了解: メニューから分岐")).toBeVisible();
+  await sideIdle();
+  await expect(branches.locator("option")).toHaveCount(3);
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+
+  // 「ここから分岐」で選んだ現在地も維持する
+  await main.getByRole("button", { name: "回答を開く" }).first().click();
+  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  const headNotice = main.getByText("この回答の続きとして分岐します。");
+  await expect(headNotice).toBeVisible();
+  await mainInput.fill("前の回答から");
+  await mainInput.press("ControlOrMeta+Enter");
+  await expect(side.getByText("了解: 前の回答から")).toBeVisible();
+  await sideIdle();
+  await expect(headNotice).toBeVisible();
+  await expect(branches.locator("option")).toHaveCount(4);
+  // 作った分岐は、会話の切り替えから開き直せる（現在地を末尾に戻してから）
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await main.getByRole("button", { name: "取り消す" }).click();
+  await expect(headNotice).toHaveCount(0);
+  await branches.selectOption({ label: "分岐の質問（元の会話 から分岐）" });
+  await expect(
+    main.getByText("了解: 分岐の質問", { exact: true }),
+  ).toBeVisible();
+  await branches.selectOption({ label: "元の会話" });
+
+  // 生成中の回答からは分岐せず、予約にもしない
+  await mainInput.fill("ゆっくり数えて");
+  await mainInput.press("Enter");
+  await expect(main.getByRole("button", { name: "停止" })).toBeVisible();
+  await mainInput.fill("生成中の分岐");
+  await mainInput.press("ControlOrMeta+Enter");
+  await expect(notice).toContainText("回答の生成中は");
+  await expect(mainInput).toHaveValue("生成中の分岐");
+  await expect(side).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: "予約したメッセージ" }),
+  ).toHaveCount(0);
+  await main.getByRole("button", { name: "停止" }).click();
+});
+
 test("保存済みの会話をサイドで開き直し、メインの HEAD を保って続けられる", async ({
   page,
 }, testInfo) => {

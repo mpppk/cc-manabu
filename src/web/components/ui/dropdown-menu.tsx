@@ -17,6 +17,12 @@ export type DropdownMenuItem = {
   variant?: "default" | "destructive";
   /** 直前に区切り線を入れる。 */
   separatorBefore?: boolean;
+  /** 押せないとき。title に理由を書く。 */
+  disabled?: boolean;
+  /** 項目の説明（押せない理由など）。 */
+  title?: string;
+  /** 右端に出すショートカット（例: ⌘Enter）。 */
+  shortcut?: string;
 };
 
 /** アイコンボタンから開くメニュー（WAI-ARIA の menu button パターン）。 */
@@ -25,12 +31,17 @@ export const DropdownMenu = ({
   icon,
   items,
   triggerClassName = "size-8",
+  placement = "below",
+  disabled = false,
 }: {
   /** ボタンの名前（aria-label / title）。 */
   label: string;
   icon: ReactNode;
   items: DropdownMenuItem[];
   triggerClassName?: string;
+  /** メニューをボタンの下・上のどちらに開くか。 */
+  placement?: "below" | "above";
+  disabled?: boolean;
 }) => {
   const [open, setOpen] = useState(false);
   const menuId = useId();
@@ -102,6 +113,7 @@ export const DropdownMenu = ({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
+        disabled={disabled}
         onClick={() => setOpen((prev) => !prev)}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
@@ -118,7 +130,10 @@ export const DropdownMenu = ({
           role="menu"
           aria-label={label}
           tabIndex={-1}
-          className="absolute top-full right-0 z-50 mt-1 flex min-w-44 flex-col rounded-md border bg-background p-1 shadow-md"
+          className={cn(
+            "absolute right-0 z-50 flex min-w-44 flex-col rounded-md border bg-background p-1 shadow-md",
+            placement === "above" ? "bottom-full mb-1" : "top-full mt-1",
+          )}
           onKeyDown={onMenuKeyDown}
         >
           {items.map((item, index) => (
@@ -133,11 +148,17 @@ export const DropdownMenu = ({
                 type="button"
                 role="menuitem"
                 tabIndex={-1}
+                aria-disabled={item.disabled === true ? true : undefined}
+                title={item.title}
                 className={cn(
                   "flex items-center gap-2 whitespace-nowrap rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus:bg-accent [&_svg]:size-4 [&_svg]:shrink-0",
                   item.variant === "destructive" && "text-destructive",
+                  item.disabled === true &&
+                    "cursor-not-allowed text-muted-foreground hover:bg-transparent",
                 )}
                 onClick={() => {
+                  // 押せない項目は、理由（title）を読めるようにフォーカスだけ受ける
+                  if (item.disabled === true) return;
                   // 開いたダイアログが閉じたとき、フォーカスがボタンに戻るようにする
                   close(true);
                   item.onSelect();
@@ -145,6 +166,11 @@ export const DropdownMenu = ({
               >
                 {item.icon}
                 {item.label}
+                {item.shortcut !== undefined && (
+                  <kbd className="ml-auto pl-4 font-sans text-muted-foreground text-xs">
+                    {item.shortcut}
+                  </kbd>
+                )}
               </button>
             </Fragment>
           ))}

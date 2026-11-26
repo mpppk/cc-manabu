@@ -1,5 +1,13 @@
 import { Result } from "@praha/byethrow";
-import { ArrowUp, ImagePlus, ListPlus, Square, X } from "lucide-react";
+import {
+  ArrowUp,
+  ChevronUp,
+  GitBranch,
+  ImagePlus,
+  ListPlus,
+  Square,
+  X,
+} from "lucide-react";
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -13,15 +21,31 @@ import {
   MAX_IMAGES_PER_MESSAGE,
 } from "../../chat/attachments.ts";
 import { type ImageAttachment, toImageAttachment } from "../lib/image.ts";
+import { hasShortcutModifier, MODIFIER_LABEL } from "../lib/shortcut.ts";
 import { cn } from "../lib/utils.ts";
 import { Button } from "./ui/button.tsx";
+import { DropdownMenu } from "./ui/dropdown-menu.tsx";
 
 const hasFiles = (event: DragEvent) =>
   event.dataTransfer.types.includes("Files");
 
+/** 現在地（HEAD）を維持したまま、そこから分岐した新しい会話に送る操作（#225）。 */
+export type BranchSend = {
+  /** 送れないときの理由。あれば送らずに理由を出す。 */
+  blocker?: string | undefined;
+  onSubmit: (
+    text: string,
+    images: ImageAttachment[],
+  ) => undefined | Promise<boolean>;
+};
+
+/** 「現在地を維持して送信」のショートカットの表示。 */
+export const BRANCH_SEND_SHORTCUT = `${MODIFIER_LABEL}Enter`;
+
 /**
  * 発話の入力欄。テキストと画像（貼り付け・選択・ドロップ）を送る。
- * 生成中は、送る代わりに予約できる（#102）。
+ * 生成中は、送る代わりに予約できる（#102）。branchSend があれば、⌘Enter（Ctrl+Enter）と
+ * 送信ボタン横のメニューから、現在地を維持して分岐に送れる（#225）。
  */
 export const Composer = ({
   busy,
@@ -32,6 +56,7 @@ export const Composer = ({
   onSubmit,
   onQueue,
   onStop,
+  branchSend,
 }: {
   busy: boolean;
   pending?: boolean;
@@ -46,13 +71,17 @@ export const Composer = ({
   ) => undefined | Promise<boolean>;
   onQueue?: (text: string, images: ImageAttachment[]) => void;
   onStop?: () => void;
+  branchSend?: BranchSend | undefined;
 }) => {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [loading, setLoading] = useState(0);
   const [attachError, setAttachError] = useState<string>();
   const [dragging, setDragging] = useState(false);
+  /** 現在地を維持して送れなかった理由（ショートカットを押したとき）。 */
+  const [branchNotice, setBranchNotice] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
+  const textarea = useRef<HTMLTextAreaElement>(null);
 
   const addFiles = async (files: File[]) => {
     if (files.length === 0) return;
@@ -77,11 +106,16 @@ export const Composer = ({
   };
 
   const queue = queueing && onQueue !== undefined;
-  const canSend =
-    !pending &&
-    (!busy || queue) &&
-    loading === 0 &&
-    (input.trim() !== "" || images.length > 0);
+  const hasContent =
+    !pending && loading === 0 && (input.trim() !== "" || images.length > 0);
+  const canSend = hasContent && (!busy || queue);
+
+  const clear = () => {
+    setInput("");
+    setImages([]);
+    setAttachError(undefined);
+    setBranchNotice(undefined);
+  };
 
   const submit = async () => {
     if (!canSend) return;
@@ -91,17 +125,36 @@ export const Composer = ({
       const sent = onSubmit(input.trim(), images);
       if (sent !== undefined && !(await sent)) return;
     }
-    setInput("");
-    setImages([]);
-    setAttachError(undefined);
+    clear();
+  };
+
+  /** 現在地を維持して、分岐に送る。送れなければ、通常の送信や予約にはせずに理由を出す。 */
+  const submitToBranch = async () => {
+    if (branchSend === undefined) return;
+    if (branchSend.blocker !== undefined) {
+      setBranchNotice(branchSend.blocker);
+      return;
+    }
+    if (!hasContent) {
+      setBranchNotice("送るメッセージを入力してください。");
+      return;
+    }
+    const sent = branchSend.onSubmit(input.trim(), images);
+    if (sent !== undefined && !(await sent)) return;
+    clear();
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey &&
-      !event.nativeEvent.isComposing
-    ) {
+    if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
+    // ⌘ / Ctrl を押した Enter は、通常の送信・予約にしない（誤送信を防ぐ）
+    if (event.metaKey || event.ctrlKey) {
+      event.preventDefault();
+      if (branchSend !== undefined && hasShortcutModifier(event)) {
+        void submitToBranch();
+      }
+      return;
+    }
+    if (!event.shiftKey) {
       event.preventDefault();
       void submit();
     }
@@ -177,17 +230,28 @@ export const Composer = ({
           {attachError}
         </p>
       )}
+      {branchNotice !== undefined && (
+        <p className="px-1 text-muted-foreground text-sm" role="status">
+          現在地を維持して送信できません: {branchNotice}
+        </p>
+      )}
       <textarea
+        ref={textarea}
         className="max-h-48 min-h-10 w-full resize-none bg-transparent px-2 py-1.5 outline-none"
         placeholder={
           queue
             ? "メッセージを予約（今の回答が終わったあとに順に送ります）"
-            : "メッセージを入力（Enter で送信、Shift+Enter で改行。画像は貼り付けできます）"
+            : branchSend !== undefined
+              ? `メッセージを入力（Enter で送信、Shift+Enter で改行、${BRANCH_SEND_SHORTCUT} で現在地を維持して送信。画像は貼り付けできます）`
+              : "メッセージを入力（Enter で送信、Shift+Enter で改行。画像は貼り付けできます）"
         }
         aria-label={messageLabel}
         rows={1}
         value={input}
-        onChange={(event) => setInput(event.target.value)}
+        onChange={(event) => {
+          setInput(event.target.value);
+          setBranchNotice(undefined);
+        }}
         onKeyDown={onKeyDown}
         onPaste={onPaste}
       />
@@ -248,6 +312,31 @@ export const Composer = ({
           >
             <ArrowUp />
           </Button>
+        )}
+        {branchSend !== undefined && (
+          <DropdownMenu
+            label="送信のメニュー"
+            icon={<ChevronUp />}
+            triggerClassName="size-8 text-muted-foreground"
+            placement="above"
+            items={[
+              {
+                label: "現在地を維持して送信",
+                icon: <GitBranch />,
+                shortcut: BRANCH_SEND_SHORTCUT,
+                disabled: branchSend.blocker !== undefined || !hasContent,
+                title:
+                  branchSend.blocker ??
+                  (hasContent
+                    ? "今の現在地から分岐した新しい会話に送り、回答をサイドチャットに出します。メインの会話と現在地はそのまま"
+                    : "送るメッセージを入力してください"),
+                onSelect: () => {
+                  void submitToBranch();
+                  textarea.current?.focus();
+                },
+              },
+            ]}
+          />
         )}
       </div>
     </section>

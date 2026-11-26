@@ -33,6 +33,7 @@ import {
   taskIdFromPath,
   wikiFromPath,
 } from "./lib/route.ts";
+import { USE_COMMAND_SHORTCUT } from "./lib/shortcut.ts";
 import {
   SIDE_BY_SIDE_MIN_VIEWPORT,
   useReservedMainWidth,
@@ -103,7 +104,6 @@ const useViewportWidth = (): number => {
   return width;
 };
 
-const USE_COMMAND_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform);
 const SIDEBAR_SHORTCUT = USE_COMMAND_SHORTCUT ? "⌘B" : "Ctrl+B";
 
 export const App = ({ api }: { api: ApiClient }) => {
