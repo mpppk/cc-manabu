@@ -926,6 +926,87 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await expect(terms.first()).toHaveText("関係タプル");
 });
 
+test("ノートの本文の用語から、説明と同じ Wiki の別のノートを開ける（#210）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "本文の用語");
+  for (const [title, aliases, body] of [
+    ["権限", "", "利用者ができる操作。"],
+    ["ロール", "role", "権限 をまとめたもの。ロール自身と `権限` は対象外。"],
+    [
+      "認可",
+      "",
+      "ロール と ROLE で決める。[権限](https://example.com/) はリンクのまま。",
+    ],
+  ] as const) {
+    await openWiki(page, "本文の用語");
+    await page.getByRole("button", { name: "新しいノート" }).click();
+    await page.getByRole("textbox", { name: "ノートのタイトル" }).fill(title);
+    await page
+      .getByRole("textbox", { name: "別名（カンマ区切り）" })
+      .fill(aliases);
+    await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(body);
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  }
+
+  // Wiki の個別画面: 別のノートのタイトル・別名に下線。リンクの中は対象外
+  const body = page.locator("[data-wiki-page-body]");
+  const terms = body.locator("button[data-wiki-term]");
+  await expect(terms).toHaveText(["ロール", "ROLE"]);
+  // （Streamdown は外部リンクを、確認してから開くボタンにする）
+  await expect(
+    body.getByRole("button", { name: "権限", exact: true }),
+  ).toBeVisible();
+
+  // ホバーで要約を出し、クリックでノートを開く
+  await terms.first().hover();
+  const card = page.getByRole("dialog", { name: "用語の説明" });
+  await expect(card).toContainText("権限 をまとめたもの。");
+  await terms.first().click();
+  await expect(page.getByRole("heading", { name: "ロール" })).toBeVisible();
+  // 閲覧中のノート自身と、コードの中は対象外
+  await expect(terms).toHaveText(["権限"]);
+
+  // キーボードでフォーカスすると要約を出し、Enter で開く
+  await terms.first().focus();
+  await expect(card).toContainText("利用者ができる操作。");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "権限" })).toBeVisible();
+  await expect(terms).toHaveCount(0);
+
+  // 本文の選択メニューはそのまま使える
+  await page.getByRole("button", { name: "ロール" }).click();
+  await expect(page.getByRole("heading", { name: "ロール" })).toBeVisible();
+  await body.getByText("をまとめたもの").selectText();
+  await expect(
+    page
+      .getByRole("toolbar", { name: "選択範囲の操作" })
+      .getByRole("button", { name: "質問", exact: true }),
+  ).toBeVisible();
+
+  // 会話の右側のペイン: 本文の用語を押すと、同じペインで開く
+  await openTask(page, "本文の用語");
+  await newChat(page);
+  await send(page, "認可 について");
+  await idle(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  await main
+    .locator("button[data-wiki-term]", { hasText: "認可" })
+    .first()
+    .click();
+  const pane = page.getByRole("complementary", { name: "ノート" });
+  await expect(pane.getByRole("heading", { name: "認可" })).toBeVisible();
+  const paneTerms = pane.locator(
+    "[data-wiki-page-body] button[data-wiki-term]",
+  );
+  await expect(paneTerms).toHaveText(["ロール", "ROLE"]);
+  await paneTerms.first().click();
+  await expect(pane.getByRole("heading", { name: "ロール" })).toBeVisible();
+  await expect(paneTerms).toHaveText(["権限"]);
+});
+
 test("回答中の用語・引用をクリックすると、右側のペインで Wiki ページを開く", async ({
   page,
 }) => {

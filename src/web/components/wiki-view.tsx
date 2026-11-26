@@ -9,7 +9,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto, WikiVersionDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
@@ -26,7 +26,7 @@ import { PageQaList } from "./page-qa-list.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 import { WikiHistoryPanel, WikiHistoryToolbar } from "./wiki-history.tsx";
-import { WikiPageContent, WikiPane } from "./wiki-pane.tsx";
+import { type WikiNoteTerms, WikiPageContent, WikiPane } from "./wiki-pane.tsx";
 
 type Draft = { title: string; aliases: string; body: string };
 
@@ -311,6 +311,16 @@ export const WikiView = ({
   }, [pageId]);
 
   const page = pages?.find((p) => p.id === pageId);
+  // 本文の用語から、同じ Wiki の別のノートの説明を出し、この画面で開く（#210）
+  const noteTerms = useMemo<WikiNoteTerms>(
+    () => ({
+      pages,
+      load: (id) => api.wiki.get({ id }).catch(() => undefined),
+      open: onNavigate,
+      openLabel: "ノートを開く",
+    }),
+    [api, pages, onNavigate],
+  );
   const asking = pageId !== undefined && askingPageId === pageId;
   // 右側のペインの幅（#209）。ノート本文と並べる領域の幅に収める
   const row = useRef<HTMLDivElement>(null);
@@ -528,6 +538,7 @@ export const WikiView = ({
             onPageCreated: () => void refresh(),
             onOpenPage: onNavigate,
           }}
+          terms={noteTerms}
         />
         {historyPanel(page.id)}
         <PageQaList

@@ -1,14 +1,17 @@
 import { BookOpen, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto } from "../../router.ts";
 import { isPageTerm, normalizeTerm } from "../../wiki/terms.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { sidePanelWidthProps } from "../lib/side-panel-width.ts";
+import { useWikiPages } from "../lib/use-wiki-pages.ts";
 import { cn } from "../lib/utils.ts";
+import { useNoteTermMatcher } from "../lib/wiki-terms.ts";
 import { Markdown } from "./markdown.tsx";
 import { SelectionPopup, useTextSelection } from "./selection-popup.tsx";
 import { Button } from "./ui/button.tsx";
+import { WikiTermsContext, type WikiTermsContextValue } from "./wiki-term.tsx";
 
 /** 本文の選択範囲から、質問やページの作成をするための設定。 */
 export type WikiSelectionActions = {
@@ -21,6 +24,18 @@ export type WikiSelectionActions = {
   onPageCreated?: (() => void) | undefined;
   /** 作ったページ（すでにあったページ）を開く。 */
   onOpenPage?: ((pageId: string) => void) | undefined;
+};
+
+/** 本文の用語（同じ Wiki の別のノート）から、説明とノートを開けるようにする設定（#210）。 */
+export type WikiNoteTerms = {
+  /** 同じ Wiki のノート。読み込み中は undefined。 */
+  pages: readonly WikiPageDto[] | undefined;
+  /** 用語の説明に出すノートを読む。 */
+  load: (pageId: string) => Promise<WikiPageDto | undefined>;
+  /** 用語のノートを開く（クリック・Enter と、要約のボタン）。 */
+  open: (pageId: string) => void;
+  /** 要約の、ノートを開くボタンの文言。既定は「サイドパネルで開く」。 */
+  openLabel?: string | undefined;
 };
 
 type Notice = {
@@ -36,10 +51,28 @@ type Notice = {
 const WikiPageBody = ({
   page,
   actions,
+  terms,
 }: {
   page: WikiPageDto;
   actions: WikiSelectionActions | undefined;
+  terms: WikiNoteTerms | undefined;
 }) => {
+  const termMatcher = useNoteTermMatcher(terms?.pages, page.id);
+  const load = terms?.load;
+  const openTerm = terms?.open;
+  const openLabel = terms?.openLabel;
+  const termsContext = useMemo<WikiTermsContextValue | undefined>(
+    () =>
+      load === undefined || openTerm === undefined
+        ? undefined
+        : {
+            load,
+            open: openTerm,
+            openPane: openTerm,
+            openPaneLabel: openLabel,
+          },
+    [load, openTerm, openLabel],
+  );
   const container = useRef<HTMLDivElement>(null);
   const selection = useTextSelection(
     container,
@@ -128,7 +161,14 @@ const WikiPageBody = ({
         />
       )}
       <div ref={container} data-wiki-page-body={page.id}>
-        <Markdown text={page.body} />
+        <WikiTermsContext.Provider value={termsContext}>
+          <Markdown
+            text={page.body}
+            {...(termsContext === undefined || termMatcher === undefined
+              ? {}
+              : { termMatcher })}
+          />
+        </WikiTermsContext.Provider>
       </div>
       {generating.length > 0 && (
         <p role="status" className="text-muted-foreground text-xs">
@@ -177,6 +217,7 @@ export const WikiPageContent = ({
   onOpenChat,
   compact = false,
   selectionActions,
+  terms,
 }: {
   page: WikiPageDto;
   /** 自動作成の元になった会話を開く。無ければ「元の回答を開く」を出さない。 */
@@ -185,6 +226,8 @@ export const WikiPageContent = ({
   compact?: boolean;
   /** 本文の選択範囲から、質問・ページの作成をできるようにする。 */
   selectionActions?: WikiSelectionActions | undefined;
+  /** 本文の用語から、説明とノートを開けるようにする（#210）。 */
+  terms?: WikiNoteTerms | undefined;
 }) => (
   <>
     <h2 className={cn("font-bold", compact ? "text-xl" : "text-2xl")}>
@@ -214,7 +257,7 @@ export const WikiPageContent = ({
     {page.body.trim() === "" ? (
       <p className="text-muted-foreground text-sm">本文はまだありません。</p>
     ) : (
-      <WikiPageBody page={page} actions={selectionActions} />
+      <WikiPageBody page={page} actions={selectionActions} terms={terms} />
     )}
     <p className="text-muted-foreground text-xs">
       最終更新: {new Date(page.updatedAt).toLocaleString("ja-JP")}
@@ -271,6 +314,25 @@ export const WikiPane = ({
   const widthProps = sidePanelWidthProps(width);
   const [state, setState] = useState<State>({ status: "loading" });
   const panel = useRef<HTMLElement>(null);
+  // 本文の用語を照合する、同じ Wiki のノート（#210）。会話で Wiki が変わったら読み直す
+  const { pages, refresh: refreshPages } = useWikiPages(api, taskId);
+  const seenRevision = useRef(revision);
+  useEffect(() => {
+    if (seenRevision.current === revision) return;
+    seenRevision.current = revision;
+    void refreshPages();
+  }, [revision, refreshPages]);
+  const loadTerm = useCallback(
+    (id: string) => api.wiki.get({ id }).catch(() => undefined),
+    [api],
+  );
+  const terms = useMemo<WikiNoteTerms | undefined>(
+    () =>
+      onOpenPage === undefined
+        ? undefined
+        : { pages, load: loadTerm, open: onOpenPage },
+    [pages, loadTerm, onOpenPage],
+  );
   useEffect(() => {
     panel.current?.focus();
   }, []);
@@ -376,9 +438,13 @@ export const WikiPane = ({
                 api,
                 taskId,
                 onAsk: onAskSelection,
-                onPageCreated: () => onWikiPageCreated?.(taskId),
+                onPageCreated: () => {
+                  void refreshPages();
+                  onWikiPageCreated?.(taskId);
+                },
                 onOpenPage,
               }}
+              terms={terms}
             />
           )}
         </div>
