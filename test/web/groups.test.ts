@@ -26,7 +26,7 @@ const chat = (overrides: Partial<ChatDto> & { id: string }): ChatDto => ({
   ...overrides,
 });
 
-test("分岐を会話ごとにまとめ、最後に開いた分岐を開く", () => {
+test("会話をスレッドごとにまとめ、最後に開いた会話を開く", () => {
   const root = chat({ id: "r", createdAt: new Date(1) });
   const b1 = chat({
     id: "b1",

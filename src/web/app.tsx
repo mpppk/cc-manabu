@@ -32,7 +32,7 @@ import { useWikiPages } from "./lib/use-wiki-pages.ts";
 
 type Status = Awaited<ReturnType<ApiClient["system"]["status"]>>;
 
-/** 会話一覧の状態（生成中・承認待ち）を拾うための問い合わせ間隔。 */
+/** スレッド一覧の状態（生成中・承認待ち）を拾うための問い合わせ間隔。 */
 const LIST_POLL_MS = 2000;
 
 const ClaudeStatusBadge = ({ status }: { status: Status | undefined }) => {
@@ -119,7 +119,7 @@ export const App = ({ api }: { api: ApiClient }) => {
   const selectedId = chatIdFromPath(path);
   const wikiRoute = wikiFromPath(path);
   const wikiState = window.history.state as { returnTo?: string } | null;
-  // 回答から Wiki を開いている間も、元のチャットの現在地と入力を保つ。
+  // 回答から Wiki を開いている間も、元のチャットの表示（HEAD を含む）と入力を保つ。
   const chatViewId =
     selectedId ??
     (wikiRoute === undefined
@@ -210,7 +210,7 @@ export const App = ({ api }: { api: ApiClient }) => {
   const select = useCallback(
     (id: string | undefined) => {
       navigate(pathForChat(id));
-      // 会話を開き直したときにこの分岐を表示する（#76）
+      // スレッドを開き直したときにこの会話を表示する（#76）
       if (id !== undefined) {
         void api.chats
           .select({ id })
@@ -291,7 +291,7 @@ export const App = ({ api }: { api: ApiClient }) => {
         ? selectedChat === undefined
           ? ""
           : selectedChat.title === ""
-            ? "新しい会話"
+            ? "新しいスレッド"
             : selectedChat.title
         : (task?.name ?? "");
   // Wiki のページ一覧（サイドバーの一覧とメインのページ表示で共有する）
@@ -575,7 +575,7 @@ export const App = ({ api }: { api: ApiClient }) => {
           <section className="flex flex-1 items-center justify-center text-muted-foreground">
             {loadError ??
               (selectedId === undefined
-                ? "会話を選ぶか、新しい会話を始めてください。"
+                ? "スレッドを選ぶか、新しいスレッドを始めてください。"
                 : "読み込み中…")}
           </section>
         )}

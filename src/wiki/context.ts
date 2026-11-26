@@ -14,7 +14,7 @@ import {
 import { selectRelevantPages } from "./match.ts";
 import { buildReferenceText } from "./reference.ts";
 
-/** 1 ターン分の参照資料と、渡したページ（応答の metadata に残し、引用をリンクにする）。 */
+/** 1 ターン分の参照資料と、渡したページ（回答の metadata に残し、引用をリンクにする）。 */
 export type WikiContext = {
   text: string;
   taskId: string;

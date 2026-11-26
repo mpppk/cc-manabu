@@ -15,7 +15,7 @@ const open = async (page: Page) => {
 const newChat = async (page: Page) => {
   const before = page.url();
   const path = new URL(before).pathname;
-  const tree = page.getByRole("navigation", { name: "会話一覧" });
+  const tree = page.getByRole("navigation", { name: "スレッド一覧" });
   const taskId = /^\/t\/([^/]+)/.exec(path)?.[1];
   const owner =
     taskId !== undefined
@@ -44,7 +44,7 @@ const idle = (page: Page) =>
     timeout: 15_000,
   });
 
-test("トークンを URL から消し、送信した発話に応答がストリーミングされる", async ({
+test("トークンを URL から消し、送信した発話に回答がストリーミングされる", async ({
   page,
 }) => {
   await open(page);
@@ -58,7 +58,9 @@ test("トークンを URL から消し、送信した発話に応答がストリ
     page.getByText(/入力 10・出力 5 トークン/).first(),
   ).toBeVisible();
   await expect(
-    page.getByRole("navigation", { name: "会話一覧" }).getByText("こんにちは"),
+    page
+      .getByRole("navigation", { name: "スレッド一覧" })
+      .getByText("こんにちは"),
   ).toBeVisible();
 });
 
@@ -235,7 +237,7 @@ test("停止・再生成・編集", async ({ page }) => {
   await expect(page.getByText("了解: 一回目")).toHaveCount(0);
 });
 
-test("会話の切り替え・名前変更・削除", async ({ page }) => {
+test("スレッドの切り替え・名前変更・削除", async ({ page }) => {
   await open(page);
   await newChat(page);
   await send(page, "一つ目の会話");
@@ -248,7 +250,7 @@ test("会話の切り替え・名前変更・削除", async ({ page }) => {
   await expect(page.getByText("了解: 二つ目の会話")).toBeVisible();
   await idle(page);
 
-  const list = page.getByRole("navigation", { name: "会話一覧" });
+  const list = page.getByRole("navigation", { name: "スレッド一覧" });
   await list.getByText("一つ目の会話").click();
   await expect(firstAnswer).toBeVisible();
 
@@ -257,7 +259,9 @@ test("会話の切り替え・名前変更・削除", async ({ page }) => {
     .filter({ hasText: "一つ目の会話" });
   await item.hover();
   await item.getByRole("button", { name: /の名前を変える/ }).click();
-  await page.getByRole("textbox", { name: "会話の名前" }).fill("名前を変えた");
+  await page
+    .getByRole("textbox", { name: "スレッドの名前" })
+    .fill("名前を変えた");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(list.getByText("名前を変えた")).toBeVisible();
 
@@ -363,7 +367,7 @@ test("画像だけでも送れて、タイトルは「画像」になる", async
   await expect(page.getByText("画像 1 枚:")).toBeVisible();
   await idle(page);
   await expect(
-    page.getByRole("navigation", { name: "会話一覧" }).getByText("画像", {
+    page.getByRole("navigation", { name: "スレッド一覧" }).getByText("画像", {
       exact: true,
     }),
   ).toBeVisible();
@@ -371,7 +375,7 @@ test("画像だけでも送れて、タイトルは「画像」になる", async
 
 /** サイドバーのツリー（環境 → タスク → スレッド）。 */
 const sidebarTree = (page: Page) =>
-  page.getByRole("navigation", { name: "会話一覧" });
+  page.getByRole("navigation", { name: "スレッド一覧" });
 
 /** 行（環境・タスク・未所属）を、行の操作（ホバーで出る）の名前で見分ける。has に渡せるよう相対で書く。 */
 const rowMatching = (page: Page, actionLabel: string) =>
@@ -475,14 +479,16 @@ test("何も送っていないスレッドは開いている間だけ出て、�
   const item = taskItem(page, "下書き置き場");
   await newChat(page);
   const blank = page.url();
-  await expect(item.getByText("新しい会話")).toBeVisible();
+  await expect(item.getByText("新しいスレッド", { exact: true })).toBeVisible();
 
   // 別の画面に移ると、空のスレッドは一覧から消える
   await page
     .getByRole("button", { name: "「下書き置き場」の概要を開く" })
     .click();
   await expect(page).toHaveURL(/\/t\/.+/);
-  await expect(item.getByText("新しい会話")).toHaveCount(0);
+  await expect(item.getByText("新しいスレッド", { exact: true })).toHaveCount(
+    0,
+  );
   await expect(item.getByText("まだスレッドがありません。")).toBeVisible();
 
   // ＋を押すと、同じ空のスレッドを開く
@@ -720,7 +726,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   await expect(page.getByText("利用者が書いた説明")).toBeVisible();
   await openTask(page, "用語の検証");
   await page
-    .getByRole("navigation", { name: "会話一覧" })
+    .getByRole("navigation", { name: "スレッド一覧" })
     .getByText("「認可モデル」について")
     .click();
   await send(page, "「認可モデル」と「関係タプル」の違い");
@@ -854,7 +860,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await expect(page.getByText("編集後の説明")).toBeVisible();
   await openTask(page, "用語プレビュー");
   await page
-    .getByRole("navigation", { name: "会話一覧" })
+    .getByRole("navigation", { name: "スレッド一覧" })
     .getByText("関係タプル と relation tuple")
     .click();
   await expect(page).toHaveURL(/\/c\/.+/);
@@ -874,7 +880,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await page.getByRole("button", { name: "削除", exact: true }).click();
   await openTask(page, "用語プレビュー");
   await page
-    .getByRole("navigation", { name: "会話一覧" })
+    .getByRole("navigation", { name: "スレッド一覧" })
     .getByText("関係タプル と relation tuple")
     .click();
   await expect(page.getByText(/了解: 「認可モデル」について/)).toBeVisible();
@@ -977,7 +983,7 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   await expect(side).toHaveCount(0);
   await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
 
-  // 狭い画面ではペインが全面に出て、閉じるとメインの現在地と下書きに戻る
+  // 狭い画面ではペインが全面に出て、閉じるとメインの HEAD と下書きに戻る
   await page.setViewportSize({ width: 700, height: 740 });
   await tuple.click();
   await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
@@ -1124,13 +1130,13 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   await expect(taskRow(page, "進捗A")).not.toContainText("完了");
 });
 
-test("応答から分岐し、同じ会話の中で分岐を切り替えて続けられる", async ({
+test("回答から分岐し、同じスレッドの中で会話を切り替えて続けられる", async ({
   page,
 }) => {
   await open(page);
-  const list = page.getByRole("navigation", { name: "会話一覧" });
+  const list = page.getByRole("navigation", { name: "スレッド一覧" });
   const main = page.getByRole("main");
-  const branchSelect = page.getByRole("combobox", { name: "分岐" });
+  const branchSelect = page.getByRole("combobox", { name: "会話" });
   const branchButtons = main.getByRole("button", { name: "ここから分岐" });
 
   await newChat(page);
@@ -1139,18 +1145,16 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   await send(page, "同期で進めて");
   await idle(page);
 
-  // 取り消すと元の表示に戻り、分岐は作られない
+  // 取り消すと元の表示に戻り、新しい会話は作られない
   await main.getByRole("button", { name: "回答を開く" }).click();
   await branchButtons.first().click();
-  await expect(
-    main.getByText("この応答の続きとして分岐を作ります"),
-  ).toBeVisible();
+  await expect(main.getByText("この回答の続きとして分岐します")).toBeVisible();
   await expect(main.getByText("了解: 同期で進めて")).toHaveCount(0);
   await main.getByRole("button", { name: "取り消す" }).click();
   await expect(main.getByText("了解: 同期で進めて")).toBeVisible();
   await expect(branchSelect).toHaveCount(0);
 
-  // 最初の応答から分岐する
+  // 最初の回答から分岐する
   const rootUrl = page.url();
   await branchButtons.first().click();
   await send(page, "非同期だと？");
@@ -1165,7 +1169,7 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
     "非同期だと？（元の会話 から分岐）",
   ]);
   await expect(
-    main.getByText("ファイルへの変更はすべての分岐で共有"),
+    main.getByText("ファイルへの変更はスレッド内のすべての会話で共有"),
   ).toBeVisible();
   // サイドバーの会話は 1 つのまま
   await expect(
@@ -1179,7 +1183,7 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   await expect(main.getByText("了解: 元の続き")).toBeVisible();
   await idle(page);
 
-  // 分岐に戻って続ける
+  // 分岐した会話に戻って続ける
   await branchSelect.selectOption({
     label: "非同期だと？（元の会話 から分岐）",
   });
@@ -1189,7 +1193,7 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   await idle(page);
   await expect(main.getByText("了解: 元の続き")).toHaveCount(0);
 
-  // 分岐からさらに分岐する
+  // 分岐した会話からさらに分岐する
   await main.getByRole("button", { name: "回答を開く" }).nth(1).click();
   await branchButtons.first().click();
   await send(page, "さらに分岐");
@@ -1200,7 +1204,7 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
     list.locator("li:not(:has(li))").filter({ hasText: "分岐の設計案は？" }),
   ).toHaveCount(1);
 
-  // 元の会話を編集しても、分岐の履歴は残る
+  // 元の会話を編集しても、分岐した会話の履歴は残る
   await branchSelect.selectOption({ label: "元の会話" });
   await main.getByText("分岐の設計案は？").first().hover();
   await main.getByRole("button", { name: "この発話を編集" }).first().click();
@@ -1218,7 +1222,7 @@ test("応答から分岐し、同じ会話の中で分岐を切り替えて続�
   await expect(main.getByText("了解: 分岐の設計案は？")).toBeVisible();
   await expect(main.getByText("了解: 分岐の続き")).toBeVisible();
 
-  // リロードしても、最後に選んだ分岐が開く。サイドバーから開いても同じ
+  // リロードしても、最後に選んだ会話が開く。サイドバーから開いても同じ
   await page.reload();
   await expect(branchSelect).toHaveValue(/.+/);
   await expect(branchSelect.locator("option:checked")).toHaveText(
@@ -1250,7 +1254,7 @@ const selectAnswerParagraph = (answer: Locator) =>
 const selectLastAnswerParagraph = (page: Page) =>
   selectAnswerParagraph(page.locator("[data-assistant-message]").last());
 
-test("回答の選択範囲を引用して質問すると、引用付きの分岐ができる", async ({
+test("回答の選択範囲を引用して質問すると、引用付きの会話ができる", async ({
   page,
 }) => {
   await open(page);
@@ -1281,11 +1285,11 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
     exact: true,
   });
   await mainInput.fill("メインの続き");
-  // 末尾を現在地にしても、次の送信先はこの分岐のまま。
+  // 末尾を HEAD にしても、次の送信先はこの会話のまま。
   await main.getByRole("button", { name: "ここから分岐" }).click();
-  await expect(
-    main.getByText("この応答の続きとして分岐を作ります。"),
-  ).toHaveCount(0);
+  await expect(main.getByText("この回答の続きとして分岐します。")).toHaveCount(
+    0,
+  );
   await expect(ask).toHaveCount(0);
 
   // 用語はクリックで右側のペインに開く（選択してもペインは開かない）
@@ -1320,7 +1324,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
     expect(gap).toBeLessThan(24);
   }
 
-  // 初回送信前に閉じると分岐はできない。メインの入力も残る。
+  // 初回送信前に閉じると新しい会話はできない。メインの入力も残る。
   await ask.click();
   await expect(popup).toHaveCount(0);
   await expect(side.locator("blockquote")).toContainText(
@@ -1329,9 +1333,9 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
   await expect(mainInput).toBeFocused();
   await expect(mainInput).toHaveValue("メインの続き");
-  await expect(page.getByRole("combobox", { name: "分岐" })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "会話" })).toHaveCount(0);
 
-  // 送ると、引用付きの分岐ができ、モデルには引用と質問が区別して届く
+  // 送ると、引用付きの会話ができ、モデルには引用と質問が区別して届く
   await selectLastAnswerParagraph(page);
   await ask.click();
   await sideInput.fill("失敗時はどう復旧する？");
@@ -1350,7 +1354,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   await expect(main.getByText("了解: メインの続き")).toBeVisible();
   await expect(page).toHaveURL(chatUrl);
 
-  // 2 ターン目と承認操作もサイドの分岐へ届く。
+  // 2 ターン目と承認操作もサイドの会話へ届く。
   await side.getByRole("button", { name: "送信", exact: true }).waitFor();
   await sideInput.fill("承認が必要な操作をして");
   await sideInput.press("Enter");
@@ -1362,16 +1366,16 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   await expect(main.getByText("許可されました", { exact: true })).toHaveCount(
     0,
   );
-  await expect(page.getByRole("combobox", { name: "分岐" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "会話" })).toBeVisible();
   await expect(
-    page.getByRole("combobox", { name: "分岐" }).locator("option"),
+    page.getByRole("combobox", { name: "会話" }).locator("option"),
   ).toHaveCount(2);
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
   await expect(side).toHaveCount(0);
 
   // リロードしても引用と質問が残り、元の会話もそのまま
   await page.reload();
-  const branches = page.getByRole("combobox", { name: "分岐" });
+  const branches = page.getByRole("combobox", { name: "会話" });
   await expect(branches.locator("option:checked")).toHaveText("元の会話");
   await branches.selectOption({
     label: "失敗時はどう復旧する？（元の会話 から分岐）",
@@ -1386,7 +1390,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの分�
   await expect(main.locator("blockquote")).toHaveCount(0);
 });
 
-test("保存済みの分岐をサイドで開き直し、メインの現在地を保って続けられる", async ({
+test("保存済みの会話をサイドで開き直し、メインの HEAD を保って続けられる", async ({
   page,
 }, testInfo) => {
   await open(page);
@@ -1412,11 +1416,11 @@ test("保存済みの分岐をサイドで開き直し、メインの現在地�
       await expect(mainInput).toBeFocused();
     },
   };
-  const branchSelect = main.getByRole("combobox", { name: "分岐" });
+  const branchSelect = main.getByRole("combobox", { name: "会話" });
   const openSavedBranch = async () => {
     await main.getByText("サイドで開く", { exact: true }).press("Enter");
     await main
-      .getByRole("list", { name: "サイドで開く分岐" })
+      .getByRole("list", { name: "サイドで開く会話" })
       .getByRole("button", { name: "あとで再開する質問（元の会話 から分岐）" })
       .click();
   };
@@ -1456,7 +1460,7 @@ test("保存済みの分岐をサイドで開き直し、メインの現在地�
   const approval = side.getByRole("region", { name: "ツール実行の承認" });
   await expect(approval).toBeVisible();
 
-  // 承認待ちの分岐を閉じてから開き直しても、同じ分岐の生成に戻れる。
+  // 承認待ちの会話を閉じてから開き直しても、同じ会話の生成に戻れる。
   await closeSide.click();
   await openSavedBranch();
   await approval.getByRole("button", { name: "許可" }).click();
@@ -1466,21 +1470,21 @@ test("保存済みの分岐をサイドで開き直し、メインの現在地�
   await closeSide.click();
   await expect(mainInput).toHaveValue("メインで編集中の下書き");
   await expect(
-    main.getByText("この応答の続きとして分岐を作ります。"),
+    main.getByText("この回答の続きとして分岐します。"),
   ).toBeVisible();
   await expect(branchSelect.locator("option")).toHaveCount(2);
   await expect(page).toHaveURL(rootUrl);
 
   await newChat(page);
   await page
-    .getByRole("navigation", { name: "会話一覧" })
+    .getByRole("navigation", { name: "スレッド一覧" })
     .getByText(firstQuestion, { exact: true })
     .click();
   await expect(page).toHaveURL(rootUrl);
   await expect(main.getByText("了解: 元の会話で進めた話題")).toBeVisible();
 });
 
-test("過去の回答をサイドで質問し、狭い画面でもメインの現在地と下書きを保つ", async ({
+test("過去の回答をサイドで質問し、狭い画面でもメインの HEAD と下書きを保つ", async ({
   page,
 }) => {
   await open(page);
@@ -1527,7 +1531,7 @@ test("過去の回答をサイドで質問し、狭い画面でもメインの�
   await expect(main.getByText("メインの続き B", { exact: true })).toBeVisible();
   await expect(main.getByText("A からの脇道", { exact: true })).toHaveCount(0);
 
-  // メインとサイドが同じ過去の現在地から分岐しても、パネルは切り替わらない。
+  // メインとサイドが同じ過去の HEAD から分岐しても、パネルは切り替わらない。
   await page.setViewportSize({ width: 1280, height: 800 });
   await idle(page);
   const rootUrl = page.url();
@@ -1539,7 +1543,7 @@ test("過去の回答をサイドで質問し、狭い画面でもメインの�
   const sideAnswer = sideAnswers.getByText("A の別の脇道", { exact: true });
   await expect(sideAnswer).toBeVisible();
   await expect(
-    main.getByText("この応答の続きとして分岐を作ります。"),
+    main.getByText("この回答の続きとして分岐します。"),
   ).toBeVisible();
   await send(page, "A からメインで分岐");
   await expect(main.getByText("了解: A からメインで分岐")).toBeVisible();
@@ -1620,7 +1624,7 @@ test("プロンプトキャッシュの推定残り時間を表示し、モデ�
   await expect(cache).toHaveText("キャッシュ 不明");
 });
 
-test("会話をタイトルと本文で検索し、一致した発言へ移動できる", async ({
+test("スレッドをタイトルと本文で検索し、一致した発言へ移動できる", async ({
   page,
 }) => {
   await open(page);
@@ -1636,15 +1640,17 @@ test("会話をタイトルと本文で検索し、一致した発言へ移動�
   await idle(page);
 
   // 検索はアイコンだけで、押すと入力欄が広がる
-  const box = page.getByRole("searchbox", { name: "会話を検索" });
-  const results = page.getByRole("navigation", { name: "会話の検索結果" });
+  const box = page.getByRole("searchbox", { name: "スレッドを検索" });
+  const results = page.getByRole("navigation", { name: "スレッドの検索結果" });
   await expect(box).toBeHidden();
-  await page.getByRole("button", { name: "会話を検索" }).click();
+  await page.getByRole("button", { name: "スレッドを検索" }).click();
   await expect(box).toBeFocused();
   await box.fill("小器官");
   // ユーザー発言と、それを繰り返す回答
   await expect(results.locator("mark", { hasText: "小器官" })).toHaveCount(2);
-  await expect(page.getByRole("navigation", { name: "会話一覧" })).toBeHidden();
+  await expect(
+    page.getByRole("navigation", { name: "スレッド一覧" }),
+  ).toBeHidden();
   await results
     .getByRole("button", { name: /回答.*了解: 細胞小器官の一覧も/ })
     .click();
@@ -1670,10 +1676,12 @@ test("会話をタイトルと本文で検索し、一致した発言へ移動�
   // Escape で一覧に戻り、アイコンに畳む
   await box.press("Escape");
   await expect(
-    page.getByRole("navigation", { name: "会話一覧" }),
+    page.getByRole("navigation", { name: "スレッド一覧" }),
   ).toBeVisible();
   await expect(box).toBeHidden();
-  await expect(page.getByRole("button", { name: "会話を検索" })).toBeFocused();
+  await expect(
+    page.getByRole("button", { name: "スレッドを検索" }),
+  ).toBeFocused();
 });
 
 test("回答のあとに、サブスクリプションの利用枠とリセット時刻をヘッダーに出す", async ({
@@ -2026,10 +2034,10 @@ test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロ
   await page.keyboard.press("ControlOrMeta+B");
   await expect(sidebar).toBeVisible();
 
-  // 入力欄で書いている途中でも効き、ヘッダーに開いている会話の名前が出る
+  // 入力欄で書いている途中でも効き、ヘッダーに開いているスレッドの名前が出る
   await newChat(page);
   await expect(page.getByRole("main").locator("header")).toContainText(
-    "新しい会話",
+    "新しいスレッド",
   );
   const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
   await box.fill("下書き");

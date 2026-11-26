@@ -68,7 +68,7 @@ const setup = async () => {
 };
 
 describe("chat.regenerate", () => {
-  test("最後の応答を消し、直前のターンから fork して作り直す", async () => {
+  test("最後の回答を消し、直前のターンから fork して作り直す", async () => {
     const {
       client,
       chat,

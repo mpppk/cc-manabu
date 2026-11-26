@@ -1,18 +1,18 @@
 import type { ChatDto } from "../../router.ts";
 
-/** サイドバーに 1 行で出す会話（分岐のまとまり、#76）。 */
+/** サイドバーに 1 行で出すスレッド（会話のまとまり、#76）。 */
 export type ChatGroup = {
   groupId: string;
-  /** 会話を開いたときに表示する分岐（最後に開いた分岐。無ければ元の会話）。 */
+  /** スレッドを開いたときに表示する会話（最後に開いた会話。無ければ元の会話）。 */
   primary: ChatDto;
-  /** 分岐（作った順）。 */
+  /** 会話（作った順）。 */
   branches: ChatDto[];
-  /** 分岐のどれかが生成中・承認待ち・エラーなら、その状態。 */
+  /** 会話のどれかが生成中・承認待ち・エラーなら、その状態。 */
   status: ChatDto["status"];
 };
 
 /**
- * まだ何も送っていない会話（＋で作ったまま）。タイトルは最初の送信で付くので、
+ * まだ何も送っていないスレッド（＋で作ったまま）。タイトルは最初の送信で付くので、
  * 名前もセッションもない元の会話を空とみなす。
  */
 export const isBlankChat = (chat: ChatDto): boolean =>
@@ -21,7 +21,7 @@ export const isBlankChat = (chat: ChatDto): boolean =>
   chat.parentId === null &&
   chat.status === "idle";
 
-/** 一覧に出す会話。空の会話は、開いているときだけ出す。 */
+/** 一覧に出すスレッド。空のスレッドは、開いているときだけ出す。 */
 export const listedChats = (
   chats: readonly ChatDto[],
   openId: string | undefined,
@@ -39,7 +39,7 @@ const time = (value: Date | string | null): number =>
   value === null ? 0 : new Date(value).getTime();
 
 /**
- * 分岐を会話ごとにまとめる。並びは、会話の中でいちばん新しく更新された分岐の順
+ * 会話をスレッドごとにまとめる。並びは、スレッドの中でいちばん新しく更新された会話の順
  * （chats.list は更新日時の新しい順なので、最初に出てきた順）。
  */
 export const groupChats = (chats: readonly ChatDto[]): ChatGroup[] => {
@@ -76,10 +76,10 @@ export const groupChats = (chats: readonly ChatDto[]): ChatGroup[] => {
   });
 };
 
-/** 分岐の表示名。元の会話は「元の会話」、分岐は最初の発言から作った名前。 */
+/** 会話の表示名。元の会話は「元の会話」、分岐した会話は最初の発言から作った名前。 */
 export const branchLabel = (chat: ChatDto): string =>
   chat.parentId === null
     ? "元の会話"
     : chat.branchTitle === ""
-      ? "分岐"
+      ? "名前のない会話"
       : chat.branchTitle;

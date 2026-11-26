@@ -36,7 +36,7 @@ type PageRequest = {
   returnFocus: HTMLElement | null;
 };
 
-/** 分岐または Wiki ページにひも付く会話をサイドで開く。 */
+/** 分岐した会話、または Wiki ページにひも付く会話をサイドで開く。 */
 export const SideChat = ({
   request,
   onClose,
@@ -246,7 +246,7 @@ export const ChatWorkspace = ({
   ...props
 }: ChatViewProps & {
   loading: boolean;
-  /** 別の会話を開く（Wiki ページの「元の回答を開く」）。 */
+  /** 別のスレッドの会話を開く（Wiki ページの「元の回答を開く」）。 */
   onOpenChat?: (chatId: string) => void;
 }) => {
   const [side, setSide] = useState<BranchRequest | PageRequest>();

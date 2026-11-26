@@ -31,7 +31,7 @@ const userMessage = (text: string): ChatUIMessage => ({
 });
 
 describe("OrpcChatTransport", () => {
-  test("submit-message は chat.send を呼び、応答を流す", async () => {
+  test("submit-message は chat.send を呼び、回答を流す", async () => {
     const { api, chat, calls } = await setup();
     const transport = new OrpcChatTransport(api, () => ({
       model: "sonnet",

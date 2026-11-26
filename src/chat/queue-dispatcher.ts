@@ -4,7 +4,7 @@ import type { ChatService, ChatUIMessage } from "./chat-service.ts";
 import type { RunnerRegistry } from "./runner-registry.ts";
 
 /**
- * 予約したメッセージ（#102）を、分岐ごとに 1 件ずつ送る。
+ * 予約したメッセージ（#102）を、会話ごとに 1 件ずつ送る。
  *
  * - 先の回答が正常に終わったら次を送る。停止・エラーで終わったら一時停止する
  * - 同時生成の上限に当たったら待ち、どこかの生成が終わったら送り直す
@@ -22,7 +22,7 @@ export const createQueueDispatcher = (deps: {
     ((error: unknown) =>
       console.warn("予約したメッセージを送れませんでした:", error));
 
-  /** 分岐の次の予約を送る。送ったら true。 */
+  /** 会話の次の予約を送る。送ったら true。 */
   const dispatch = (chatId: string): boolean => {
     if (registry.get(chatId) !== undefined) return false;
     const paused = queue.isPaused(chatId);
@@ -63,7 +63,7 @@ export const createQueueDispatcher = (deps: {
     return false;
   };
 
-  /** 送信待ちのある分岐をすべて送れるだけ送る（上限で待っていた分岐のため）。 */
+  /** 送信待ちのある会話をすべて送れるだけ送る（上限で待っていた会話のため）。 */
   const dispatchAll = () => {
     const chatIds = queue.chatsWithPending();
     if (Result.isFailure(chatIds)) {
@@ -78,7 +78,7 @@ export const createQueueDispatcher = (deps: {
   return {
     dispatch,
     dispatchAll,
-    /** 分岐の生成が終わったとき。正常に終わったら次を送り、止まったら一時停止する。 */
+    /** 会話の生成が終わったとき。正常に終わったら次を送り、止まったら一時停止する。 */
     onRunnerFinish: (
       chatId: string,
       outcome: "success" | "aborted" | "error",

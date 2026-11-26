@@ -355,7 +355,7 @@ export const AddThreadsDialog = ({
         className="flex max-h-80 flex-col gap-1 overflow-y-auto"
       >
         {candidates.map((chat) => {
-          const label = chat.title === "" ? "新しい会話" : chat.title;
+          const label = chat.title === "" ? "新しいスレッド" : chat.title;
           return (
             <li
               key={chat.id}

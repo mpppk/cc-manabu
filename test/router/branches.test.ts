@@ -53,7 +53,7 @@ const twoTurns = async (client: Client, taskId?: string) => {
   return chat;
 };
 
-/** 分岐が自分のターンを終えるまで待つ。 */
+/** 分岐した会話が自分のターンを終えるまで待つ。 */
 const branchFrom = async (
   client: Client,
   parentId: string,
@@ -80,7 +80,7 @@ const branchFrom = async (
 };
 
 describe("分岐（#76）", () => {
-  test("選んだ応答までの履歴を引き継ぎ、分岐元のセッションをその地点から fork する", async () => {
+  test("選んだ回答までの履歴を引き継ぎ、分岐元のセッションをその地点から fork する", async () => {
     const { client, calls } = setup();
     const root = await twoTurns(client);
     const rootSession = calls[1]?.resume;
@@ -113,7 +113,7 @@ describe("分岐（#76）", () => {
       title: "設計案は？",
     });
 
-    // 分岐で続けて送ると、分岐のセッションを resume する（fork しない）
+    // 分岐した会話で続けて送ると、その会話のセッションを resume する（fork しない）
     await send(client, branchId, "その続き");
     expect(calls[3]?.resume).toBeString();
     expect(calls[3]?.resume).not.toBe(rootSession);
@@ -123,7 +123,7 @@ describe("分岐（#76）", () => {
     expect(calls[4]?.resume).toBe(rootSession);
   });
 
-  test("分岐からさらに分岐でき、会話は 1 つのまま。名前・タスク・削除は会話ごと", async () => {
+  test("分岐した会話からさらに分岐でき、スレッドは 1 つのまま。名前・タスク・削除はスレッドごと", async () => {
     const { client } = setup();
     const task = await client.tasks.create({ name: "p" });
     const root = await twoTurns(client, task.id);
@@ -157,7 +157,7 @@ describe("分岐（#76）", () => {
     expect(await client.chats.list()).toEqual([]);
   });
 
-  test("元の会話を編集・再生成しても、作成済みの分岐の履歴と再開先は変わらない", async () => {
+  test("元の会話を編集・再生成しても、分岐した会話の履歴と再開先は変わらない", async () => {
     const { client, calls } = setup();
     const root = await twoTurns(client);
     const branchId = await branchFrom(client, root.id, 1, "分岐");
@@ -182,7 +182,7 @@ describe("分岐（#76）", () => {
     expect(await textsOf(client, branchId)).toHaveLength(6);
   });
 
-  test("最後に開いた分岐を記録する", async () => {
+  test("最後に開いた会話を記録する", async () => {
     const { client } = setup();
     const root = await twoTurns(client);
     const branchId = await branchFrom(client, root.id, 1, "分岐");
@@ -198,7 +198,7 @@ describe("分岐（#76）", () => {
     );
   });
 
-  test("サイドチャットの分岐を作ってもメインで最後に開いた分岐は変わらない", async () => {
+  test("サイドチャットで分岐してもメインで最後に開いた会話は変わらない", async () => {
     const { client, calls } = setup();
     const root = await twoTurns(client);
     await client.chats.select({ id: root.id });
@@ -218,7 +218,7 @@ describe("分岐（#76）", () => {
     expect(await textsOf(client, side)).not.toContain("同期で進めて");
   });
 
-  test("生成と停止は分岐ごと", async () => {
+  test("生成と停止は会話ごと", async () => {
     const { client } = setup();
     const root = await twoTurns(client);
     const { messages } = await client.chats.get({ id: root.id });

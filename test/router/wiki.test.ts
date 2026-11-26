@@ -142,7 +142,7 @@ describe("回答時の Wiki 参照", () => {
       expect(question).not.toContain("wiki-page");
     }
 
-    // DB の発話には質問だけを保存し、応答の metadata に渡したページを残す
+    // DB の発話には質問だけを保存し、回答の metadata に渡したページを残す
     const { messages } = await client.chats.get({ id: a.id });
     expect(messages[0]?.parts).toEqual([
       { type: "text", text: "関係タプルって何？" },

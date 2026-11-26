@@ -67,7 +67,7 @@ describe("会話の検索（#115）", () => {
     expect((await client.search.query({ q: "_" })).messages).toHaveLength(0);
   });
 
-  test("分岐で引き継いだ発言は重複して出さない", async () => {
+  test("分岐した会話が引き継いだ発言は重複して出さない", async () => {
     const client = setup();
     const root = await client.chats.create({});
     await say(client, root.id, "元の質問");

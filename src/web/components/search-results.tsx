@@ -32,8 +32,8 @@ export const SearchBox = ({
       <input
         type="search"
         className="h-8 w-full min-w-0 rounded-md border bg-background pr-7 pl-8 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-search-cancel-button]:hidden"
-        placeholder="会話を検索"
-        aria-label="会話を検索"
+        placeholder="スレッドを検索"
+        aria-label="スレッドを検索"
         // biome-ignore lint/a11y/noAutofocus: 検索ボタンを押した直後に入力できるようにする
         autoFocus
         value={value}
@@ -137,7 +137,7 @@ const Highlighted = ({ text, query }: { text: string; query: string }) => {
   );
 };
 
-/** 検索結果（#115）。会話ごとにまとめ、一致した発言の抜粋を出す。 */
+/** 検索結果（#115）。スレッドごとにまとめ、一致した発言の抜粋を出す。 */
 export const SearchResults = ({
   chats,
   query,
@@ -186,7 +186,7 @@ export const SearchResults = ({
       {shown.map((groupId) => {
         const group = groups.get(groupId);
         if (group === undefined) return null;
-        const title = group.primary.title || "新しい会話";
+        const title = group.primary.title || "新しいスレッド";
         return (
           <li key={groupId} className="flex flex-col gap-0.5">
             <button
