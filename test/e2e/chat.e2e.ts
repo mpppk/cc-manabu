@@ -2396,8 +2396,9 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
     .getByRole("dialog")
     .getByRole("button", { name: "削除", exact: true })
     .click();
+  // 削除したノートは変更履歴から復元できる（#180）
   await expect(
-    page.getByText("このノートは削除されたか、存在しません。"),
+    page.getByText("このノートは削除されています。変更履歴から復元できます。"),
   ).toBeVisible();
   await close.click();
   await page.reload();
