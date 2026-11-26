@@ -100,7 +100,7 @@ export const App = ({ api }: { api: ApiClient }) => {
     const onKeyDown = (event: KeyboardEvent) => {
       const hasShortcutModifier = USE_COMMAND_SHORTCUT
         ? event.metaKey && !event.ctrlKey
-        : event.ctrlKey && !event.metaKey;
+        : event.ctrlKey || event.metaKey;
       if (
         hasShortcutModifier &&
         !event.shiftKey &&
