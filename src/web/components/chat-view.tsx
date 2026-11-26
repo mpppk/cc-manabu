@@ -55,7 +55,11 @@ import { PromptCacheTimer } from "./prompt-cache-timer.tsx";
 import { QueuePanel, type QueueState } from "./queue-panel.tsx";
 import { RateLimitBadge } from "./rate-limit-badge.tsx";
 import { Reasoning } from "./reasoning.tsx";
-import { SelectionPopup, useTextSelection } from "./selection-popup.tsx";
+import {
+  type AskChoice,
+  SelectionPopup,
+  useTextSelection,
+} from "./selection-popup.tsx";
 import { StepGroup } from "./step-group.tsx";
 import { isDenied, ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
@@ -898,16 +902,27 @@ export const ChatView = ({
   const [branchFrom, setBranchFrom] = useState<string>();
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [branchError, setBranchError] = useState<string>();
+  /**
+   * 回答の選択範囲から、この会話（branch なら選んだ回答から分岐する新しい会話）に添える引用（#222）。
+   * 外から渡す pendingQuote（Wiki ページの引用）があれば、そちらを使う。
+   */
+  const [ownQuote, setOwnQuote] = useState<{
+    quote: AnswerQuote;
+    branch: boolean;
+  }>();
   const transcript = useRef<HTMLDivElement>(null);
+  // 回答の選択範囲は、どの会話でも引用して質問できる（#222）
   const selection = useTextSelection(
     transcript,
     "data-assistant-message",
-    onAskSelection !== undefined || onWikiPageCreated !== undefined,
+    true,
   );
   const selectedMessageId = selection?.sourceId;
   const cancelBranch = () => {
     setBranchFrom(undefined);
     setBranchError(undefined);
+    // 分岐して質問するための引用も、一緒に取り消す
+    setOwnQuote((current) => (current?.branch === true ? undefined : current));
   };
   const selectedTurn =
     selection === undefined
@@ -920,21 +935,82 @@ export const ChatView = ({
     (selectedTurn?.question === undefined || isOpen(selectedTurn.question.id))
       ? selectedTurn?.answers.find((m) => m.id === selectedMessageId)
       : undefined;
-  const askSelection =
+  /** 選んだ回答から分岐できるか（分岐元の回答の位置が分かるか）。 */
+  const branchable =
     selection !== undefined &&
-    onAskSelection !== undefined &&
-    selectedAnswer?.metadata?.claudeCode?.lastAssistantUuid !== undefined
+    selectedAnswer?.metadata?.claudeCode?.lastAssistantUuid !== undefined;
+  const selectedQuote = (): AnswerQuote | undefined =>
+    selection === undefined
+      ? undefined
+      : { text: selection.text, sourceMessageId: selection.sourceId };
+  const askSelection =
+    branchable && onAskSelection !== undefined
       ? () => {
-          onAskSelection(
-            {
-              text: selection.text,
-              sourceMessageId: selection.sourceId,
-            },
-            settingsRef.current,
-          );
+          const quote = selectedQuote();
+          if (quote === undefined) return;
+          onAskSelection(quote, settingsRef.current);
           window.getSelection()?.removeAllRanges();
         }
       : undefined;
+  /** 表示中の会話に、引用を添えて続ける（#222）。 */
+  const quoteHere =
+    selection !== undefined
+      ? () => {
+          const quote = selectedQuote();
+          if (quote === undefined) return;
+          setBranchFrom(undefined);
+          setBranchError(undefined);
+          setOwnQuote({ quote, branch: false });
+          window.getSelection()?.removeAllRanges();
+        }
+      : undefined;
+  /** 選んだ回答を起点に、同じスレッドの別の会話へ分岐して質問する（サイドチャット。#222）。 */
+  const branchWithQuote =
+    branchable && side && selectedAnswer !== undefined
+      ? () => {
+          const quote = selectedQuote();
+          if (quote === undefined) return;
+          setBranchError(undefined);
+          setBranchFrom(selectedAnswer.id);
+          setOwnQuote({ quote, branch: true });
+          window.getSelection()?.removeAllRanges();
+        }
+      : undefined;
+  const askChoices: AskChoice[] = side
+    ? [
+        {
+          label: "このサイドチャットで続ける",
+          onClick: quoteHere,
+          title: "選んだ部分を引用して、このサイドチャットで質問します",
+        },
+        {
+          label: "別の会話に分岐して質問",
+          onClick: branchWithQuote,
+          title:
+            branchWithQuote === undefined
+              ? "この回答からは分岐できません"
+              : "選んだ回答を起点に、同じスレッドの新しい会話で質問します（送信したときに作ります）",
+        },
+      ]
+    : [
+        {
+          label: "この会話で続ける",
+          onClick: quoteHere,
+          title: "選んだ部分を引用して、表示中の会話で質問します",
+        },
+        ...(onAskSelection === undefined
+          ? []
+          : [
+              {
+                label: "サイドチャットで質問",
+                onClick: askSelection,
+                title:
+                  askSelection === undefined
+                    ? "この回答からは分岐できません"
+                    : "選んだ回答を起点に、新しいサイドチャットで質問します",
+              },
+            ]),
+      ];
   const taskId = chat.taskId;
   /** 選んだ語句の Wiki のページを AI で作る。画面は移らず、できたら用語として表示する。 */
   const generatePage = async (messageId: string, term: string) => {
@@ -1062,22 +1138,37 @@ export const ChatView = ({
     await queue.refresh();
   };
 
+  /** 次に送るメッセージに添える引用。 */
+  const quote: QuoteData | undefined = pendingQuote ?? ownQuote?.quote;
+  const clearQuote = () => {
+    if (pendingQuote !== undefined) {
+      onClearQuote?.();
+      return;
+    }
+    if (ownQuote?.branch === true) cancelBranch();
+    setOwnQuote(undefined);
+  };
   /** 送るメッセージの parts（添える引用・画像・本文）。 */
   const partsOf = (
     text: string,
     images: ImageAttachment[],
   ): ChatUIMessage["parts"] => [
-    ...(pendingQuote === undefined
+    ...(quote === undefined
       ? []
-      : [{ type: "data-quote" as const, data: pendingQuote }]),
+      : [{ type: "data-quote" as const, data: quote }]),
     ...imageFileParts(images),
     ...(text === "" ? [] : [{ type: "text" as const, text }]),
   ];
+  /** 送ったので、添えた引用を外す（分岐の取り消しはしない）。 */
+  const quoteSent = () => {
+    onClearQuote?.();
+    setOwnQuote(undefined);
+  };
 
   const enqueue = (text: string, images: ImageAttachment[]) => {
     requestNotificationPermission();
     const parts = partsOf(text, images);
-    onClearQuote?.();
+    quoteSent();
     void queueAction(() =>
       api.queue.add({
         chatId: chat.id,
@@ -1090,7 +1181,7 @@ export const ChatView = ({
     if (busy || creatingBranch) return;
     requestNotificationPermission();
     const parts = partsOf(text, images);
-    onClearQuote?.();
+    quoteSent();
     if (branchFrom !== undefined) {
       return createBranch(branchFrom, parts);
     }
@@ -1102,11 +1193,11 @@ export const ChatView = ({
   // 引用を添えたら、続けて質問を書けるよう入力欄に移る
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (pendingQuote === undefined) return;
+    if (quote === undefined) return;
     root.current
       ?.querySelector<HTMLTextAreaElement>("textarea:not([disabled])")
       ?.focus();
-  }, [pendingQuote]);
+  }, [quote]);
 
   const onStop = async () => {
     // サーバ側の生成を止めてから、購読を切る
@@ -1213,12 +1304,10 @@ export const ChatView = ({
         <SelectionPopup
           selection={selection}
           ask={{
-            onClick: askSelection,
-            title:
-              askSelection === undefined
-                ? "この回答からは分岐できません"
-                : "選んだ部分を引用してサイドチャットで質問します",
+            onClick: undefined,
+            title: "選んだ部分を引用して質問します（続ける会話を選べます）",
           }}
+          askChoices={askChoices}
           createPage={{
             onClick: createPageFromSelection,
             title:
@@ -1347,7 +1436,9 @@ export const ChatView = ({
               >
                 <span className="flex items-center gap-2">
                   <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-                  この回答の続きとして分岐します。メインの入力欄から送信すると、新しい会話ができます。
+                  {side
+                    ? "この回答の続きとして分岐します。入力欄から送信すると、同じスレッドに新しい会話ができます。"
+                    : "この回答の続きとして分岐します。メインの入力欄から送信すると、新しい会話ができます。"}
                 </span>
                 <Button
                   variant="ghost"
@@ -1397,16 +1488,16 @@ export const ChatView = ({
               {queueError}
             </p>
           )}
-          {pendingQuote !== undefined && (
+          {quote !== undefined && (
             <div className="mx-auto mb-2 flex max-w-3xl items-start gap-1">
-              <QuoteBlock text={pendingQuote.text} />
-              {onClearQuote !== undefined && (
+              <QuoteBlock text={quote.text} />
+              {(pendingQuote === undefined || onClearQuote !== undefined) && (
                 <Button
                   variant="ghost"
                   size="icon"
                   className="size-7 shrink-0"
                   aria-label="引用を外す"
-                  onClick={onClearQuote}
+                  onClick={clearQuote}
                 >
                   <X className="size-3.5" aria-hidden />
                 </Button>

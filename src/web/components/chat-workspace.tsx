@@ -244,8 +244,11 @@ export const SideChat = ({
       </header>
       {conversation != null ? (
         <ChatView
+          key={conversation.chat.id}
           api={api}
           chat={conversation.chat}
+          // 回答から分岐して質問したら（#222）、このサイドチャットで新しい会話を開く
+          onSelectBranch={setSubmittedId}
           initialMessages={conversation.messages}
           models={models}
           side
