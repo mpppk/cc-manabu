@@ -432,7 +432,7 @@ const folderName = (cwd: string): string =>
 
 const UsageTotal = ({ messages }: { messages: ChatUIMessage[] }) => {
   const total = totalUsage(messages);
-  if (total.inputTokens + total.outputTokens === 0) {
+  if (total.costUsd === 0 && total.durationMs === 0) {
     return null;
   }
   return (

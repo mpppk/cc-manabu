@@ -47,7 +47,7 @@ describe("usage", () => {
     });
   });
 
-  test("表示用に整形する", () => {
+  test("表示用に整形し、入出力トークン数は出さない（#184）", () => {
     expect(
       formatUsage({
         inputTokens: 1234,
@@ -55,7 +55,7 @@ describe("usage", () => {
         costUsd: 0.0012,
         durationMs: 2100,
       }),
-    ).toBe("入力 1,234・出力 56 トークン・$0.0012・2.1 秒");
+    ).toBe("$0.0012・2.1 秒");
   });
 });
 
