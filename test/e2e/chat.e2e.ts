@@ -2489,8 +2489,9 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
     .getByRole("dialog")
     .getByRole("button", { name: "削除", exact: true })
     .click();
+  // 削除したノートは変更履歴から復元できる（#180）
   await expect(
-    page.getByText("このノートは削除されたか、存在しません。"),
+    page.getByText("このノートは削除されています。変更履歴から復元できます。"),
   ).toBeVisible();
   await close.click();
   await page.reload();
@@ -2554,7 +2555,8 @@ test("Wiki ページの本文の選択範囲から、ページを作ったり引
   await expect(composer).toBeFocused();
   await composer.fill("なぜ？");
   await composer.press("Enter");
-  await expect(side.getByText("なぜ？", { exact: true })).toBeVisible();
+  // 回答のあとに同じ文言の段落（ノートの Q&A など）も出ることがあるので、最初の 1 つで確かめる
+  await expect(side.getByText("なぜ？", { exact: true }).first()).toBeVisible();
   await expect(side.locator("blockquote")).toHaveText("二重に課金しない");
   await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(
     "決済 API",

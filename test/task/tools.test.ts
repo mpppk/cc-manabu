@@ -132,9 +132,7 @@ describe("タスクのツール（#187）", () => {
     expect(unwrap(tasks.listLinks(other.id))).toMatchObject([
       { url: "https://example.com/other", label: "別タスク" },
     ]);
-    const [mine] = [
-      unwrap(handlers.addLink({ url: "https://example.com/mine" })),
-    ];
+    const mine = unwrap(handlers.addLink({ url: "https://example.com/mine" }));
     expect(mine).toContain("URL: https://example.com/mine");
     const link = unwrap(tasks.listLinks(task.id))[0];
     expect(
