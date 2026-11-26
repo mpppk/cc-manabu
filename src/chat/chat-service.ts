@@ -41,6 +41,7 @@ import type {
   RunnerRegistry,
   TooManyRunnersError,
 } from "./runner-registry.ts";
+import type { TaskContextBuilder } from "./task-context.ts";
 import { makeTitle } from "./title.ts";
 
 export class MessageNotFoundError extends ErrorFactory({
@@ -220,6 +221,11 @@ export const createChatService = (deps: {
   onWikiBatchFinish?: (batchId: string, messageId: string) => void;
   /** タスクの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
+  /**
+   * タスクの会話で、タスクと環境の保存情報を参照情報にする（#186）。
+   * 生成を始めるたびに、その時点で会話が属するタスクから読み直す。
+   */
+  taskContext?: TaskContextBuilder;
   readWikiPage?: WikiPageReader;
   /** タスクが属する環境のディレクトリ（追加のディレクトリとして渡す）。 */
   directoriesOf?: (taskId: string) => string[] | undefined;
@@ -325,6 +331,15 @@ export const createChatService = (deps: {
                   batchId: wikiBatchId,
                   question: params.question,
                 });
+          // タスクの情報と Wiki の参照資料は、質問とは別のブロックで渡す（DB の発話には保存しない）
+          const context = [
+            params.taskId === null
+              ? undefined
+              : deps.taskContext?.(params.taskId),
+            params.context?.text,
+          ]
+            .filter((text) => text !== undefined && text.trim() !== "")
+            .join("\n\n");
           const result = streamText({
             model: deps.languageModel(params.model, {
               canUseTool,
@@ -341,9 +356,7 @@ export const createChatService = (deps: {
                   ? {}
                   : { resumeSessionAt: params.resumeSessionAt }),
                 ...(params.forkSession === true ? { forkSession: true } : {}),
-                ...(params.context === undefined
-                  ? {}
-                  : { context: params.context.text }),
+                ...(context === "" ? {} : { context }),
                 cwd: params.cwd,
                 ...(params.additionalDirectories.length === 0
                   ? {}

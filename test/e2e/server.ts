@@ -23,6 +23,7 @@ import {
 } from "../../src/chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
+import { createTaskContextBuilder } from "../../src/chat/task-context.ts";
 import {
   createWikiThreadTitler,
   THREAD_TITLE_MODEL,
@@ -158,6 +159,7 @@ const chatService = createChatService({
   onWikiBatchFinish: (batchId, messageId) =>
     wikiHistory.attachAnswer(batchId, messageId),
   wikiContext: createWikiContextBuilder(wiki, tasks),
+  taskContext: createTaskContextBuilder(tasks, environments),
   readWikiPage: createWikiPageReader(wiki, tasks),
   directoriesOf: (taskId) => {
     const directories = environments.directoriesOfTask(taskId);

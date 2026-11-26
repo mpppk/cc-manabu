@@ -174,14 +174,22 @@ export const createScriptedQuery = (): QueryFunction => {
       let text = typeof prompt === "string" ? prompt : "";
       let images = 0;
       let reference = "";
+      /** タスクと環境の参照情報（#186）。 */
+      let taskContext = "";
       if (typeof prompt !== "string") {
         for await (const message of prompt as AsyncIterable<SDKUserMessage>) {
           const { content } = message.message;
           for (const item of typeof content === "string" ? [] : content) {
             if (item.type === "image") images++;
             if (item.type === "text") {
+              if (item.text.includes("<task-context>")) {
+                taskContext +=
+                  /<task-context>\n([\s\S]*?)\n<\/task-context>/.exec(
+                    item.text,
+                  )?.[1] ?? "";
+              }
               if (item.text.includes("<wiki-page")) reference += item.text;
-              else text += item.text;
+              else if (!item.text.includes("<task-context>")) text += item.text;
             }
           }
         }
@@ -256,6 +264,11 @@ export const createScriptedQuery = (): QueryFunction => {
         const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(text)?.[1] ?? "";
         // 回答の文言を繰り返すと、画面上で回答の本文と区別できなくなるので文字数だけ使う
         yield* textMessage([`要約（${[...answer].length} 文字の回答）`], 0);
+      } else if (text.includes("タスクの情報を教えて")) {
+        yield* textMessage(
+          [taskContext === "" ? "タスクの情報はありません" : taskContext],
+          0,
+        );
       } else if (text.includes("承認")) {
         const decision = await options?.canUseTool?.(
           "Bash",

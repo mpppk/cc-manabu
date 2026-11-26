@@ -1077,6 +1077,53 @@ test("タスクに関連リンクを登録し、開き、編集・削除でき�
   await expect(links.getByRole("link")).toHaveCount(1);
 });
 
+test("タスク内のスレッドでは、保存したタスクの情報が Claude に届く（#186）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "タスク情報の検証");
+  await page.getByRole("combobox", { name: "状態" }).selectOption({
+    label: "進行中",
+  });
+  await page
+    .getByRole("textbox", { name: "次にやること" })
+    .fill("API 仕様をレビューする");
+  await page.getByRole("button", { name: "進捗を保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+  await page
+    .getByRole("textbox", { name: "URL" })
+    .last()
+    .fill("https://example.com/design");
+  await page
+    .getByRole("textbox", { name: "表示名（任意）" })
+    .last()
+    .fill("設計資料");
+  await page.getByRole("button", { name: "追加", exact: true }).click();
+  await expect(
+    page.getByRole("list", { name: "関連リンク" }).getByRole("link"),
+  ).toHaveCount(1);
+
+  await newChat(page);
+  await send(
+    page,
+    "このタスクの次にやることと、関連リンクを教えて。タスクの情報を教えて",
+  );
+  const answer = page.locator("[data-assistant-message]").last();
+  await expect(answer).toContainText("タスク名: タスク情報の検証");
+  await expect(answer).toContainText("状態: 進行中");
+  await expect(answer).toContainText("API 仕様をレビューする");
+  await expect(answer).toContainText("設計資料: https://example.com/design");
+  await idle(page);
+  // 質問の吹き出しには参照情報を混ぜない
+  await expect(page.getByText("<task-context>")).toHaveCount(0);
+
+  // 未所属のスレッドには付けない
+  await newUnassignedChat(page);
+  await send(page, "タスクの情報を教えて");
+  await expect(page.getByText("タスクの情報はありません")).toBeVisible();
+  await idle(page);
+});
+
 test("タスクの進捗を記録し、一覧で状態ごとに確認できる", async ({ page }) => {
   await open(page);
   const status = page.getByRole("combobox", { name: "状態" });
