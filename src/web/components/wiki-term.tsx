@@ -21,6 +21,8 @@ export type WikiTermsContextValue = {
    * 「サイドパネルで開く」でパネルを開き（#168）、無ければ要約を固定して開く。
    */
   openPane?: ((pageId: string) => void) | undefined;
+  /** 要約の、openPane で開くボタンの文言。既定は「サイドパネルで開く」。 */
+  openPaneLabel?: string | undefined;
 };
 
 export const WikiTermsContext = createContext<
@@ -205,8 +207,17 @@ export const WikiTerm = ({
                     context.openPane?.(pageId);
                   }}
                 >
-                  <PanelRight className="size-3.5" />
-                  サイドパネルで開く
+                  {context.openPaneLabel === undefined ? (
+                    <>
+                      <PanelRight className="size-3.5" />
+                      サイドパネルで開く
+                    </>
+                  ) : (
+                    <>
+                      <BookOpen className="size-3.5" />
+                      {context.openPaneLabel}
+                    </>
+                  )}
                 </button>
               )}
             </>
