@@ -22,6 +22,11 @@ export const createTermPageWriter =
   (deps: {
     tasks: Pick<TaskRepository, "getTask">;
     wiki: Pick<WikiRepository, "listPages" | "createTermPages">;
+    /**
+     * 回答したタスクが属する環境の説明（#160）。Wiki を共有していても、回答した環境のものを使う。
+     * 読めなければ説明なしとして続ける。
+     */
+    descriptionOf?: (taskId: string) => string | undefined;
     /** 用語抽出のモデル呼び出し（プロンプトを受け取り、出力の文字列を返す）。 */
     extract: (prompt: string) => Promise<string>;
     onError?: (error: unknown) => void;
@@ -54,6 +59,7 @@ export const createTermPageWriter =
           question: event.question,
           answer: event.answer,
           existing,
+          description: deps.descriptionOf?.(event.taskId) ?? "",
         }),
       );
       const candidates = parseTermCandidates(output, {

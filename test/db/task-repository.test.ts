@@ -98,7 +98,11 @@ describe("migration 0011_tasks", () => {
       "INSERT INTO project_links (id, project_id, url, label) VALUES ('l1', 'p1', 'https://example.com', '設計資料')",
     );
 
-    expect(runMigrations(sqlite)).toEqual(["0011_tasks", "0012_environments"]);
+    expect(runMigrations(sqlite)).toEqual([
+      "0011_tasks",
+      "0012_environments",
+      "0013_environment_description",
+    ]);
     const db = drizzle(sqlite, { schema });
     expect(unwrap(createTaskRepository(db).getTask("p1"))).toMatchObject({
       name: "認可基盤",

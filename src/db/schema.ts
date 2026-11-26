@@ -58,6 +58,11 @@ export const environments = sqliteTable("environments", {
     .notNull()
     .$type<string[]>()
     .default(sql`'[]'`),
+  /**
+   * 環境の目的や扱うテーマ（任意）。回答からの用語ページの自動作成で、
+   * Wiki に残す価値のある語を選ぶのに使う（#160）。
+   */
+  description: text("description").notNull().default(""),
   createdAt: integer("created_at", { mode: "timestamp_ms" })
     .notNull()
     .default(sql`(unixepoch('subsec') * 1000)`),

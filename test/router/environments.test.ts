@@ -36,6 +36,36 @@ const message = (text: string) => ({
 });
 
 describe("environments", () => {
+  test("環境の説明を作成・更新でき、空欄も保存できる（#160）", async () => {
+    const { client } = await setup();
+    const env = await client.environments.create({
+      name: "個人情報",
+      directories: [repo],
+      description: " 個人情報の取扱いを検討する ",
+    });
+    expect(env.description).toBe("個人情報の取扱いを検討する");
+    const plain = await client.environments.create({
+      name: "説明なし",
+      directories: [repo],
+    });
+    expect(plain.description).toBe("");
+
+    const updated = await client.environments.update({
+      id: env.id,
+      description: "仮名加工情報の使い方を検討する",
+    });
+    expect(updated.description).toBe("仮名加工情報の使い方を検討する");
+    // 説明を指定しなければ変えない
+    expect(
+      (await client.environments.update({ id: env.id, name: "改名" }))
+        .description,
+    ).toBe("仮名加工情報の使い方を検討する");
+    expect(
+      (await client.environments.update({ id: env.id, description: "" }))
+        .description,
+    ).toBe("");
+  });
+
   test("作成・一覧・更新。ディレクトリは実在する絶対パスだけ", async () => {
     const { client } = await setup();
     const env = await client.environments.create({

@@ -1787,6 +1787,39 @@ test("Wiki ページから始めたスレッドに、最初の回答のあとで
   ).toBeVisible();
 });
 
+test("環境に説明を付けて、設定で確かめて変えられる（#160）", async ({
+  page,
+}) => {
+  await open(page);
+  await page.getByRole("button", { name: "新しい環境", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "新しい環境" });
+  await create.getByRole("textbox", { name: "環境の名前" }).fill("個人情報");
+  await create
+    .getByRole("textbox", { name: "環境の説明" })
+    .fill("個人情報の取扱いを検討する");
+  await create.getByRole("button", { name: "/e2e を外す" }).click();
+  await create.getByRole("button", { name: "選ぶ" }).click();
+  await create.getByRole("button", { name: "作成" }).click();
+  await expect(create).toHaveCount(0);
+
+  const description = page
+    .getByRole("dialog", { name: "環境の設定" })
+    .getByRole("textbox", { name: "環境の説明" });
+  await openEnvironmentMenu(page, "個人情報", "環境の設定");
+  await expect(description).toHaveValue("個人情報の取扱いを検討する");
+  await description.fill("仮名加工情報の使い方を検討する");
+  await page
+    .getByRole("dialog", { name: "環境の設定" })
+    .getByRole("button", { name: "保存", exact: true })
+    .click();
+  await expect(description).toHaveCount(0);
+
+  // 開き直しても、保存した説明が出る
+  await page.reload();
+  await openEnvironmentMenu(page, "個人情報", "環境の設定");
+  await expect(description).toHaveValue("仮名加工情報の使い方を検討する");
+});
+
 test("スレッドをタイトルと本文で検索し、一致した発言へ移動できる", async ({
   page,
 }) => {
