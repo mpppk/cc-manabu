@@ -608,9 +608,9 @@ test("Wiki ページを作り、タスクのスレッドの回答から参照・
 
   // Wiki にページを作る
   await openWiki(page, "Wiki の検証");
-  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page.getByRole("button", { name: "新しいノート" }).click();
   await page
-    .getByRole("textbox", { name: "ページのタイトル" })
+    .getByRole("textbox", { name: "ノートのタイトル" })
     .fill("関係タプル");
   await page
     .getByRole("textbox", { name: "別名（カンマ区切り）" })
@@ -625,7 +625,7 @@ test("Wiki ページを作り、タスクのスレッドの回答から参照・
   const pageUrl = page.url();
 
   // ページの一覧は Wiki 画面の左に出て、開いているページが分かる
-  const wikiPages = page.getByRole("list", { name: "Wiki のページ" });
+  const wikiPages = page.getByRole("list", { name: "ノート" });
   await expect(
     wikiPages.getByRole("button", { name: /関係タプル/ }),
   ).toHaveAttribute("aria-current", "page");
@@ -634,7 +634,7 @@ test("Wiki ページを作り、タスクのスレッドの回答から参照・
   await page.getByRole("textbox", { name: "Wiki を検索" }).fill("タプル");
   await expect(wikiPages.getByText("関係タプル")).toBeVisible();
   await page.getByRole("textbox", { name: "Wiki を検索" }).fill("存在しない語");
-  await expect(page.getByText("一致するページはありません。")).toBeVisible();
+  await expect(page.getByText("一致するノートはありません。")).toBeVisible();
 
   // スレッドから質問すると、引用したページだけがリンクになる
   await openTask(page, "Wiki の検証");
@@ -651,7 +651,7 @@ test("Wiki ページを作り、タスクのスレッドの回答から参照・
   ).toContainText("関係タプル");
   // 引用リンクは右側のペインで開き、「Wiki で開く」で Wiki 画面へ移る
   const chatUrl = page.url();
-  const pane = page.getByRole("complementary", { name: "Wiki ページ" });
+  const pane = page.getByRole("complementary", { name: "ノート" });
   await link.click();
   await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
   await expect(page).toHaveURL(chatUrl);
@@ -676,24 +676,24 @@ test("Wiki ページを作り、タスクのスレッドの回答から参照・
 
   // ページを消しても過去の回答は読め、リンク先は削除済みと表示する
   await page.goto(pageUrl.replace(/#.*$/, ""));
-  await page.getByRole("button", { name: "ページを削除" }).click();
+  await page.getByRole("button", { name: "ノートを削除" }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
-  await expect(page.getByText("まだページがありません。")).toBeVisible();
+  await expect(page.getByText("まだノートがありません。")).toBeVisible();
   await openTask(page, "Wiki の検証");
   await taskItem(page, "Wiki の検証").getByText("関係タプルって何？").click();
   await expect(page.getByText(/参照: .*関係タプル/)).toBeVisible();
   await page.getByRole("main").locator("a[data-wiki-page]").click();
   await expect(
-    pane.getByText("このページは削除されたか、存在しません。"),
+    pane.getByText("このノートは削除されたか、存在しません。"),
   ).toBeVisible();
 });
 
-test("回答から用語ページが自動で作られ、編集を保ち、設定で止められる", async ({
+test("回答から用語ノートが自動で作られ、編集を保ち、設定で止められる", async ({
   page,
 }) => {
   await open(page);
   await createTask(page, "用語の検証");
-  const wikiPages = page.getByRole("list", { name: "Wiki のページ" });
+  const wikiPages = page.getByRole("list", { name: "ノート" });
   const openTermsWiki = () => openWiki(page, "用語の検証");
   /** 用語ページは回答のあとに作られるので、出てくるまで開き直す。 */
   const expectPage = async (title: string) =>
@@ -740,7 +740,7 @@ test("回答から用語ページが自動で作られ、編集を保ち、設�
   // 設定で止めると、新しい用語のページは作られない
   await openTaskMenu(page, "用語の検証", "タスクの設定");
   const toggle = page.getByRole("checkbox", {
-    name: /回答から用語ページを自動で作る/,
+    name: /回答から用語ノートを自動で作る/,
   });
   await expect(toggle).toBeChecked();
   await expect(page.getByRole("dialog")).toContainText("利用枠");
@@ -770,8 +770,8 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
     body: string,
   ) => {
     await openWiki(page, task);
-    await page.getByRole("button", { name: "新しいページ" }).click();
-    await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+    await page.getByRole("button", { name: "新しいノート" }).click();
+    await page.getByRole("textbox", { name: "ノートのタイトル" }).fill(title);
     await page
       .getByRole("textbox", { name: "別名（カンマ区切り）" })
       .fill(aliases);
@@ -834,7 +834,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await page.keyboard.press("Tab");
   await expect(openInPane).toBeFocused();
   await page.keyboard.press("Enter");
-  const termPane = page.getByRole("complementary", { name: "Wiki ページ" });
+  const termPane = page.getByRole("complementary", { name: "ノート" });
   await expect(termPane).toContainText("主体・関係・対象の 3 つ組。");
   await expect(card).toHaveCount(0);
   expect(page.url()).toBe(chatUrl);
@@ -856,7 +856,7 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   // 編集すると最新の説明を出し、削除しても回答は表示されたまま
   await openWiki(page, "用語プレビュー");
   await page
-    .getByRole("list", { name: "Wiki のページ" })
+    .getByRole("list", { name: "ノート" })
     .getByText("認可モデル")
     .click();
   await page.getByRole("button", { name: "編集" }).click();
@@ -880,10 +880,10 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
 
   await openWiki(page, "用語プレビュー");
   await page
-    .getByRole("list", { name: "Wiki のページ" })
+    .getByRole("list", { name: "ノート" })
     .getByText("認可モデル")
     .click();
-  await page.getByRole("button", { name: "ページを削除" }).click();
+  await page.getByRole("button", { name: "ノートを削除" }).click();
   await page.getByRole("button", { name: "削除", exact: true }).click();
   await openTask(page, "用語プレビュー");
   await page
@@ -909,8 +909,8 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
     ["認可モデル", "", "権限を決める仕組み。"],
   ] as const) {
     await openWiki(page, "ペインの検証");
-    await page.getByRole("button", { name: "新しいページ" }).click();
-    await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+    await page.getByRole("button", { name: "新しいノート" }).click();
+    await page.getByRole("textbox", { name: "ノートのタイトル" }).fill(title);
     await page
       .getByRole("textbox", { name: "別名（カンマ区切り）" })
       .fill(aliases);
@@ -929,7 +929,7 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
     name: "メッセージ",
     exact: true,
   });
-  const pane = page.getByRole("complementary", { name: "Wiki ページ" });
+  const pane = page.getByRole("complementary", { name: "ノート" });
   const tuple = main
     .locator("button[data-wiki-term]", { hasText: "関係タプル" })
     .first();
@@ -966,7 +966,7 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   await page.keyboard.press("Enter");
   await expect(pane).toBeFocused();
   await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
-  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+  await pane.getByRole("button", { name: "ノートを閉じる" }).click();
   await expect(pane).toHaveCount(0);
   await expect(tuple).toBeFocused();
 
@@ -978,7 +978,7 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   await page.getByRole("button", { name: "回答に戻る" }).click();
   await expect(page).toHaveURL(chatUrl);
   await expect(mainInput).toHaveValue("書きかけの質問");
-  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+  await pane.getByRole("button", { name: "ノートを閉じる" }).click();
 
   // 右側のペインは 1 つだけ: サイドチャットを開いていても、用語を押すと入れ替わる
   const side = page.getByRole("complementary", { name: "サイドチャット" });
@@ -1014,7 +1014,7 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
   await expect(main).toBeHidden();
   expect((await pane.boundingBox())?.width).toBe(700);
-  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+  await pane.getByRole("button", { name: "ノートを閉じる" }).click();
   await expect(main).toBeVisible();
   await expect(mainInput).toHaveValue("書きかけの質問");
   await expect(tuple).toBeFocused();
@@ -1294,8 +1294,8 @@ test("回答の選択範囲を引用して質問すると、引用付きの会�
   // 用語ページのあるタスクで、用語の説明と選択による質問を使い分ける
   await createTask(page, "引用の検証");
   await openWiki(page, "引用の検証");
-  await page.getByRole("button", { name: "新しいページ" }).click();
-  await page.getByRole("textbox", { name: "ページのタイトル" }).fill("方式B");
+  await page.getByRole("button", { name: "新しいノート" }).click();
+  await page.getByRole("textbox", { name: "ノートのタイトル" }).fill("方式B");
   await page
     .getByRole("textbox", { name: "本文（Markdown）" })
     .fill("非同期で処理する方式。");
@@ -1319,7 +1319,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの会�
 
   // 用語はクリックで右側のペインに開く（選択してもペインは開かない）
   const term = main.locator("button[data-wiki-term]").last();
-  const wikiPane = page.getByRole("complementary", { name: "Wiki ページ" });
+  const wikiPane = page.getByRole("complementary", { name: "ノート" });
   await term.click();
   await expect(wikiPane).toContainText("非同期で処理する方式。");
   await page.keyboard.press("Escape");
@@ -1703,11 +1703,11 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
 
   // Wiki ページから始める質問にも同じ初期値を使う
   await openWiki(page, "初期値の検証");
-  await page.getByRole("button", { name: "新しいページ" }).click();
-  await page.getByRole("textbox", { name: "ページのタイトル" }).fill("初期値");
+  await page.getByRole("button", { name: "新しいノート" }).click();
+  await page.getByRole("textbox", { name: "ノートのタイトル" }).fill("初期値");
   await page.getByRole("textbox", { name: "本文（Markdown）" }).fill("本文。");
   await page.getByRole("button", { name: "保存", exact: true }).click();
-  await page.getByRole("button", { name: "このページについて質問" }).click();
+  await page.getByRole("button", { name: "このノートについて質問" }).click();
   const side = page.getByRole("complementary", { name: "サイドチャット" });
   await expect(side.getByRole("combobox", { name: "モデル" })).toHaveValue(
     "haiku",
@@ -1736,8 +1736,8 @@ test("Wiki ページから始めたスレッドに、最初の回答のあとで
   await createTask(page, "タイトル生成の検証");
   await openWiki(page, "タイトル生成の検証");
   const createPage = async (title: string) => {
-    await page.getByRole("button", { name: "新しいページ" }).click();
-    await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+    await page.getByRole("button", { name: "新しいノート" }).click();
+    await page.getByRole("textbox", { name: "ノートのタイトル" }).fill(title);
     await page
       .getByRole("textbox", { name: "本文（Markdown）" })
       .fill("本文。");
@@ -1759,7 +1759,7 @@ test("Wiki ページから始めたスレッドに、最初の回答のあとで
   const threads = taskItem(page, "タイトル生成の検証");
 
   await createPage("個人情報の取扱い");
-  await page.getByRole("button", { name: "このページについて質問" }).click();
+  await page.getByRole("button", { name: "このノートについて質問" }).click();
   await ask("委託先に渡すと第三者提供？");
   // 生成中はページ名を仮のタイトルにする
   await expect(threads.getByText("個人情報の取扱い")).toBeVisible();
@@ -1783,7 +1783,7 @@ test("Wiki ページから始めたスレッドに、最初の回答のあとで
 
   // 生成に失敗しても、仮のタイトルのまま開ける
   await createPage("委託契約");
-  await page.getByRole("button", { name: "このページについて質問" }).click();
+  await page.getByRole("button", { name: "このノートについて質問" }).click();
   await ask("タイトル失敗の質問");
   await page.waitForTimeout(1500);
   await page.reload();
@@ -1833,8 +1833,8 @@ test("サイドチャットの用語もサイドパネルで開き、閉じる�
   await open(page);
   await createTask(page, "サイドの用語");
   await openWiki(page, "サイドの用語");
-  await page.getByRole("button", { name: "新しいページ" }).click();
-  await page.getByRole("textbox", { name: "ページのタイトル" }).fill("方式B");
+  await page.getByRole("button", { name: "新しいノート" }).click();
+  await page.getByRole("textbox", { name: "ノートのタイトル" }).fill("方式B");
   await page
     .getByRole("textbox", { name: "本文（Markdown）" })
     .fill("非同期で処理する方式。");
@@ -1847,11 +1847,11 @@ test("サイドチャットの用語もサイドパネルで開き、閉じる�
   const sideInput = side.getByRole("textbox", {
     name: "サイドチャットのメッセージ",
   });
-  const pane = page.getByRole("complementary", { name: "Wiki ページ" });
+  const pane = page.getByRole("complementary", { name: "ノート" });
   const card = page.getByRole("dialog", { name: "用語の説明" });
 
   // Wiki ページから質問したサイドチャット: 用語を押すと本文を重ねて開き、閉じると戻る
-  await page.getByRole("button", { name: "このページについて質問" }).click();
+  await page.getByRole("button", { name: "このノートについて質問" }).click();
   await sideInput.fill("方式B とは");
   await sideInput.press("Enter");
   const sideTerm = side.locator("button[data-wiki-term]", {
@@ -1863,7 +1863,7 @@ test("サイドチャットの用語もサイドパネルで開き、閉じる�
   await expect(pane).toContainText("非同期で処理する方式。");
   await expect(side).toBeHidden();
   expect(page.url()).toBe(wikiUrl);
-  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+  await pane.getByRole("button", { name: "ノートを閉じる" }).click();
   await expect(pane).toHaveCount(0);
   await expect(side).toBeVisible();
   await expect(sideInput).toHaveValue("書きかけの質問");
@@ -1906,8 +1906,8 @@ test("Wiki ページへの質問と回答から Q&A を作り、ページの下�
   await createTask(page, "Q&A の検証");
   await openWiki(page, "Q&A の検証");
   const createPage = async (title: string) => {
-    await page.getByRole("button", { name: "新しいページ" }).click();
-    await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+    await page.getByRole("button", { name: "新しいノート" }).click();
+    await page.getByRole("textbox", { name: "ノートのタイトル" }).fill(title);
     await page
       .getByRole("textbox", { name: "本文（Markdown）" })
       .fill("本文。");
@@ -1931,7 +1931,7 @@ test("Wiki ページへの質問と回答から Q&A を作り、ページの下�
   await createPage("委託");
   const pageUrl = page.url();
   await expect(qas).toHaveCount(0);
-  await page.getByRole("button", { name: "このページについて質問" }).click();
+  await page.getByRole("button", { name: "このノートについて質問" }).click();
   await ask("委託先に渡すと第三者提供？");
   await expect(qas).toHaveCount(1, { timeout: 10_000 });
   await expect(qas.first()).toContainText("Q: 委託先に渡すと第三者提供？");
@@ -2116,7 +2116,7 @@ test("回答の選択範囲から AI で Wiki のページを作り、チャッ�
   await open(page);
   const main = page.getByRole("main");
   const popup = main.getByRole("toolbar", { name: "選択範囲の操作" });
-  const createPage = popup.getByRole("button", { name: "ページを作成" });
+  const createPage = popup.getByRole("button", { name: "ノートを作成" });
   const lastAnswer = page.locator("[data-assistant-message]").last();
 
   // タスクに属さない会話では押せない
@@ -2168,9 +2168,9 @@ test("回答の選択範囲から AI で Wiki のページを作り、チャッ�
   await expect(messageInput).toHaveValue("まだ送っていない質問");
   // 用語をクリックすると、作ったページが右側のペインで開く
   await term.click();
-  const pane = page.getByRole("complementary", { name: "Wiki ページ" });
+  const pane = page.getByRole("complementary", { name: "ノート" });
   await expect(pane).toContainText("冪等性キー は回答に出てきた語。");
-  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+  await pane.getByRole("button", { name: "ノートを閉じる" }).click();
   await expect(pane).toHaveCount(0);
 
   // 同じ名前のページがあれば、作らずに知らせる
@@ -2178,7 +2178,7 @@ test("回答の選択範囲から AI で Wiki のページを作り、チャッ�
   await createPage.click();
   await expect(
     main.getByRole("status").filter({
-      hasText: "「冪等性キー」のページはすでにあります。",
+      hasText: "「冪等性キー」のノートはすでにあります。",
     }),
   ).toBeVisible();
 
@@ -2190,7 +2190,7 @@ test("回答の選択範囲から AI で Wiki のページを作り、チャッ�
   await createPage.click();
   await expect(
     main.getByRole("alert").filter({
-      hasText: "「失敗する語句」のページを作成できませんでした。",
+      hasText: "「失敗する語句」のノートを作成できませんでした。",
     }),
   ).toBeVisible();
   await expect(main.locator("[data-wiki-term-pending]")).toHaveCount(0);
@@ -2203,7 +2203,7 @@ test("回答の選択範囲から AI で Wiki のページを作り、チャッ�
   await page.getByRole("button", { name: "冪等性キー", exact: true }).click();
   await expect(page.getByRole("heading", { name: "冪等性キー" })).toBeVisible();
   await expect(
-    page.getByText("回答から自動で作成したページです"),
+    page.getByText("回答から自動で作成したノートです"),
   ).toBeVisible();
   await expect(page.getByText("生成したページ。")).toBeVisible();
 });
@@ -2214,9 +2214,9 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
   await open(page);
   await createTask(page, "ページ質問の検証");
   await openWiki(page, "ページ質問の検証");
-  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page.getByRole("button", { name: "新しいノート" }).click();
   const title = "委譲手順";
-  await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+  await page.getByRole("textbox", { name: "ノートのタイトル" }).fill(title);
   await page
     .getByRole("textbox", { name: "本文（Markdown）" })
     .fill("管理者に確認する。");
@@ -2224,7 +2224,7 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
   await expect(page.getByRole("heading", { name: title })).toBeVisible();
   const url = page.url();
 
-  const ask = page.getByRole("button", { name: "このページについて質問" });
+  const ask = page.getByRole("button", { name: "このノートについて質問" });
   const side = page.getByRole("complementary", { name: "サイドチャット" });
   const composer = side.getByRole("textbox", {
     name: "サイドチャットのメッセージ",
@@ -2253,13 +2253,13 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
   await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
   await expect(side.getByRole("button", { name: "回答を開く" })).toBeVisible();
 
-  await page.getByRole("button", { name: "ページを削除" }).click();
+  await page.getByRole("button", { name: "ノートを削除" }).click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "削除", exact: true })
     .click();
   await expect(
-    page.getByText("このページは削除されたか、存在しません。"),
+    page.getByText("このノートは削除されたか、存在しません。"),
   ).toBeVisible();
   await close.click();
   await page.reload();
@@ -2267,7 +2267,7 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
   await expect(side.getByText("具体的には？", { exact: true })).toBeVisible();
   await send("削除後の質問");
   await expect(side.getByRole("alert")).toContainText(
-    "この Wiki ページを参照できません",
+    "このノートを参照できません",
   );
 });
 
@@ -2277,9 +2277,9 @@ test("Wiki ページの本文の選択範囲から、ページを作ったり引
   await open(page);
   await createTask(page, "本文選択の検証");
   await openWiki(page, "本文選択の検証");
-  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page.getByRole("button", { name: "新しいノート" }).click();
   await page
-    .getByRole("textbox", { name: "ページのタイトル" })
+    .getByRole("textbox", { name: "ノートのタイトル" })
     .fill("決済 API");
   await page
     .getByRole("textbox", { name: "本文（Markdown）" })
@@ -2292,18 +2292,18 @@ test("Wiki ページの本文の選択範囲から、ページを作ったり引
 
   // 語句を選んでページを作ると、画面を移らずに知らせ、作ったページを開ける
   await selectAnswerText(body, "冪等性キー");
-  await popup.getByRole("button", { name: "ページを作成" }).click();
+  await popup.getByRole("button", { name: "ノートを作成" }).click();
   await expect(
-    page.getByRole("status").filter({ hasText: "のページを作成しています" }),
+    page.getByRole("status").filter({ hasText: "のノートを作成しています" }),
   ).toBeVisible();
   const created = page
     .getByRole("status")
-    .filter({ hasText: "「冪等性キー」のページを作成しました。" });
+    .filter({ hasText: "「冪等性キー」のノートを作成しました。" });
   await expect(created).toBeVisible();
   await expect(page).toHaveURL(url);
   await expect(
     page
-      .getByRole("navigation", { name: "Wiki のページ一覧" })
+      .getByRole("navigation", { name: "ノート一覧" })
       .getByRole("button", { name: "冪等性キー" }),
   ).toBeVisible();
   await created.getByRole("button", { name: "開く" }).click();
@@ -2353,9 +2353,9 @@ test("環境のタスクは Wiki を共有し、サイドバーで環境ごと�
   // 1 つ目は新しい環境で作り、Wiki にページを書く
   await createTask(page, "共有元");
   await openWiki(page, "共有元");
-  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page.getByRole("button", { name: "新しいノート" }).click();
   await page
-    .getByRole("textbox", { name: "ページのタイトル" })
+    .getByRole("textbox", { name: "ノートのタイトル" })
     .fill("共有用語");
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await expect(page.getByRole("heading", { name: "共有用語" })).toBeVisible();
@@ -2487,7 +2487,7 @@ test("環境のタスクは Wiki を共有し、サイドバーで環境ごと�
   ).toBeVisible();
   await openEnvironmentMenu(page, "共通環境", "環境を削除");
   await expect(
-    page.getByText("Wiki「共通用語集」とそのページも削除されます。", {
+    page.getByText("Wiki「共通用語集」とそのノートも削除されます。", {
       exact: false,
     }),
   ).toBeVisible();

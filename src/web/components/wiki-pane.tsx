@@ -69,13 +69,13 @@ const WikiPageBody = ({
         tone: "info",
         pageId: result.page.id,
         text: result.created
-          ? `「${result.page.title}」のページを作成しました。`
-          : `「${result.page.title}」のページはすでにあります。`,
+          ? `「${result.page.title}」のノートを作成しました。`
+          : `「${result.page.title}」のノートはすでにあります。`,
       });
     } catch {
       setNotice({
         tone: "error",
-        text: `「${term}」のページを作成できませんでした。もう一度お試しください。`,
+        text: `「${term}」のノートを作成できませんでした。もう一度お試しください。`,
       });
     } finally {
       setGenerating((current) => current.filter((t) => t !== term));
@@ -85,9 +85,9 @@ const WikiPageBody = ({
   const term = selection?.text.trim();
   const createBlocker =
     term === undefined || !isPageTerm(term)
-      ? "1 行・2〜40 文字の語句を選ぶと、Wiki のページを作れます"
+      ? "1 行・2〜40 文字の語句を選ぶと、ノートを作れます"
       : generating.some((t) => normalizeTerm(t) === normalizeTerm(term))
-        ? "この語句のページを作成しています"
+        ? "この語句のノートを作成しています"
         : undefined;
   const onAsk = actions?.onAsk;
 
@@ -110,7 +110,7 @@ const WikiPageBody = ({
             title:
               onAsk === undefined
                 ? "ここからは質問できません"
-                : "選んだ部分を引用して、このページについて質問します",
+                : "選んだ部分を引用して、このノートについて質問します",
           }}
           createPage={{
             onClick:
@@ -122,7 +122,7 @@ const WikiPageBody = ({
                   },
             title:
               createBlocker ??
-              "選んだ語句の Wiki のページを AI で作ります（画面は移りません）",
+              "選んだ語句のノートを AI で作ります（画面は移りません）",
           }}
         />
       )}
@@ -132,7 +132,7 @@ const WikiPageBody = ({
       {generating.length > 0 && (
         <p role="status" className="text-muted-foreground text-xs">
           {generating.map((t) => `「${t}」`).join("")}
-          のページを作成しています…
+          のノートを作成しています…
         </p>
       )}
       {notice !== undefined && (
@@ -191,7 +191,7 @@ export const WikiPageContent = ({
     </h2>
     {page.origin === "auto" && (
       <p className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
-        回答から自動で作成したページです（編集しても自動で上書きされることはありません）。
+        回答から自動で作成したノートです（編集しても自動で上書きされることはありません）。
         {page.sourceChatId !== null && onOpenChat !== undefined && (
           <button
             type="button"
@@ -301,7 +301,7 @@ export const WikiPane = ({
     <aside
       ref={panel}
       tabIndex={-1}
-      aria-label="Wiki ページ"
+      aria-label="ノート"
       className="flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none max-lg:fixed max-lg:inset-0 max-lg:z-30 lg:w-[42%] lg:min-w-80 lg:max-w-xl lg:flex-none lg:border-l"
       onKeyDown={(event) => {
         if (event.key === "Escape" && !event.defaultPrevented) {
@@ -329,7 +329,7 @@ export const WikiPane = ({
           <Button
             variant="ghost"
             size="icon"
-            aria-label="Wiki ページを閉じる"
+            aria-label="ノートを閉じる"
             onClick={onClose}
           >
             <X aria-hidden />
@@ -345,13 +345,13 @@ export const WikiPane = ({
           )}
           {state.status === "missing" && (
             <p className="text-muted-foreground text-sm">
-              このページは削除されたか、存在しません。
+              このノートは削除されたか、存在しません。
             </p>
           )}
           {state.status === "error" && (
             <div className="flex flex-col items-start gap-2 text-sm">
               <p role="alert" className="text-destructive">
-                Wiki ページを読み込めませんでした。
+                ノートを読み込めませんでした。
               </p>
               <Button size="sm" variant="outline" onClick={() => void load()}>
                 再読み込み

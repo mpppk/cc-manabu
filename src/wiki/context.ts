@@ -69,7 +69,7 @@ export const createWikiContextBuilder =
 export class WikiPageUnavailableError extends ErrorFactory({
   name: "WikiPageUnavailableError",
   message:
-    "この Wiki ページを参照できません。削除されたか、このタスクの Wiki に属していません。",
+    "このノートを参照できません。削除されたか、このタスクの Wiki に属していません。",
 }) {}
 
 export type WikiPageReader = (

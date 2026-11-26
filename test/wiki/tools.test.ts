@@ -212,7 +212,7 @@ describe("Wiki のツール（Claude が Wiki を読み書きする）", () => {
   });
 
   test("画面に出す名前", () => {
-    expect(wikiToolLabel(WIKI_TOOL_NAMES.editPage)).toBe("Wiki: ページを編集");
+    expect(wikiToolLabel(WIKI_TOOL_NAMES.editPage)).toBe("Wiki: ノートを編集");
     expect(wikiToolLabel("Bash")).toBeUndefined();
   });
 });

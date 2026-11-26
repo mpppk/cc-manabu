@@ -55,7 +55,7 @@ const PageEditor = ({
     <form className="flex flex-col gap-3" onSubmit={submit}>
       <input
         className="rounded-md border bg-background px-3 py-2 font-semibold text-lg"
-        aria-label="ページのタイトル"
+        aria-label="ノートのタイトル"
         placeholder="タイトル（例: 関係タプル）"
         maxLength={200}
         value={draft.title}
@@ -115,9 +115,9 @@ const WikiPageList = ({
     (pages === undefined
       ? "読み込み中…"
       : pages.length === 0
-        ? "まだページがありません。「新しいページ」から作れます。"
+        ? "まだノートがありません。「新しいノート」から作れます。"
         : found.length === 0
-          ? "一致するページはありません。"
+          ? "一致するノートはありません。"
           : undefined);
 
   return (
@@ -134,10 +134,7 @@ const WikiPageList = ({
           />
         </label>
       </div>
-      <nav
-        className="flex-1 overflow-y-auto px-2 pb-2"
-        aria-label="Wiki のページ一覧"
-      >
+      <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="ノート一覧">
         {message !== undefined ? (
           <p
             className={cn(
@@ -151,7 +148,7 @@ const WikiPageList = ({
             {message}
           </p>
         ) : (
-          <ul aria-label="Wiki のページ" className="flex flex-col gap-0.5">
+          <ul aria-label="ノート" className="flex flex-col gap-0.5">
             {found.map((p) => (
               <li key={p.id}>
                 <button
@@ -305,18 +302,18 @@ export const WikiView = ({
           <span className="text-muted-foreground text-xs">
             {sharedWith.map((name) => `「${name}」`).join("")}
             と共有している Wiki
-            です。ページの変更はすべてのタスクに反映されます。
+            です。ノートの変更はすべてのタスクに反映されます。
           </span>
         )}
         <span className="text-muted-foreground text-xs">
-          回答からの用語ページの自動作成: {autoTerms ? "オン" : "オフ"}
+          回答からの用語ノートの自動作成: {autoTerms ? "オン" : "オフ"}
           （タスクの設定で変更できます）
         </span>
       </div>
       {mode === "view" && (
         <Button size="sm" onClick={() => setMode("new")}>
           <FilePlus className="size-4" />
-          新しいページ
+          新しいノート
         </Button>
       )}
     </div>
@@ -356,8 +353,8 @@ export const WikiView = ({
       return (
         <p className="text-muted-foreground text-sm">
           {pages.length === 0
-            ? "「新しいページ」から最初のページを作りましょう。"
-            : `${pages.length} 件のページがあります。左の一覧からページを選んでください。`}
+            ? "「新しいノート」から最初のノートを作りましょう。"
+            : `${pages.length} 件のノートがあります。左の一覧からノートを選んでください。`}
         </p>
       );
     }
@@ -365,7 +362,7 @@ export const WikiView = ({
       return (
         <div className="flex flex-col items-start gap-3">
           <p className="text-muted-foreground">
-            このページは削除されたか、存在しません。
+            このノートは削除されたか、存在しません。
           </p>
           {hasPageChat && openChatButton("質問の履歴を開く")}
           <Button
@@ -411,7 +408,7 @@ export const WikiView = ({
             </Button>
           )}
           <div className="flex-1" />
-          {openChatButton("このページについて質問")}
+          {openChatButton("このノートについて質問")}
           <Button variant="outline" size="sm" onClick={() => setMode("edit")}>
             <Pencil className="size-3.5" />
             編集
@@ -419,7 +416,7 @@ export const WikiView = ({
           <Button
             variant="ghost"
             size="sm"
-            aria-label="ページを削除"
+            aria-label="ノートを削除"
             onClick={() => setDeleting(true)}
           >
             <Trash2 className="size-3.5" />
@@ -448,8 +445,8 @@ export const WikiView = ({
         <Dialog
           open={deleting}
           onOpenChange={setDeleting}
-          title="ページを削除しますか？"
-          description={`「${page.title}」を削除します。このページを引用した過去の回答は、そのまま読めます。`}
+          title="ノートを削除しますか？"
+          description={`「${page.title}」を削除します。このノートを引用した過去の回答は、そのまま読めます。`}
         >
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleting(false)}>

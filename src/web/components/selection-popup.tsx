@@ -141,7 +141,7 @@ export const SelectionPopup = ({
         onClick={createPage.onClick}
       >
         <FilePlus className="size-3.5" />
-        ページを作成
+        ノートを作成
       </Button>
     </div>
   );
