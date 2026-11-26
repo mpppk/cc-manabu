@@ -11,7 +11,7 @@ import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
 import * as z from "zod";
 import type { DatabaseError } from "../db/chat-repository.ts";
-import type { WikiPageRow } from "../db/schema.ts";
+import type { WikiPageRow, WikiVersionActor } from "../db/schema.ts";
 import {
   type TaskNotFoundError,
   type TaskRepository,
@@ -63,6 +63,8 @@ export type WikiToolScope = {
   batchId?: string | undefined;
   /** 自動のチェックポイントの名前に使う質問。 */
   question?: string | undefined;
+  /** 版に残す出どころ。既定は Claude（monet のスレッド）。 */
+  actor?: Extract<WikiVersionActor, "claude" | "claude_desktop"> | undefined;
 };
 
 /** 自動のチェックポイントの名前。 */
@@ -142,7 +144,7 @@ export const createWikiToolHandlers = (deps: Deps, scope: WikiToolScope) => {
   const batchId = scope.batchId ?? crypto.randomUUID();
   /** 版に残す、この変更の出どころ。 */
   const changeOf = (tool: string): WikiChange => ({
-    actor: "claude",
+    actor: scope.actor ?? "claude",
     batchId,
     chatId: scope.chatId ?? null,
     tool,

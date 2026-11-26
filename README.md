@@ -75,6 +75,7 @@ install monet ~/.local/bin/
 cd your-project
 monet            # ローカルサーバを起動してブラウザを開く
 monet update     # GitHub Releases の最新版に更新する（SHA-256 を検証してから置き換える）
+monet mcp        # Claude Desktop 向けの MCP サーバ（stdio）を起動する（下の「Claude Desktop から使う」）
 monet --help
 ```
 
@@ -127,6 +128,44 @@ MONET_PORT=4000 MONET_CHROME_PROFILE='Profile 2' monet --pwa
 PWA を開くときは、起動ごとに新しいアクセストークンを渡します。Chrome や PWA が見つからない場合は、理由を表示して同じサーバーを既定のブラウザで開きます。指定したポートが使用中なら、先に使用中のプロセスを止めてください（ポートを指定せずに自動で見つけたポートが使用中なら、PWA を使わずに空いているポートで起動します）。別のポートを使う場合は、その URL で PWA をインストールし直します。`MONET_NO_OPEN=1` を指定するとサーバーだけ起動します。
 
 Ctrl+C で終了すると、その起動で新しく開いた PWA のウィンドウも閉じます。起動前から開いていた monet のウィンドウが再利用された場合や、今回開いたウィンドウを特定できない場合は、サーバーだけを止めます。ウィンドウの特定と終了には Chrome の AppleScript を使うので、初回は macOS がターミナルから「Google Chrome」の操作を許可するか尋ねます（許可しなければ、ウィンドウは閉じずにサーバーだけを止めます。あとから「システム設定 → プライバシーとセキュリティ → オートメーション」で変更できます）。
+
+### Claude Desktop から使う
+
+`monet mcp` は、Claude Desktop がローカル MCP サーバとして起動する stdio の入口です。Claude Desktop で直接始めた会話から、この PC にある monet の Wiki とタスクを読み書きできます。monet の Web UI を開いていなくても、monet を起動中でも使えます（通常の起動と同じ DB を、`MONET_DB` も含めて同じ規則で開きます）。
+
+1. Claude Desktop の「設定 → 開発者 → 設定を編集」で `claude_desktop_config.json` を開き、`mcpServers` に monet を追加します（[ローカル MCP サーバの登録手順](https://modelcontextprotocol.io/docs/develop/connect-local-servers)）。`command` には `monet` の絶対パスを指定します（`which monet` で確かめられます。Claude Desktop はシェルの PATH を読まないことがあります）。
+
+   ```json
+   {
+     "mcpServers": {
+       "monet": {
+         "command": "/Users/you/.local/bin/monet",
+         "args": ["mcp"]
+       }
+     }
+   }
+   ```
+
+   DB の場所を変えている場合は、`"env": { "MONET_DB": "/path/to/db.sqlite" }` も指定します。
+
+2. Claude Desktop を再起動します。入力欄のツールの一覧に「monet」が出れば登録できています。
+3. 疎通を確かめます。通常のチャットで「monet のタスクを一覧して」と頼むと `list_tasks` が呼ばれ、monet のタスクが返ります。続けて「○○ のタスクの Wiki のノートを見せて」と頼むと、`list_pages` / `read_page` でノートを読めます。うまくいかない場合は、ターミナルで `monet mcp` を実行してエラーが出ないか確かめ、Claude Desktop のログ（macOS: `~/Library/Logs/Claude/mcp-server-monet.log`）を確認してください。
+
+使えるツール:
+
+| ツール | 内容 |
+| --- | --- |
+| `list_tasks` / `get_task` | タスクを探す（タスク名・環境名で絞り込める）/ 名前・状態・進捗メモ・ゴール・関連リンク・環境・Wiki を読む |
+| `list_environments` | 環境（id・参照する Wiki・ディレクトリ）を一覧する |
+| `create_task` | タスクを作る。`environment_id` を指定すると既存の環境に、省略するとタスクと同じ名前の環境と Wiki を新しく作る（作業ディレクトリは `directory`、既定はホームディレクトリ） |
+| `update_task` | 名前・状態・進捗メモ・ゴール・所属の環境のうち、指定した項目だけを変える。環境を変えると、移った先の Wiki を参照する |
+| `add_link` / `update_link` | 関連リンクを追加・編集する |
+| `list_pages` / `read_page` | タスクが参照する Wiki のノートを一覧する / 読む |
+| `create_page` / `update_page` / `edit_page` | ノートを作る / 書き換える / 一部を置き換える |
+
+- Claude Desktop の会話には monet の所属タスクが無いので、操作するタスクは `task_id` で指定します。Claude は `list_tasks` で候補を探し、対象が曖昧なら確かめてから書き込みます。タスクを指定しない・見つからないときは、選び方を添えたエラーを返します
+- 書き込むツールは、Claude Desktop の設定に従って実行前に許可を求めます。拒否した操作は保存されません
+- Wiki の変更は変更履歴に「Claude Desktop」として残り、Wiki 画面の「元に戻す」で取り消せます
 
 ## セキュリティ
 
