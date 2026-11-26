@@ -79,10 +79,8 @@ const loadSidebarOpen = (): boolean => {
   }
 };
 
-/** サイドバーの開閉のショートカットの表記（Mac は ⌘B、それ以外は Ctrl+B）。 */
-const SIDEBAR_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform)
-  ? "⌘B"
-  : "Ctrl+B";
+const USE_COMMAND_SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform);
+const SIDEBAR_SHORTCUT = USE_COMMAND_SHORTCUT ? "⌘B" : "Ctrl+B";
 
 export const App = ({ api }: { api: ApiClient }) => {
   const [status, setStatus] = useState<Status>();
@@ -101,8 +99,11 @@ export const App = ({ api }: { api: ApiClient }) => {
   // ⌘B（Ctrl+B）でサイドバーを開閉する
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      const hasShortcutModifier = USE_COMMAND_SHORTCUT
+        ? event.metaKey && !event.ctrlKey
+        : event.ctrlKey || event.metaKey;
       if (
-        (event.metaKey || event.ctrlKey) &&
+        hasShortcutModifier &&
         !event.shiftKey &&
         !event.altKey &&
         event.key.toLowerCase() === "b"
