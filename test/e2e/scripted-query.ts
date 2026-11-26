@@ -112,12 +112,13 @@ export const createScriptedQuery = (): QueryFunction => {
       } as unknown as SDKMessage;
     }
 
-    /** in-process の Wiki の MCP サーバのツールを呼ぶ（承認は通さない）。 */
-    const callWikiTool = async (
+    /** in-process の MCP サーバ（wiki / task）のツールを呼ぶ（承認は通さない）。 */
+    const callTool = async (
+      serverName: string,
       name: string,
       args: Record<string, unknown>,
     ): Promise<{ content: { type: string; text: string }[] } | undefined> => {
-      const server = options?.mcpServers?.wiki as
+      const server = options?.mcpServers?.[serverName] as
         | {
             instance?: {
               _registeredTools: Record<
@@ -135,7 +136,11 @@ export const createScriptedQuery = (): QueryFunction => {
           });
     };
 
-    async function* wikiToolCall(
+    const callWikiTool = (name: string, args: Record<string, unknown>) =>
+      callTool("wiki", name, args);
+
+    async function* toolCall(
+      serverName: string,
       name: string,
       args: Record<string, unknown>,
     ): AsyncGenerator<SDKMessage> {
@@ -147,11 +152,16 @@ export const createScriptedQuery = (): QueryFunction => {
         message: {
           role: "assistant",
           content: [
-            { type: "tool_use", id, name: `mcp__wiki__${name}`, input: args },
+            {
+              type: "tool_use",
+              id,
+              name: `mcp__${serverName}__${name}`,
+              input: args,
+            },
           ],
         },
       } as unknown as SDKMessage;
-      const result = await callWikiTool(name, args);
+      const result = await callTool(serverName, name, args);
       yield {
         ...base,
         type: "user",
@@ -168,6 +178,9 @@ export const createScriptedQuery = (): QueryFunction => {
         },
       } as unknown as SDKMessage;
     }
+
+    const wikiToolCall = (name: string, args: Record<string, unknown>) =>
+      toolCall("wiki", name, args);
 
     return (async function* (): AsyncGenerator<SDKMessage> {
       // 画像付きの発話は、content ブロックを持つユーザーメッセージで届く
@@ -217,6 +230,23 @@ export const createScriptedQuery = (): QueryFunction => {
           ? wikiToolCall("create_page", { title, body })
           : wikiToolCall("update_page", { id: existing, body });
         yield* textMessage([`Wiki の「${title}」に書きました。`], 0);
+      } else if (/^タスクを更新: /.test(text)) {
+        // 「タスクを更新: 状態|次にやること」。#187
+        const [status = "", nextAction = ""] = text
+          .replace(/^タスクを更新: /, "")
+          .split("|");
+        yield* toolCall("task", "update_task", {
+          status,
+          next_action: nextAction,
+        });
+        yield* textMessage(["進捗を反映しました。"], 0);
+      } else if (/^リンクを追加: /.test(text)) {
+        // 「リンクを追加: URL|表示名」。#187
+        const [url = "", label = ""] = text
+          .replace(/^リンクを追加: /, "")
+          .split("|");
+        yield* toolCall("task", "add_link", { url, label });
+        yield* textMessage(["リンクを登録しました。"], 0);
       } else if (text.includes("<term-extraction>")) {
         const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(text)?.[1] ?? "";
         const terms = [...answer.matchAll(/「([^」]{2,20})」/g)].map(

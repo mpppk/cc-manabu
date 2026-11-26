@@ -398,7 +398,7 @@ describe("タスクのスレッドで、Claude が Wiki を読み書きする", 
     ],
   });
 
-  test("タスクの会話には wiki の MCP サーバを渡し、タスクに属さない会話には渡さない", async () => {
+  test("タスクの会話には wiki と task の MCP サーバを渡し、タスクに属さない会話には渡さない", async () => {
     const { client, calls } = await setup();
     const task = await client.tasks.create({ name: "運用" });
     const page = await client.wiki.create({
@@ -413,15 +413,24 @@ describe("タスクのスレッドで、Claude が Wiki を読み書きする", 
       message: message("このページに例を追記して"),
     });
     await drain(await client.chat.reconnect({ chatId }));
-    expect(Object.keys(calls[0]?.options?.mcpServers ?? {})).toEqual(["wiki"]);
+    expect(Object.keys(calls[0]?.options?.mcpServers ?? {})).toEqual([
+      "wiki",
+      "task",
+    ]);
     // 追加の質問（resume）でも渡す
     await send(client, chatId, "もう少し短く");
-    expect(Object.keys(calls[1]?.options?.mcpServers ?? {})).toEqual(["wiki"]);
+    expect(Object.keys(calls[1]?.options?.mcpServers ?? {})).toEqual([
+      "wiki",
+      "task",
+    ]);
 
     // Wiki ページにひも付かない、ふつうのスレッドでも渡す
     const chat = await client.chats.create({ taskId: task.id });
     await send(client, chat.id, "認可のページを更新して");
-    expect(Object.keys(calls[2]?.options?.mcpServers ?? {})).toEqual(["wiki"]);
+    expect(Object.keys(calls[2]?.options?.mcpServers ?? {})).toEqual([
+      "wiki",
+      "task",
+    ]);
 
     // タスクに属さないスレッドには Wiki が無いので渡さない
     const loose = await client.chats.create({});

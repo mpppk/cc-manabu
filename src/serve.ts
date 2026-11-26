@@ -46,6 +46,7 @@ import {
   openPwa,
 } from "./server/open-pwa.ts";
 import { openBrowser, PortInUseError, startServer } from "./server/server.ts";
+import { createTaskToolServers } from "./task/tools.ts";
 import index from "./web/index.html";
 import { createTermPageWriter } from "./wiki/auto-terms.ts";
 import {
@@ -218,6 +219,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         approvals,
         languageModel: (modelId, options) =>
           createClaudeCode({ ...providerSettings, ...options })(modelId),
+        taskTools: createTaskToolServers({ tasks }),
         wikiTools: createWikiToolServers({
           wiki,
           tasks,
