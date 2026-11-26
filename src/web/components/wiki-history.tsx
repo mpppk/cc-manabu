@@ -45,6 +45,8 @@ export const versionLabel = (
   switch (version.actor) {
     case "claude":
       return `Claude（${action ?? TOOL_LABELS[version.tool ?? ""] ?? "編集"}）`;
+    case "claude_desktop":
+      return `Claude Desktop（${action ?? TOOL_LABELS[version.tool ?? ""] ?? "編集"}）`;
     case "auto":
       return "回答から自動作成";
     case "selection":
@@ -69,11 +71,13 @@ const batchLabel = (batch: WikiBatchDto): string => {
       ? "復元"
       : batch.actor === "claude"
         ? "Claude の変更"
-        : batch.actor === "auto"
-          ? "自動作成"
-          : batch.actor === "selection"
-            ? "選択範囲からの作成"
-            : "変更";
+        : batch.actor === "claude_desktop"
+          ? "Claude Desktop の変更"
+          : batch.actor === "auto"
+            ? "自動作成"
+            : batch.actor === "selection"
+              ? "選択範囲からの作成"
+              : "変更";
   return `${titles}${more}の${who}`;
 };
 

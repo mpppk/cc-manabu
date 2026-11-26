@@ -46,6 +46,11 @@ ${table([
     "固定ポートで起動して Chrome の PWA を開く（macOS）",
   ],
   [`${commandName} update`, "最新版に更新する"],
+  [
+    `${commandName} mcp`,
+    "Claude Desktop 向けの MCP サーバ（stdio）を起動する",
+    "（monet の Wiki とタスクを Claude Desktop から読み書きする）",
+  ],
   [`${commandName} --help, -h`, "このヘルプを表示する"],
   [`${commandName} --version, -v`, "バージョンを表示する"],
 ])}
@@ -78,6 +83,8 @@ type CliIo = {
   update: (
     log: (message: string) => void,
   ) => Result.ResultAsync<UpdateOutcome, UpdateError>;
+  /** mcp コマンドの本体（Claude Desktop 向けの MCP サーバ。#212）。 */
+  mcp: () => Result.ResultAsync<void, Error>;
 };
 
 const defaultIo: CliIo = {
@@ -91,6 +98,10 @@ const defaultIo: CliIo = {
       fetch: (url) => fetch(url),
       log,
     }),
+  mcp: async () => {
+    const { runDesktopMcpServer } = await import("./mcp/desktop-server.ts");
+    return runDesktopMcpServer();
+  },
 };
 
 /** CLI のコマンドを実行する。失敗は Result で返す。 */
@@ -100,7 +111,7 @@ export const runCli = async (
   overrides: Partial<CliIo> = {},
 ): Result.ResultAsync<
   void,
-  UnknownCommandError | InvalidArgumentsError | UpdateError
+  UnknownCommandError | InvalidArgumentsError | UpdateError | Error
 > => {
   const io: CliIo = { ...defaultIo, ...overrides };
   const [command, ...rest] = argv;
@@ -144,6 +155,16 @@ export const runCli = async (
           : `最新版（v${outcome.value.version}）です。`,
       );
       return Result.succeed();
+    }
+    case "mcp": {
+      if (rest.length > 0) {
+        return Result.fail(
+          new InvalidArgumentsError({
+            detail: `${commandName} mcp は引数を取りません。`,
+          }),
+        );
+      }
+      return io.mcp();
     }
     default:
       return Result.fail(new UnknownCommandError({ command, commandName }));

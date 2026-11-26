@@ -263,6 +263,11 @@ export const WIKI_VERSION_ACTORS = [
   "selection",
   /** 履歴を記録する前の状態。 */
   "system",
+  /**
+   * Claude Desktop（`monet mcp` の MCP ツールで編集・作成。#212）。
+   * 列は text なので、値を足してもマイグレーションは要らない。
+   */
+  "claude_desktop",
 ] as const;
 export type WikiVersionActor = (typeof WIKI_VERSION_ACTORS)[number];
 
