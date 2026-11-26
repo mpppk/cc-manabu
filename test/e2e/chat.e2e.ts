@@ -207,7 +207,7 @@ test("承認カードで許可・拒否でき、承認待ちがタブタイト�
   await expect(page.getByText("許可されました")).toBeVisible();
   await expect(page.getByText("Bash の実行を許可しました")).toBeVisible();
   await idle(page);
-  await expect(page).toHaveTitle("cc-manabu");
+  await expect(page).toHaveTitle("monet");
 
   await send(page, "もう一度承認が必要な操作をして");
   const second = page.getByRole("region", { name: "ツール実行の承認" });

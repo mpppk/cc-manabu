@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { handleCliError } from "./errors/index.ts";
 
-const COMMAND_NAME = "cc-manabu";
+const COMMAND_NAME = "monet";
 const args = process.argv.slice(2);
 const pwa = args.length === 1 && args[0] === "--pwa";
 

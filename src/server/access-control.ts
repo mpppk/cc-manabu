@@ -87,7 +87,7 @@ export const checkLocalRequest = (
 
 /**
  * API リクエストに必要な検証をまとめて行う。
- * `token` が null（CC_MANABU_NO_AUTH=1 のデバッグモード）のときはトークンを検証しないが、Host / Origin は検証する。
+ * `token` が null（MONET_NO_AUTH=1 のデバッグモード）のときはトークンを検証しないが、Host / Origin は検証する。
  */
 export const checkApiRequest = (
   request: Request,

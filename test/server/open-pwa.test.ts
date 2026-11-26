@@ -83,7 +83,7 @@ describe("openPwa", () => {
       system,
     );
     expect(Result.isFailure(result) && result.error.message).toBe(
-      "Chrome のどのプロファイルにも cc-manabu が見つかりません。http://127.0.0.1:4000/ からインストールしてください。",
+      "Chrome のどのプロファイルにも monet が見つかりません。http://127.0.0.1:4000/ からインストールしてください。",
     );
     expect(commands).toEqual([]);
   });
@@ -92,7 +92,7 @@ describe("openPwa", () => {
     const { system, commands } = setup();
     for (const [overrides, id, reason] of [
       [setup(0, []).system, undefined, "Google Chrome が"],
-      [setup(0, [chrome]).system, undefined, "cc-manabu が見つかりません"],
+      [setup(0, [chrome]).system, undefined, "monet が見つかりません"],
       [system, "a".repeat(32), "起動 URL と一致しません"],
     ] as const) {
       const result = await openPwa(url, { profile, appId: id }, overrides);
@@ -169,7 +169,7 @@ describe("findInstalledPwa（#163）", () => {
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
       expect(result.error.message).toContain("4000、4100");
-      expect(result.error.message).toContain("CC_MANABU_PORT");
+      expect(result.error.message).toContain("MONET_PORT");
     }
   });
 

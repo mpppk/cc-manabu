@@ -18,26 +18,58 @@ export class InvalidArgumentsError extends ErrorFactory({
   fields: ErrorFactory.fields<{ detail: string }>(),
 }) {}
 
+/** 1 列目を揃えて、説明を並べる。続きの行（2 行目以降）は説明の位置から始める。 */
+const table = (rows: readonly [string, ...string[]][]): string => {
+  const width = Math.max(...rows.map(([key]) => key.length)) + 2;
+  return rows
+    .flatMap(([key, ...lines]) =>
+      lines.map(
+        (line, index) => `  ${(index === 0 ? key : "").padEnd(width)}${line}`,
+      ),
+    )
+    .join("\n");
+};
+
 export const helpText = (commandName: string): string =>
   `${name} ${version}
 Claude Code のログインを使って、ブラウザから Claude と会話するローカルチャットアプリ
 
 使い方:
-  ${commandName}              ローカルサーバを起動してブラウザを開く
-                              （macOS の Chrome に PWA をインストール済みなら PWA を開く）
-  ${commandName} --pwa        固定ポートで起動して Chrome の PWA を開く（macOS）
-  ${commandName} update       最新版に更新する
-  ${commandName} --help, -h   このヘルプを表示する
-  ${commandName} --version, -v
-                              バージョンを表示する
+${table([
+  [
+    commandName,
+    "ローカルサーバを起動してブラウザを開く",
+    "（macOS の Chrome に PWA をインストール済みなら PWA を開く）",
+  ],
+  [
+    `${commandName} --pwa`,
+    "固定ポートで起動して Chrome の PWA を開く（macOS）",
+  ],
+  [`${commandName} update`, "最新版に更新する"],
+  [`${commandName} --help, -h`, "このヘルプを表示する"],
+  [`${commandName} --version, -v`, "バージョンを表示する"],
+])}
 
-環境変数:
-  CC_MANABU_PORT              待ち受けるポート（既定: 空いているポート）
-  CC_MANABU_NO_OPEN=1         起動時にブラウザや PWA を開かない
-  CC_MANABU_CHROME_PROFILE    PWA に使う Chrome のプロファイルディレクトリ（既定: インストールしたプロファイルを探す）
-  CC_MANABU_CHROME_APP_ID     PWA に使う Chrome のアプリ ID（既定: 起動 URL から算出）
-  CC_MANABU_NO_AUTH=1         アクセストークンを要求しない（デバッグ用。
-                              同じマシンの他のプロセスからも API を呼べる）
+環境変数（改名前の CC_MANABU_* も読みます。両方あれば MONET_* を優先）:
+${table([
+  ["MONET_PORT", "待ち受けるポート（既定: 空いているポート）"],
+  ["MONET_NO_OPEN=1", "起動時にブラウザや PWA を開かない"],
+  [
+    "MONET_CHROME_PROFILE",
+    "PWA に使う Chrome のプロファイルディレクトリ（既定: インストールしたプロファイルを探す）",
+  ],
+  [
+    "MONET_CHROME_APP_ID",
+    "PWA に使う Chrome のアプリ ID（既定: 起動 URL から算出）",
+  ],
+  ["MONET_CLAUDE_PATH", "使う claude のパス（既定: PATH から探す）"],
+  ["MONET_DB", "会話を保存する SQLite のパス"],
+  [
+    "MONET_NO_AUTH=1",
+    "アクセストークンを要求しない（デバッグ用。",
+    "同じマシンの他のプロセスからも API を呼べる）",
+  ],
+])}
 `;
 
 type CliIo = {

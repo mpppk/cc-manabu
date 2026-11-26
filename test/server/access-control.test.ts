@@ -84,7 +84,7 @@ describe("checkApiRequest", () => {
   });
 });
 
-describe("checkApiRequest（CC_MANABU_NO_AUTH=1: token が null）", () => {
+describe("checkApiRequest（MONET_NO_AUTH=1: token が null）", () => {
   const noAuth = (headers: Record<string, string>) => {
     const result = checkApiRequest(request(headers), {
       port: PORT,

@@ -63,7 +63,7 @@ export const GeneralSettingsDialog = ({
       if (!next) onClose();
     }}
     title="一般"
-    description="cc-manabu 全体の設定です。"
+    description="monet 全体の設定です。"
   >
     <section aria-label="Claude Code" className="grid gap-2 text-sm">
       <h3 className="font-medium">Claude Code</h3>

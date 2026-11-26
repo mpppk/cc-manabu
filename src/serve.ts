@@ -77,7 +77,7 @@ import { createWikiToolServers } from "./wiki/tools.ts";
 export const serve = async (config: RuntimeConfig): Promise<void> => {
   if (config.pwa !== undefined && config.port === 0) {
     console.error(
-      "--pwa には CC_MANABU_PORT が必要です。PWA をインストールしたときのポート（1〜65535）を指定してください。",
+      "--pwa には MONET_PORT が必要です。PWA をインストールしたときのポート（1〜65535）を指定してください。",
     );
     throw new CliExit({ code: 1 });
   }
@@ -328,10 +328,10 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
   const server = result.value;
   if (!config.requireToken) {
     console.warn(
-      "警告: CC_MANABU_NO_AUTH=1 のため、アクセストークンなしで API を呼べます（デバッグ用）。このマシンの他のプロセスやユーザーからも、Claude にファイル編集やコマンド実行をさせられます。",
+      "警告: MONET_NO_AUTH=1 のため、アクセストークンなしで API を呼べます（デバッグ用）。このマシンの他のプロセスやユーザーからも、Claude にファイル編集やコマンド実行をさせられます。",
     );
   }
-  console.log(`cc-manabu を起動しました: ${server.url}`);
+  console.log(`monet を起動しました: ${server.url}`);
   console.log("終了するには Ctrl+C を押してください。");
   if (!config.openBrowser) return;
   const pwa =

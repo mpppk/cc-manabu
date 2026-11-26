@@ -87,7 +87,7 @@ export const openPwa = async (
   const appId = options.appId ?? expectedAppId;
   if (appId !== expectedAppId) {
     return failure(
-      "CC_MANABU_CHROME_APP_ID が起動 URL と一致しません。インストール時のポートとアプリ ID を確認してください。",
+      "MONET_CHROME_APP_ID が起動 URL と一致しません。インストール時のポートとアプリ ID を確認してください。",
     );
   }
 
@@ -106,7 +106,7 @@ export const openPwa = async (
   const { profile: requested } = options;
   if (requested !== undefined && !isProfileDirectory(requested)) {
     return failure(
-      "CC_MANABU_CHROME_PROFILE に Chrome のプロファイルのディレクトリ名を指定してください。",
+      "MONET_CHROME_PROFILE に Chrome のプロファイルのディレクトリ名を指定してください。",
     );
   }
   const profile =
@@ -114,12 +114,12 @@ export const openPwa = async (
     chromeProfiles(system.list(userData)).find((name) => installedIn(name));
   if (profile === undefined) {
     return failure(
-      `Chrome のどのプロファイルにも cc-manabu が見つかりません。${manifestId} からインストールしてください。`,
+      `Chrome のどのプロファイルにも monet が見つかりません。${manifestId} からインストールしてください。`,
     );
   }
   if (!installedIn(profile)) {
     return failure(
-      `Chrome プロファイル「${profile}」に cc-manabu が見つかりません。${manifestId} からインストールしてください。`,
+      `Chrome プロファイル「${profile}」に monet が見つかりません。${manifestId} からインストールしてください。`,
     );
   }
 
@@ -149,19 +149,19 @@ export const openPwa = async (
     : failure(`Google Chrome の起動に失敗しました（終了コード ${exitCode}）。`);
 };
 
-/** cc-manabu をそのポートで起動したときの PWA のマニフェスト ID。 */
+/** monet をそのポートで起動したときの PWA のマニフェスト ID。 */
 const manifestIdForPort = (port: number) => `http://127.0.0.1:${port}/`;
 
 /** 自動で見つけた、インストール済みの PWA。 */
 export type InstalledPwa = { port: number; profile: string; appId: string };
 
 /**
- * 通常の起動（--pwa なし）で、Chrome にインストール済みの cc-manabu の PWA を探す（#163）。
+ * 通常の起動（--pwa なし）で、Chrome にインストール済みの monet の PWA を探す（#163）。
  *
- * - port（CC_MANABU_PORT）があれば、そのポートの URL の PWA だけを照合する
+ * - port（MONET_PORT）があれば、そのポートの URL の PWA だけを照合する
  * - 無ければ、すべてのポートの URL のアプリ ID を求めて、インストール済みのアプリと照合する。
  *   1 つに決まればそのポート、複数あれば失敗（ポートの指定を案内する）
- * - profile・appId（CC_MANABU_CHROME_PROFILE・CC_MANABU_CHROME_APP_ID）があれば、それに絞る
+ * - profile・appId（MONET_CHROME_PROFILE・MONET_CHROME_APP_ID）があれば、それに絞る
  *
  * 対応していない環境（macOS の Google Chrome 以外）や、見つからなければ undefined。
  */
@@ -190,7 +190,7 @@ export const findInstalledPwa = (
   const { profile: requested } = options;
   if (requested !== undefined && !isProfileDirectory(requested)) {
     return failure(
-      "CC_MANABU_CHROME_PROFILE に Chrome のプロファイルのディレクトリ名を指定してください。",
+      "MONET_CHROME_PROFILE に Chrome のプロファイルのディレクトリ名を指定してください。",
     );
   }
   const installed = (
@@ -224,11 +224,11 @@ export const findInstalledPwa = (
   }
   if (found.length > 1) {
     return failure(
-      `cc-manabu の PWA が複数のポート（${found
+      `monet の PWA が複数のポート（${found
         .map((pwa) => pwa.port)
         .join(
           "、",
-        )}）でインストールされています。使うポートを CC_MANABU_PORT に指定してください（例: CC_MANABU_PORT=${found[0]?.port} cc-manabu）。`,
+        )}）でインストールされています。使うポートを MONET_PORT に指定してください（例: MONET_PORT=${found[0]?.port} monet）。`,
     );
   }
   return Result.succeed(found[0]);

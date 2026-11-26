@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "cc-manabu",
+      "name": "monet",
       "dependencies": {
         "@ai-sdk/provider": "^4",
         "@ai-sdk/provider-utils": "^5.0.83",

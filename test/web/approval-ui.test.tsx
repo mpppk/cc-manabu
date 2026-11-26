@@ -50,8 +50,8 @@ describe("ApprovalCard", () => {
 
 describe("notify", () => {
   test("承認待ちの件数をタイトルに出す", () => {
-    expect(titleFor(0)).toBe("cc-manabu");
-    expect(titleFor(2)).toBe("(2) 承認待ち - cc-manabu");
+    expect(titleFor(0)).toBe("monet");
+    expect(titleFor(2)).toBe("(2) 承認待ち - monet");
   });
 
   test("新たに承認待ちになった会話だけを返す", () => {

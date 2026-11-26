@@ -75,6 +75,7 @@ const ClaudeStatusBadge = ({ status }: { status: Status | undefined }) => {
   }
 };
 
+// 改名前（#188）のキーのまま使い、ブラウザに保存した値を引き継ぐ
 const SIDEBAR_KEY = "cc-manabu.sidebarOpen";
 
 /** サイドバーを開いているか（ブラウザに覚える。既定は開く）。 */

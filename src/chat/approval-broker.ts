@@ -8,7 +8,7 @@ import { TASK_READ_TOOL_NAMES } from "../task/tool-names.ts";
 import { WIKI_READ_TOOL_NAMES } from "../wiki/tool-names.ts";
 
 /**
- * Claude Code が自動で許可しない読み取り系のうち、cc-manabu が承認なしで許可するツール。
+ * Claude Code が自動で許可しない読み取り系のうち、monet が承認なしで許可するツール。
  * WebFetch は URL 経由で情報を外に送れるので含めない（docs/spikes/permissions.md）。
  * Wiki とタスクのツールは読むものだけ許可し、書き換えるものは承認を求める。
  */

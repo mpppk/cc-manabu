@@ -10,9 +10,7 @@ export const requestNotificationPermission = (): void => {
 
 /** タブのタイトル。承認待ちがあれば先頭に件数を付ける。 */
 export const titleFor = (pendingApprovals: number): string =>
-  pendingApprovals > 0
-    ? `(${pendingApprovals}) 承認待ち - cc-manabu`
-    : "cc-manabu";
+  pendingApprovals > 0 ? `(${pendingApprovals}) 承認待ち - monet` : "monet";
 
 /**
  * 新たに承認待ちになった会話を返す（前回の一覧と比べる）。
@@ -35,8 +33,8 @@ export const notifyAwaitingApproval = (chatTitle: string): void => {
   ) {
     return;
   }
-  new Notification("cc-manabu: ツールの承認待ち", {
+  new Notification("monet: ツールの承認待ち", {
     body: `「${chatTitle || "新しいスレッド"}」で Claude がツールの実行を待っています。`,
-    tag: "cc-manabu-approval",
+    tag: "monet-approval",
   });
 };

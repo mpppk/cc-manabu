@@ -8,13 +8,14 @@ import type {
 import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
+import { readEnv } from "../env.ts";
 
 export class ClaudeNotInstalledError extends ErrorFactory({
   name: "ClaudeNotInstalledError",
   message: (fields) =>
     fields.configuredPath === undefined
       ? "Claude Code (the claude command) was not found in PATH."
-      : `Claude Code was not found at CC_MANABU_CLAUDE_PATH=${fields.configuredPath}.`,
+      : `Claude Code was not found at MONET_CLAUDE_PATH=${fields.configuredPath}.`,
   fields: ErrorFactory.fields<{ configuredPath: string | undefined }>(),
 }) {}
 
@@ -23,13 +24,13 @@ export class ClaudeProbeError extends ErrorFactory({
   message: "Failed to get information from Claude Code",
 }) {}
 
-/** `claude` の実行ファイルを探す。CC_MANABU_CLAUDE_PATH → PATH の順。 */
+/** `claude` の実行ファイルを探す。MONET_CLAUDE_PATH（MONET_CLAUDE_PATH）→ PATH の順。 */
 export const resolveClaudePath = (deps: {
   env: Record<string, string | undefined>;
   which: (command: string) => string | null;
   exists: (path: string) => boolean;
 }): Result.Result<string, ClaudeNotInstalledError> => {
-  const configured = deps.env.CC_MANABU_CLAUDE_PATH;
+  const configured = readEnv(deps.env, "CLAUDE_PATH");
   if (configured !== undefined && configured !== "") {
     return deps.exists(configured)
       ? Result.succeed(configured)

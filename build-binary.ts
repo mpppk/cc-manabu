@@ -4,7 +4,7 @@
  *
  *   bun run build:binary                      # このマシン向け
  *   BUN_TARGET=bun-darwin-arm64 bun run build:binary
- *   OUTFILE=dist/cc-manabu bun run build:binary
+ *   OUTFILE=dist/monet bun run build:binary
  *
  * Web UI（src/web/index.html から辿れる JS・CSS・チャンク）はバイナリに埋め込まれる。
  * Claude Code 本体は埋め込まず、利用者の `claude` を使う（docs/spikes/compile-agent-sdk.md）。
@@ -22,7 +22,7 @@ type Target = NonNullable<
 const target = Bun.env.BUN_TARGET as Target | undefined;
 const outfile =
   Bun.env.OUTFILE ??
-  (target?.includes("windows") === true ? "./cc-manabu.exe" : "./cc-manabu");
+  (target?.includes("windows") === true ? "./monet.exe" : "./monet");
 
 const result = await Bun.build({
   entrypoints: ["./src/binary.ts"],

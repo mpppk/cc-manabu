@@ -10,6 +10,7 @@ export const MIN_MAIN_WIDTH = 360;
 export const KEYBOARD_STEP = 16;
 export const KEYBOARD_LARGE_STEP = 64;
 
+// 改名前（#188）のキーのまま使い、ブラウザに保存した値を引き継ぐ
 const STORAGE_KEY = "cc-manabu.sidebarWidth";
 
 /** 画面幅に対して選べる範囲。画面が狭くても、サイドバーは最小幅を保つ。 */

@@ -28,10 +28,10 @@ describe("compareVersions", () => {
 
 describe("assetNameFor", () => {
   test.each([
-    ["linux", "x64", "cc-manabu-linux-x64.tar.gz"],
-    ["linux", "arm64", "cc-manabu-linux-arm64.tar.gz"],
-    ["darwin", "arm64", "cc-manabu-darwin-arm64.tar.gz"],
-    ["win32", "x64", "cc-manabu-windows-x64.zip"],
+    ["linux", "x64", "monet-linux-x64.tar.gz"],
+    ["linux", "arm64", "monet-linux-arm64.tar.gz"],
+    ["darwin", "arm64", "monet-darwin-arm64.tar.gz"],
+    ["win32", "x64", "monet-windows-x64.zip"],
   ])("%s-%s", (platform, arch, expected) => {
     expect(assetNameFor(platform, arch)).toEqual(Result.succeed(expected));
   });
@@ -46,37 +46,36 @@ describe("assetNameFor", () => {
 });
 
 test("findChecksum は sha256sum の出力を読む", () => {
-  const checksums =
-    "aaa  cc-manabu-linux-x64.tar.gz\nbbb *cc-manabu-windows-x64.zip\n";
-  expect(findChecksum(checksums, "cc-manabu-linux-x64.tar.gz")).toBe("aaa");
-  expect(findChecksum(checksums, "cc-manabu-windows-x64.zip")).toBe("bbb");
+  const checksums = "aaa  monet-linux-x64.tar.gz\nbbb *monet-windows-x64.zip\n";
+  expect(findChecksum(checksums, "monet-linux-x64.tar.gz")).toBe("aaa");
+  expect(findChecksum(checksums, "monet-windows-x64.zip")).toBe("bbb");
   expect(findChecksum(checksums, "missing")).toBeUndefined();
 });
 
 test("isRunningFromSource", () => {
   expect(isRunningFromSource("/home/me/.bun/bin/bun")).toBe(true);
   expect(isRunningFromSource("C:\\bun\\bun.exe")).toBe(true);
-  expect(isRunningFromSource("/usr/local/bin/cc-manabu")).toBe(false);
+  expect(isRunningFromSource("/usr/local/bin/monet")).toBe(false);
 });
 
 describe("update", () => {
   let dir: string;
   let execPath: string;
   let archive: ArrayBuffer;
-  const assetName = "cc-manabu-linux-x64.tar.gz";
+  const assetName = "monet-linux-x64.tar.gz";
 
   beforeEach(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "cc-manabu-update-test-"));
+    dir = await mkdtemp(path.join(tmpdir(), "monet-update-test-"));
     // 新しいバージョンのバイナリを tar.gz にする
     const build = path.join(dir, "build");
     await mkdir(build);
-    await Bun.write(path.join(build, "cc-manabu"), "new binary");
-    const tar = Bun.spawnSync(["tar", "czf", assetName, "cc-manabu"], {
+    await Bun.write(path.join(build, "monet"), "new binary");
+    const tar = Bun.spawnSync(["tar", "czf", assetName, "monet"], {
       cwd: build,
     });
     expect(tar.exitCode).toBe(0);
     archive = await Bun.file(path.join(build, assetName)).arrayBuffer();
-    execPath = path.join(dir, "bin", "cc-manabu");
+    execPath = path.join(dir, "bin", "monet");
     await Bun.write(execPath, "old binary");
   });
 
@@ -87,12 +86,12 @@ describe("update", () => {
   const fakeFetch =
     (options: { tag?: string; checksum?: string } = {}) =>
     async (url: string): Promise<Response> => {
-      const base = `https://github.com/mpppk/cc-manabu/releases/download/${options.tag ?? "v0.2.0"}`;
+      const base = `https://github.com/mpppk/monet/releases/download/${options.tag ?? "v0.2.0"}`;
       if (url.endsWith("/releases/latest")) {
         // リダイレクト後の URL（/releases/tag/<tag>）を再現する
         const response = new Response("");
         Object.defineProperty(response, "url", {
-          value: `https://github.com/mpppk/cc-manabu/releases/tag/${options.tag ?? "v0.2.0"}`,
+          value: `https://github.com/mpppk/monet/releases/tag/${options.tag ?? "v0.2.0"}`,
         });
         return response;
       }
@@ -168,10 +167,10 @@ describe("update", () => {
   });
 });
 
-describe("cc-manabu update", () => {
+describe("monet update", () => {
   test("更新結果を表示する", async () => {
     const output: string[] = [];
-    const result = await runCli(["update"], "cc-manabu", {
+    const result = await runCli(["update"], "monet", {
       print: (message) => output.push(message),
       update: async (log) => {
         log("v0.1.0 → v0.2.0 に更新します…");
@@ -187,7 +186,7 @@ describe("cc-manabu update", () => {
 
   test("最新版ならそう表示する", async () => {
     const output: string[] = [];
-    await runCli(["update"], "cc-manabu", {
+    await runCli(["update"], "monet", {
       print: (message) => output.push(message),
       update: async () =>
         Result.succeed({ kind: "up-to-date", version: "0.1.0" }),

@@ -13,7 +13,7 @@ import { pwaRoutes } from "./pwa-assets.ts";
 export class PortInUseError extends ErrorFactory({
   name: "PortInUseError",
   message: (fields) =>
-    `Port ${fields.port} is already in use. Set CC_MANABU_PORT to another port.`,
+    `Port ${fields.port} is already in use. Set MONET_PORT to another port.`,
   fields: ErrorFactory.fields<{ port: number }>(),
 }) {}
 
@@ -24,7 +24,7 @@ export class ServerStartError extends ErrorFactory({
 
 export type StartServerOptions = {
   port: number;
-  /** API に要求するアクセストークン。null ならトークンを要求しない（CC_MANABU_NO_AUTH=1、デバッグ用）。 */
+  /** API に要求するアクセストークン。null ならトークンを要求しない（MONET_NO_AUTH=1、デバッグ用）。 */
   token: string | null;
   router: Router;
   context: RouterContext;
@@ -43,7 +43,7 @@ export type RunningServer = {
 
 const placeholderIndex = () =>
   new Response(
-    "<!doctype html><meta charset=utf-8><title>cc-manabu</title><p>cc-manabu の Web UI は準備中です。</p>",
+    "<!doctype html><meta charset=utf-8><title>monet</title><p>monet の Web UI は準備中です。</p>",
     { headers: { "content-type": "text/html; charset=utf-8" } },
   );
 

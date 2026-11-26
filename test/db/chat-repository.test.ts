@@ -23,17 +23,40 @@ beforeEach(() => {
 });
 
 describe("resolveDbPath", () => {
-  test("CC_MANABU_DB を優先する", () => {
-    expect(resolveDbPath({ CC_MANABU_DB: "/x/db.sqlite", HOME: "/h" })).toBe(
+  const none = () => false;
+  test("MONET_DB を優先し、改名前の CC_MANABU_DB も読む（両方あれば新しい名前）", () => {
+    expect(resolveDbPath({ MONET_DB: "/x/db.sqlite", HOME: "/h" }, none)).toBe(
       "/x/db.sqlite",
     );
+    expect(
+      resolveDbPath({ CC_MANABU_DB: "/old/db.sqlite", HOME: "/h" }, none),
+    ).toBe("/old/db.sqlite");
+    expect(
+      resolveDbPath(
+        { MONET_DB: "/new/db.sqlite", CC_MANABU_DB: "/old/db.sqlite" },
+        none,
+      ),
+    ).toBe("/new/db.sqlite");
   });
   test("XDG_DATA_HOME（絶対パスのみ）", () => {
-    expect(resolveDbPath({ XDG_DATA_HOME: "/data", HOME: "/h" })).toBe(
-      "/data/cc-manabu/db.sqlite",
+    expect(resolveDbPath({ XDG_DATA_HOME: "/data", HOME: "/h" }, none)).toBe(
+      "/data/monet/db.sqlite",
     );
-    expect(resolveDbPath({ XDG_DATA_HOME: "rel", HOME: "/h" })).toBe(
-      "/h/.local/share/cc-manabu/db.sqlite",
+    expect(resolveDbPath({ XDG_DATA_HOME: "rel", HOME: "/h" }, none)).toBe(
+      "/h/.local/share/monet/db.sqlite",
+    );
+  });
+  test("新しい場所に DB が無く、改名前の場所にあれば、そちらを引き継ぐ（#188）", () => {
+    const only = (file: string) => (path: string) => path === file;
+    expect(
+      resolveDbPath(
+        { HOME: "/h" },
+        only("/h/.local/share/cc-manabu/db.sqlite"),
+      ),
+    ).toBe("/h/.local/share/cc-manabu/db.sqlite");
+    // 新しい場所にもあれば新しいほう
+    expect(resolveDbPath({ HOME: "/h" }, () => true)).toBe(
+      "/h/.local/share/monet/db.sqlite",
     );
   });
 });
