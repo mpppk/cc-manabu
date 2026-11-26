@@ -2047,3 +2047,31 @@ test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロ
   await box.press("ControlOrMeta+B");
   await expect(sidebar).toBeVisible();
 });
+
+test("macOS では Ctrl+B を入力欄に渡し、⌘B でサイドバーを開閉する", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "platform", { value: "MacIntel" });
+  });
+  await open(page);
+  await newChat(page);
+  const sidebar = page.getByRole("complementary", { name: "サイドバー" });
+  const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  await box.focus();
+  const defaultAllowed = await box.evaluate((input) =>
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "b",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      }),
+    ),
+  );
+  expect(defaultAllowed).toBe(true);
+  await expect(sidebar).toBeVisible();
+
+  await box.press("Meta+B");
+  await expect(sidebar).toBeHidden();
+});
