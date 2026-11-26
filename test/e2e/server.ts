@@ -37,6 +37,7 @@ import { createQueueRepository } from "../../src/db/queue-repository.ts";
 import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts";
 import { createSearchRepository } from "../../src/db/search-repository.ts";
 import { createTaskRepository } from "../../src/db/task-repository.ts";
+import { createWikiHistoryRepository } from "../../src/db/wiki-history-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import { createClaudeCode } from "../../src/provider/index.ts";
 import { router } from "../../src/router.ts";
@@ -75,6 +76,7 @@ const chats = createChatRepository(opened.value.db);
 const tasks = createTaskRepository(opened.value.db);
 const environments = createEnvironmentRepository(opened.value.db);
 const wiki = createWikiRepository(opened.value.db);
+const wikiHistory = createWikiHistoryRepository(opened.value.db);
 const queue = createQueueRepository(opened.value.db);
 const rateLimits = createRateLimitRepository(opened.value.db);
 const onRateLimit = (info: SDKRateLimitInfo) => {
@@ -152,7 +154,9 @@ const chatService = createChatService({
   approvals,
   languageModel: (modelId, options) =>
     createClaudeCode({ cwd: "/e2e", query, onRateLimit, ...options })(modelId),
-  wikiTools: createWikiToolServers({ wiki, tasks }),
+  wikiTools: createWikiToolServers({ wiki, tasks, history: wikiHistory }),
+  onWikiBatchFinish: (batchId, messageId) =>
+    wikiHistory.attachAnswer(batchId, messageId),
   wikiContext: createWikiContextBuilder(wiki, tasks),
   readWikiPage: createWikiPageReader(wiki, tasks),
   directoriesOf: (taskId) => {
@@ -206,6 +210,7 @@ const started = startServer({
     search: createSearchRepository(opened.value.db),
     rateLimits,
     preferences: createPreferencesRepository(opened.value.db),
+    wikiHistory,
     chatService,
     approvals,
     claude,

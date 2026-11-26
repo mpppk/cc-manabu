@@ -215,6 +215,7 @@ describe("migration 0012_environments", () => {
       "0012_environments",
       "0013_environment_description",
       "0014_wiki_page_qas",
+      "0015_wiki_history",
     ]);
     const db = drizzle(sqlite, { schema });
     const repo = createEnvironmentRepository(db);

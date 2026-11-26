@@ -10,6 +10,11 @@ import {
   wikiPageQas,
   wikiPages,
 } from "./schema.ts";
+import {
+  recordVersion,
+  USER_CHANGE,
+  type WikiChange,
+} from "./wiki-versions.ts";
 
 export class WikiPageNotFoundError extends ErrorFactory({
   name: "WikiPageNotFoundError",
@@ -97,38 +102,66 @@ export const createWikiRepository = (db: Db) => ({
       Result.andThen((row) => requirePage(row, pageId)),
     ),
 
+  /** ページを作り、版を記録する（#166）。 */
   createPage: (
     input: WikiPageInput & { wikiId: string; id?: string },
+    change: WikiChange = USER_CHANGE,
   ): Result.Result<WikiPageRow, DatabaseError> =>
-    run(() => {
-      const now = new Date();
-      return db
-        .insert(wikiPages)
-        .values({
-          id: input.id ?? crypto.randomUUID(),
-          wikiId: input.wikiId,
-          title: input.title,
-          aliases: input.aliases,
-          body: input.body,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .returning()
-        .get();
-    }),
+    run(() =>
+      db.transaction((tx) => {
+        const now = new Date();
+        const row = tx
+          .insert(wikiPages)
+          .values({
+            id: input.id ?? crypto.randomUUID(),
+            wikiId: input.wikiId,
+            title: input.title,
+            aliases: input.aliases,
+            body: input.body,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .returning()
+          .get();
+        recordVersion(tx, {
+          wikiId: row.wikiId,
+          pageId: row.id,
+          state: row,
+          deleted: false,
+          change,
+          batchId: change.batchId ?? crypto.randomUUID(),
+        });
+        return row;
+      }),
+    ),
 
+  /** ページを書き換え、版を記録する（#166）。 */
   updatePage: (
     pageId: string,
     input: WikiPageInput,
+    change: WikiChange = USER_CHANGE,
   ): Result.Result<WikiPageRow, WikiPageNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() =>
-        db
-          .update(wikiPages)
-          .set({ ...input, updatedAt: new Date() })
-          .where(eq(wikiPages.id, pageId))
-          .returning()
-          .get(),
+        db.transaction((tx) => {
+          const row = tx
+            .update(wikiPages)
+            .set({ ...input, updatedAt: new Date() })
+            .where(eq(wikiPages.id, pageId))
+            .returning()
+            .get();
+          if (row !== undefined) {
+            recordVersion(tx, {
+              wikiId: row.wikiId,
+              pageId: row.id,
+              state: row,
+              deleted: false,
+              change,
+              batchId: change.batchId ?? crypto.randomUUID(),
+            });
+          }
+          return row;
+        }),
       ),
       Result.andThen((row) => requirePage(row, pageId)),
     ),
@@ -143,9 +176,12 @@ export const createWikiRepository = (db: Db) => ({
     wikiId: string,
     candidates: readonly TermCandidate[],
     source: { chatId: string; messageId: string } | null,
+    /** 版に残す出どころ（既定は回答からの自動作成）。作ったページはまとめて 1 つの変更にする。 */
+    change: WikiChange = { actor: "auto" },
   ): Result.Result<WikiPageRow[], DatabaseError> =>
     run(() =>
       db.transaction((tx) => {
+        const batchId = change.batchId ?? crypto.randomUUID();
         const known = new Set(
           tx
             .select({ title: wikiPages.title, aliases: wikiPages.aliases })
@@ -182,18 +218,52 @@ export const createWikiRepository = (db: Db) => ({
               .returning()
               .get(),
           );
+          const page = created.at(-1);
+          if (page !== undefined) {
+            recordVersion(tx, {
+              wikiId,
+              pageId: page.id,
+              state: page,
+              deleted: false,
+              change: {
+                ...change,
+                chatId: change.chatId ?? source?.chatId ?? null,
+                messageId: change.messageId ?? source?.messageId ?? null,
+              },
+              batchId,
+            });
+          }
           for (const name of names) known.add(name);
         }
         return created;
       }),
     ),
 
+  /** ページを消し、削除の版を記録する（版から復元できる。#166）。 */
   deletePage: (
     pageId: string,
+    change: WikiChange = USER_CHANGE,
   ): Result.Result<WikiPageRow, WikiPageNotFoundError | DatabaseError> =>
     Result.pipe(
       run(() =>
-        db.delete(wikiPages).where(eq(wikiPages.id, pageId)).returning().get(),
+        db.transaction((tx) => {
+          const row = tx
+            .delete(wikiPages)
+            .where(eq(wikiPages.id, pageId))
+            .returning()
+            .get();
+          if (row !== undefined) {
+            recordVersion(tx, {
+              wikiId: row.wikiId,
+              pageId: row.id,
+              state: row,
+              deleted: true,
+              change,
+              batchId: change.batchId ?? crypto.randomUUID(),
+            });
+          }
+          return row;
+        }),
       ),
       Result.andThen((row) => requirePage(row, pageId)),
     ),

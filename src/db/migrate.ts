@@ -29,6 +29,9 @@ import environmentDescription from "./migrations/0013_environment_description.sq
 import wikiPageQas from "./migrations/0014_wiki_page_qas.sql" with {
   type: "text",
 };
+import wikiHistory from "./migrations/0015_wiki_history.sql" with {
+  type: "text",
+};
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -50,6 +53,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0012_environments", sql: environments },
   { name: "0013_environment_description", sql: environmentDescription },
   { name: "0014_wiki_page_qas", sql: wikiPageQas },
+  { name: "0015_wiki_history", sql: wikiHistory },
 ];
 
 /** 未適用のマイグレーションを順に適用する。 */

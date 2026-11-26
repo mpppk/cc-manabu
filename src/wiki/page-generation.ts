@@ -318,6 +318,8 @@ export const createWikiPageGenerator = (deps: {
       wikiId,
       [{ term, aliases: [], summary: body }],
       origin,
+      // 選択範囲からの作成として版に残す（#166）
+      { actor: "selection" },
     );
     if (Result.isFailure(created)) return created;
     const page = created.value[0];

@@ -44,6 +44,7 @@ import { pathForWiki } from "../lib/route.ts";
 import { describeSteps, groupSteps } from "../lib/steps.ts";
 import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { cn } from "../lib/utils.ts";
+import { AnswerWikiUndo, changedWiki } from "./answer-wiki-undo.tsx";
 import { ApprovalCard } from "./approval-card.tsx";
 import { Composer } from "./composer.tsx";
 import { Markdown, type WikiLinks } from "./markdown.tsx";
@@ -208,6 +209,7 @@ const MessageView = ({
   onOpenWikiPage,
   termMatcher,
   onBranch,
+  wikiUndo,
 }: {
   message: ChatUIMessage;
   streaming: boolean;
@@ -226,6 +228,8 @@ const MessageView = ({
   termMatcher?: (text: string) => TermMatch[];
   /** この回答から分岐する（完了した回答だけ）。 */
   onBranch?: () => void;
+  /** 回答で Claude が Wiki に加えた変更を元に戻す（タスクの会話だけ。#166）。 */
+  wikiUndo?: { api: ApiClient; onChanged: () => void };
 }) => {
   if (message.role === "user") {
     return (
@@ -406,6 +410,13 @@ const MessageView = ({
             <GitBranch className="size-3.5" />
             ここから分岐
           </Button>
+        )}
+        {!streaming && wikiUndo !== undefined && changedWiki(message) && (
+          <AnswerWikiUndo
+            api={wikiUndo.api}
+            messageId={message.id}
+            onChanged={wikiUndo.onChanged}
+          />
         )}
       </div>
     </div>
@@ -1134,6 +1145,17 @@ export const ChatView = ({
       >
         <MessageView
           message={message}
+          {...(chat.taskId === null
+            ? {}
+            : {
+                wikiUndo: {
+                  api,
+                  onChanged: () => {
+                    void refreshTerms();
+                    onActivity?.();
+                  },
+                },
+              })}
           streaming={busy && index === messages.length - 1}
           canAct={!busy && branchFrom === undefined}
           isLast={index === messages.length - 1}

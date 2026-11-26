@@ -1962,6 +1962,144 @@ test("Wiki ページへの質問と回答から Q&A を作り、ページの下�
   await expect(qas).toHaveCount(2);
 });
 
+test("ノートの変更履歴・差分・復元、元に戻す / やり直す、回答ごとの取り消し、チェックポイント（#166）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "履歴の検証");
+  const body = page.locator("[data-wiki-page-body]");
+  const openNote = async (title: string) => {
+    await openWiki(page, "履歴の検証");
+    await page
+      .getByRole("list", { name: "ノート" })
+      .getByRole("button", { name: title })
+      .click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  };
+  const editBody = async (text: string) => {
+    await page.getByRole("button", { name: "編集", exact: true }).click();
+    await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(text);
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(body).toHaveText(text);
+  };
+
+  // 利用者の作成・編集が版として残り、差分を見て任意の版に復元できる
+  await openWiki(page, "履歴の検証");
+  await page.getByRole("button", { name: "新しいノート" }).click();
+  await page.getByRole("textbox", { name: "ノートのタイトル" }).fill("委託");
+  await page.getByRole("textbox", { name: "本文（Markdown）" }).fill("v1");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(body).toHaveText("v1");
+  await editBody("v2");
+  await page.getByRole("button", { name: "履歴", exact: true }).click();
+  const history = page.getByRole("region", { name: "変更履歴" });
+  const versions = history.getByRole("list", { name: "版の一覧" });
+  await expect(versions.getByRole("listitem")).toHaveCount(2);
+  await expect(versions.getByRole("listitem").first()).toContainText(
+    "あなたの編集",
+  );
+  const diff = history.getByTestId("wiki-diff");
+  await expect(diff.locator('[data-diff="remove"]')).toHaveText("- v1");
+  await expect(diff.locator('[data-diff="add"]')).toHaveText("+ v2");
+  await versions
+    .getByRole("listitem")
+    .last()
+    .getByRole("button", { name: /の版に復元$/ })
+    .click();
+  await expect(body).toHaveText("v1");
+  await expect(versions.getByRole("listitem")).toHaveCount(3);
+  await expect(versions.getByRole("listitem").first()).toContainText("復元");
+
+  // Wiki 画面で元に戻す・やり直す
+  await page.getByRole("button", { name: "元に戻す", exact: true }).click();
+  await expect(body).toHaveText("v2");
+  await page.getByRole("button", { name: "やり直す", exact: true }).click();
+  await expect(body).toHaveText("v1");
+
+  // チェックポイントを作る
+  await page.getByRole("button", { name: "チェックポイント" }).click();
+  const checkpoints = page.getByRole("dialog", { name: "チェックポイント" });
+  await checkpoints
+    .getByRole("textbox", { name: "チェックポイントの名前" })
+    .fill("整理する前");
+  await checkpoints.getByRole("button", { name: "今の状態を残す" }).click();
+  await expect(checkpoints.getByRole("listitem")).toHaveCount(1);
+  await checkpoints.getByRole("button", { name: "閉じる" }).click();
+
+  // Claude が回答の中で Wiki を変えると、回答ごとにまとめて元に戻せる（前に自動でチェックポイントができる）
+  await openTask(page, "履歴の検証");
+  await newChat(page);
+  const main = page.getByRole("main");
+  const undoAnswer = main.getByRole("button", {
+    name: "この回答での Wiki の変更を元に戻す",
+  });
+  await send(page, "Wiki に書く: 委託|Claude が書いた");
+  await idle(page);
+  await expect(undoAnswer).toHaveCount(1);
+  await send(page, "Wiki に書く: 新語|新しいノート");
+  await idle(page);
+  const chatUrl = page.url();
+  await undoAnswer.last().click();
+  await expect(
+    main.getByRole("button", { name: "この回答での Wiki の変更をやり直す" }),
+  ).toBeVisible();
+  await openWiki(page, "履歴の検証");
+  await expect(
+    page.getByRole("list", { name: "ノート" }).getByRole("button", {
+      name: "新語",
+    }),
+  ).toHaveCount(0);
+  await openNote("委託");
+  await expect(body).toHaveText("Claude が書いた");
+  await page.getByRole("button", { name: "履歴", exact: true }).click();
+  await expect(versions.getByRole("listitem").first()).toContainText(
+    "Claude（書き換え）",
+  );
+  await expect(
+    versions.getByRole("button", { name: "元の回答を開く" }).first(),
+  ).toBeVisible();
+
+  // 後から別の変更が入ったノートは、回答の取り消しで上書きしない
+  await editBody("あとからの編集");
+  await page.goto(chatUrl);
+  // 前の回答は閉じているので開く
+  await main.getByRole("button", { name: "回答を開く" }).first().click();
+  await expect(undoAnswer.first()).toBeVisible();
+  await undoAnswer.first().click();
+  await expect(main.getByRole("alert")).toContainText("上書きしないように");
+  await openNote("委託");
+  await expect(body).toHaveText("あとからの編集");
+
+  // 削除したノートも履歴から復元できる
+  await page.getByRole("button", { name: "ノートを削除" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "削除", exact: true })
+    .click();
+  await page.getByText("削除したノート（1）").click();
+  await page
+    .getByRole("list", { name: "削除したノート" })
+    .getByRole("button", { name: "委託" })
+    .click();
+  await expect(page.getByText("このノートは削除されています。")).toBeVisible();
+  await page.getByRole("button", { name: "削除前に復元" }).click();
+  await expect(body).toHaveText("あとからの編集");
+
+  // チェックポイントへ戻すと Wiki 全体がその時点に戻り（追加・削除を含む）、元に戻せる
+  await page.getByRole("button", { name: "チェックポイント" }).click();
+  await expect(checkpoints.getByText("自動", { exact: true })).toHaveCount(2);
+  await checkpoints
+    .getByRole("button", { name: "「整理する前」の時点に戻す" })
+    .click();
+  await expect(checkpoints.getByRole("status")).toContainText(
+    "「整理する前」の時点に戻しました",
+  );
+  await checkpoints.getByRole("button", { name: "閉じる" }).click();
+  await expect(body).toHaveText("v1");
+  await page.getByRole("button", { name: "元に戻す", exact: true }).click();
+  await expect(body).toHaveText("あとからの編集");
+});
+
 test("スレッドをタイトルと本文で検索し、一致した発言へ移動できる", async ({
   page,
 }) => {

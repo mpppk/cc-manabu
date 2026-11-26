@@ -17,10 +17,12 @@ import {
   type TaskRepository,
   wikiIdOf,
 } from "../db/task-repository.ts";
+import type { WikiHistoryRepository } from "../db/wiki-history-repository.ts";
 import {
   WikiPageNotFoundError,
   type WikiRepository,
 } from "../db/wiki-repository.ts";
+import type { WikiChange } from "../db/wiki-versions.ts";
 import { normalizeTerm } from "./terms.ts";
 import { WIKI_MCP_SERVER_NAME } from "./tool-names.ts";
 
@@ -48,6 +50,27 @@ type Deps = {
     "listPages" | "getPage" | "createPage" | "updatePage"
   >;
   tasks: Pick<TaskRepository, "getTask">;
+  /** Claude が Wiki を変える前に、自動でチェックポイントを作る（#166）。 */
+  history?: Pick<WikiHistoryRepository, "createCheckpoint">;
+};
+
+/** ツールを使う会話と、回答ごとの変更のまとまり（#166）。 */
+export type WikiToolScope = {
+  taskId: string;
+  /** 変更した会話。版に残す。 */
+  chatId?: string | undefined;
+  /** この回答での変更のまとまり。回答の変更をまとめて元に戻すのに使う。 */
+  batchId?: string | undefined;
+  /** 自動のチェックポイントの名前に使う質問。 */
+  question?: string | undefined;
+};
+
+/** 自動のチェックポイントの名前。 */
+const checkpointName = (question: string | undefined): string => {
+  const text = (question ?? "").replace(/\s+/g, " ").trim();
+  const chars = [...text];
+  const short = chars.length > 30 ? `${chars.slice(0, 29).join("")}…` : text;
+  return short === "" ? "Claude の回答の前" : `Claude の回答の前（${short}）`;
 };
 
 const cleanAliases = (aliases: readonly string[]): string[] => [
@@ -113,12 +136,30 @@ const validateFields = (fields: {
  * タスクが参照する Wiki を読み書きする操作。結果は Claude に返すテキスト。
  * ほかの Wiki のページは、id を指定しても扱わない。
  */
-export const createWikiToolHandlers = (
-  deps: Deps,
-  scope: { taskId: string },
-) => {
+export const createWikiToolHandlers = (deps: Deps, scope: WikiToolScope) => {
   const wikiId = () =>
     Result.pipe(deps.tasks.getTask(scope.taskId), Result.map(wikiIdOf));
+  const batchId = scope.batchId ?? crypto.randomUUID();
+  /** 版に残す、この変更の出どころ。 */
+  const changeOf = (tool: string): WikiChange => ({
+    actor: "claude",
+    batchId,
+    chatId: scope.chatId ?? null,
+    tool,
+  });
+  let checkpointed = false;
+  /** この回答で初めて Wiki を変える前に、今の Wiki 全体をチェックポイントに残す。 */
+  const checkpointOnce = (id: string) => {
+    if (checkpointed || deps.history === undefined) return;
+    checkpointed = true;
+    deps.history.createCheckpoint({
+      wikiId: id,
+      name: checkpointName(scope.question),
+      auto: true,
+      chatId: scope.chatId ?? null,
+      batchId,
+    });
+  };
 
   const listPages = () =>
     Result.pipe(
@@ -155,6 +196,7 @@ export const createWikiToolHandlers = (
   const updateChecked = (
     page: WikiPageRow,
     fields: { title: string; aliases: string[]; body: string },
+    tool: string,
   ) =>
     Result.pipe(
       validateFields(fields),
@@ -165,14 +207,15 @@ export const createWikiToolHandlers = (
           [fields.title, ...fields.aliases],
           page.id,
         );
-        return conflict === undefined
-          ? deps.wiki.updatePage(page.id, fields)
-          : fail(
-              `「${conflict.title}」（id: ${conflict.id}）と名前（タイトルか別名）が重なります。`,
-            );
+        if (conflict !== undefined) {
+          return fail(
+            `「${conflict.title}」（id: ${conflict.id}）と名前（タイトルか別名）が重なります。`,
+          );
+        }
+        checkpointOnce(page.wikiId);
+        return deps.wiki.updatePage(page.id, fields, changeOf(tool));
       }),
     );
-
   return {
     listPages: (): Result.Result<string, WikiToolError> =>
       Result.pipe(
@@ -208,16 +251,16 @@ export const createWikiToolHandlers = (
             deps.wiki.listPages(id),
             Result.andThen((pages) => {
               const conflict = conflictOf(pages, [title, ...aliases]);
-              return conflict === undefined
-                ? deps.wiki.createPage({
-                    wikiId: id,
-                    title,
-                    aliases,
-                    body: input.body,
-                  })
-                : fail(
-                    `同じ名前のページ「${conflict.title}」（id: ${conflict.id}）があります。新しく作らずに、そのページを編集してください。`,
-                  );
+              if (conflict !== undefined) {
+                return fail(
+                  `同じ名前のページ「${conflict.title}」（id: ${conflict.id}）があります。新しく作らずに、そのページを編集してください。`,
+                );
+              }
+              checkpointOnce(id);
+              return deps.wiki.createPage(
+                { wikiId: id, title, aliases, body: input.body },
+                changeOf("create_page"),
+              );
             }),
           ),
         ),
@@ -243,14 +286,18 @@ export const createWikiToolHandlers = (
       return Result.pipe(
         pageOf(input.id),
         Result.andThen((page) =>
-          updateChecked(page, {
-            title: input.title?.trim() ?? page.title,
-            aliases:
-              input.aliases === undefined
-                ? page.aliases
-                : cleanAliases(input.aliases),
-            body: input.body ?? page.body,
-          }),
+          updateChecked(
+            page,
+            {
+              title: input.title?.trim() ?? page.title,
+              aliases:
+                input.aliases === undefined
+                  ? page.aliases
+                  : cleanAliases(input.aliases),
+              body: input.body ?? page.body,
+            },
+            "update_page",
+          ),
         ),
         Result.map(
           (page) => `ページ「${page.title}」を更新しました（id: ${page.id}）。`,
@@ -290,11 +337,11 @@ export const createWikiToolHandlers = (
             input.replace_all === true
               ? page.body.split(input.old_string).join(input.new_string)
               : page.body.replace(input.old_string, () => input.new_string);
-          return updateChecked(page, {
-            title: page.title,
-            aliases: page.aliases,
-            body,
-          });
+          return updateChecked(
+            page,
+            { title: page.title, aliases: page.aliases, body },
+            "edit_page",
+          );
         }),
         Result.map(
           (page) =>
@@ -427,10 +474,9 @@ export const createWikiMcpServer = (
  */
 export const createWikiToolServers =
   (deps: Deps) =>
-  (scope: {
-    taskId: string;
-    pageId: string | null;
-  }): Record<string, McpServerConfig> => {
+  (
+    scope: WikiToolScope & { pageId: string | null },
+  ): Record<string, McpServerConfig> => {
     const handlers = createWikiToolHandlers(deps, scope);
     const page =
       scope.pageId === null ? undefined : deps.wiki.getPage(scope.pageId);

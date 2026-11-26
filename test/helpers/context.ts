@@ -18,6 +18,7 @@ import { createQueueRepository } from "../../src/db/queue-repository.ts";
 import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts";
 import { createSearchRepository } from "../../src/db/search-repository.ts";
 import { createTaskRepository } from "../../src/db/task-repository.ts";
+import { createWikiHistoryRepository } from "../../src/db/wiki-history-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import {
   createClaudeCode,
@@ -58,6 +59,7 @@ export const createTestContext = (
   const tasks = createTaskRepository(opened.value.db);
   const environments = createEnvironmentRepository(opened.value.db);
   const wiki = createWikiRepository(opened.value.db);
+  const wikiHistory = createWikiHistoryRepository(opened.value.db);
   const queue = createQueueRepository(opened.value.db);
   const rateLimits = createRateLimitRepository(opened.value.db);
   const onRateLimit = (info: SDKRateLimitInfo) => {
@@ -110,7 +112,9 @@ export const createTestContext = (
         onRateLimit,
         ...(mcpServers === undefined ? {} : { mcpServers }),
       })(modelId),
-    wikiTools: createWikiToolServers({ wiki, tasks }),
+    wikiTools: createWikiToolServers({ wiki, tasks, history: wikiHistory }),
+    onWikiBatchFinish: (batchId, messageId) =>
+      wikiHistory.attachAnswer(batchId, messageId),
     wikiContext: createWikiContextBuilder(wiki, tasks),
     readWikiPage: createWikiPageReader(wiki, tasks),
     directoriesOf: (taskId) => {
@@ -164,6 +168,7 @@ export const createTestContext = (
     search: createSearchRepository(opened.value.db),
     rateLimits,
     preferences: createPreferencesRepository(opened.value.db),
+    wikiHistory,
     chatService,
     approvals,
     claude,
@@ -189,6 +194,7 @@ export const createTestContext = (
     tasks,
     environments,
     wiki,
+    wikiHistory,
     queue,
     rateLimits,
     termJobs,

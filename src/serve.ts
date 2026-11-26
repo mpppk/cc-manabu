@@ -31,6 +31,7 @@ import { createQueueRepository } from "./db/queue-repository.ts";
 import { createRateLimitRepository } from "./db/rate-limit-repository.ts";
 import { createSearchRepository } from "./db/search-repository.ts";
 import { createTaskRepository } from "./db/task-repository.ts";
+import { createWikiHistoryRepository } from "./db/wiki-history-repository.ts";
 import { createWikiRepository } from "./db/wiki-repository.ts";
 import { createDirectoryPicker } from "./environment/directory-picker.ts";
 import { CliExit } from "./errors/index.ts";
@@ -93,6 +94,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       // 移行で作った、会話の無かった環境は、起動したディレクトリを使う
       environments.fillEmptyDirectories(process.cwd());
       const wiki = createWikiRepository(db);
+      const wikiHistory = createWikiHistoryRepository(db);
       const queue = createQueueRepository(db);
       const rateLimits = createRateLimitRepository(db);
       const onRateLimit = (info: SDKRateLimitInfo) => {
@@ -215,7 +217,13 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         approvals,
         languageModel: (modelId, options) =>
           createClaudeCode({ ...providerSettings, ...options })(modelId),
-        wikiTools: createWikiToolServers({ wiki, tasks }),
+        wikiTools: createWikiToolServers({
+          wiki,
+          tasks,
+          history: wikiHistory,
+        }),
+        onWikiBatchFinish: (batchId, messageId) =>
+          wikiHistory.attachAnswer(batchId, messageId),
         wikiContext: createWikiContextBuilder(wiki, tasks),
         readWikiPage: createWikiPageReader(wiki, tasks),
         directoriesOf: (taskId) => {
@@ -254,6 +262,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
             search: createSearchRepository(db),
             rateLimits,
             preferences: createPreferencesRepository(db),
+            wikiHistory,
             chatService,
             approvals,
             claude,
