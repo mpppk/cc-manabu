@@ -47,6 +47,7 @@ export const insertEnvironment = (
   input: {
     name: string;
     directories: string[];
+    description?: string;
     wikiId?: string;
     id?: string;
   },
@@ -68,6 +69,7 @@ export const insertEnvironment = (
       name: input.name,
       wikiId,
       directories: input.directories,
+      description: input.description ?? "",
       createdAt: now,
       updatedAt: now,
     })
@@ -127,6 +129,20 @@ export const createEnvironmentRepository = (db: Db) => {
         Result.andThen((row) => requireEnvironment(row, environmentId)),
       ),
 
+    /** タスクが属する環境の説明（#160）。タスクか環境が無ければ undefined。 */
+    descriptionOfTask: (
+      taskId: string,
+    ): Result.Result<string | undefined, DatabaseError> =>
+      run(
+        () =>
+          db
+            .select({ description: environments.description })
+            .from(tasks)
+            .innerJoin(environments, eq(environments.id, tasks.environmentId))
+            .where(eq(tasks.id, taskId))
+            .get()?.description,
+      ),
+
     /** タスクが属する環境のディレクトリ。タスクか環境が無ければ undefined。 */
     directoriesOfTask: (
       taskId: string,
@@ -144,6 +160,7 @@ export const createEnvironmentRepository = (db: Db) => {
     createEnvironment: (input: {
       name: string;
       directories: string[];
+      description?: string;
       wikiId?: string;
       id?: string;
     }): Result.Result<EnvironmentRow, WikiNotFoundError | DatabaseError> =>
@@ -159,12 +176,17 @@ export const createEnvironmentRepository = (db: Db) => {
       ),
 
     /**
-     * 名前・ディレクトリ・参照する Wiki を変える（指定した項目だけ）。
+     * 名前・ディレクトリ・説明・参照する Wiki を変える（指定した項目だけ）。
      * Wiki を変えると、属するタスクの Wiki も合わせる。元の Wiki はページごと残る。
      */
     updateEnvironment: (
       environmentId: string,
-      input: { name?: string; directories?: string[]; wikiId?: string },
+      input: {
+        name?: string;
+        directories?: string[];
+        description?: string;
+        wikiId?: string;
+      },
     ): Result.Result<
       EnvironmentRow,
       EnvironmentNotFoundError | WikiNotFoundError | DatabaseError
@@ -183,6 +205,9 @@ export const createEnvironmentRepository = (db: Db) => {
                 ...(input.directories === undefined
                   ? {}
                   : { directories: input.directories }),
+                ...(input.description === undefined
+                  ? {}
+                  : { description: input.description }),
                 ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
                 updatedAt: now,
               })

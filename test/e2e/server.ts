@@ -89,6 +89,10 @@ const termModel = createClaudeCode({
 const writeTermPages = createTermPageWriter({
   tasks,
   wiki,
+  descriptionOf: (taskId) => {
+    const description = environments.descriptionOfTask(taskId);
+    return Result.isSuccess(description) ? description.value : undefined;
+  },
   extract: async (prompt) =>
     (await generateText({ model: termModel, prompt })).text,
 });

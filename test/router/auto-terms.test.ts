@@ -154,6 +154,52 @@ describe("回答からの用語ページの自動作成", () => {
     expect(await client.wiki.list({ taskId: task.id })).toEqual([]);
   });
 
+  test("回答したタスクの環境の説明を用語抽出に渡す。Wiki を共有していても環境ごと（#160）", async () => {
+    const { client, termJobs, prompts } = setup();
+    const privacy = await client.environments.create({
+      name: "個人情報",
+      directories: [process.cwd()],
+      description: "個人情報の取扱いを検討する",
+    });
+    const shared = await client.environments.create({
+      name: "共有先",
+      directories: [process.cwd()],
+      wikiId: privacy.wikiId,
+    });
+    const privacyTask = await client.tasks.create({
+      name: "検討",
+      environmentId: privacy.id,
+    });
+    const sharedTask = await client.tasks.create({
+      name: "共有",
+      environmentId: shared.id,
+    });
+
+    const first = await client.chats.create({ taskId: privacyTask.id });
+    await send(client, first.id, "仮名加工情報と Claude Artifact");
+    await Promise.all(termJobs);
+    expect(prompts.at(-1)).toContain(
+      "<environment-description>\n個人情報の取扱いを検討する\n</environment-description>",
+    );
+
+    // 説明が空欄の環境では、説明を渡さない（従来どおり）
+    const second = await client.chats.create({ taskId: sharedTask.id });
+    await send(client, second.id, "関係タプルとは");
+    await Promise.all(termJobs);
+    expect(prompts.at(-1)).toContain("関係タプルとは");
+    expect(prompts.at(-1)).not.toContain("<environment-description>");
+
+    // 説明を変えると、次の抽出から使う
+    await client.environments.update({
+      id: shared.id,
+      description: "認可の設計を検討する",
+    });
+    await send(client, second.id, "関係タプルの例");
+    await Promise.all(termJobs);
+    expect(prompts.at(-1)).toContain("認可の設計を検討する");
+    expect(prompts.at(-1)).not.toContain("個人情報の取扱いを検討する");
+  });
+
   test("途中で止めた回答・エラーになった回答では作らない", async () => {
     const failing: QueryFunction = () => {
       throw new Error("boom");

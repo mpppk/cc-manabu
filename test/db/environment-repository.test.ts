@@ -211,7 +211,10 @@ describe("migration 0012_environments", () => {
         ('c3', '未所属', '/other', NULL, 3000)`,
     );
 
-    expect(runMigrations(sqlite)).toEqual(["0012_environments"]);
+    expect(runMigrations(sqlite)).toEqual([
+      "0012_environments",
+      "0013_environment_description",
+    ]);
     const db = drizzle(sqlite, { schema });
     const repo = createEnvironmentRepository(db);
     expect(unwrap(repo.listEnvironments())).toMatchObject([

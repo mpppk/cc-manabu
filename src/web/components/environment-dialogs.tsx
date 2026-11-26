@@ -8,6 +8,8 @@ import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 export type EnvironmentInput = {
   name: string;
   directories: string[];
+  /** 環境の目的や扱うテーマ（空欄でもよい）。 */
+  description: string;
   wikiId?: string;
 };
 
@@ -198,6 +200,7 @@ const EnvironmentFormDialog = ({
 }) => {
   const [name, setName] = useState("");
   const [directories, setDirectories] = useState<string[]>([]);
+  const [description, setDescription] = useState("");
   const [useExisting, setUseExisting] = useState(false);
   const [wikiId, setWikiId] = useState("");
   const [wikiName, setWikiName] = useState("");
@@ -213,6 +216,7 @@ const EnvironmentFormDialog = ({
         environment?.directories ??
           (defaultDirectory === undefined ? [] : [defaultDirectory]),
       );
+      setDescription(environment?.description ?? "");
       setUseExisting(environment !== undefined);
       setWikiId(environment?.wikiId ?? wikis[0]?.id ?? "");
       setWikiName(environment?.wikiName ?? "");
@@ -238,6 +242,7 @@ const EnvironmentFormDialog = ({
       await onSubmit({
         name: name.trim(),
         directories,
+        description: description.trim(),
         ...(chosenWiki === undefined ? {} : { wikiId: chosenWiki.id }),
         ...(editing ? { wikiName: wikiName.trim() } : {}),
       });
@@ -272,6 +277,21 @@ const EnvironmentFormDialog = ({
           onChange={setDirectories}
           onPick={onPickDirectory}
         />
+        <label className="grid min-w-0 grid-cols-1 gap-1 text-sm">
+          <span className="font-medium">説明（任意）</span>
+          <textarea
+            className="min-h-16 resize-y rounded-md border bg-background px-3 py-2 text-sm"
+            aria-label="環境の説明"
+            placeholder="例: 個人情報の取扱いを検討する"
+            maxLength={2000}
+            rows={3}
+            value={description}
+            onChange={(event) => setDescription(event.target.value)}
+          />
+          <span className="text-muted-foreground text-xs">
+            環境の目的や扱うテーマ。回答から用語ページを自動作成するとき、このテーマに沿った語を選びます。
+          </span>
+        </label>
         <fieldset className="grid min-w-0 grid-cols-1 gap-2 text-sm">
           <legend className="mb-1 font-medium">Wiki</legend>
           {!editing && (

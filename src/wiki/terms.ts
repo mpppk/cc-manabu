@@ -40,6 +40,7 @@ export const TERM_EXTRACTION_SYSTEM_PROMPT = [
   "ルール:",
   "- 回答本文に実際に出てくる表記のまま term に書く（言い換えない）",
   "- 一般的すぎる語（例: データ、方法、設定）や、既存の用語は選ばない",
+  "- <environment-description> があれば、それは用語集を使う環境の目的や検討テーマ。そのテーマに照らして Wiki に残す価値のある語だけを選び、テーマと関係なく道具・手段として触れただけの語（例: 資料の作成に使ったツール）は選ばない",
   `- 多くても ${MAX_NEW_TERMS} 語。該当がなければ空配列`,
   `- summary は回答の内容に基づく 1〜2 文の日本語の説明（${MAX_SUMMARY_LENGTH} 文字以内）`,
   "- aliases は回答に出てくる別表記（英語名など）。無ければ空配列",
@@ -67,9 +68,18 @@ export const buildTermExtractionPrompt = (input: {
   question: string;
   answer: string;
   existing: readonly string[];
+  /** 回答した環境の説明（#160）。空なら渡さない（従来どおり質問と回答から選ぶ）。 */
+  description?: string;
 }): string =>
   [
     "<term-extraction>",
+    ...(input.description === undefined || input.description.trim() === ""
+      ? []
+      : [
+          "<environment-description>",
+          input.description.trim(),
+          "</environment-description>",
+        ]),
     "<existing-terms>",
     input.existing.join("\n") || "（なし）",
     "</existing-terms>",

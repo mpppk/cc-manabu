@@ -23,6 +23,9 @@ import tasks from "./migrations/0011_tasks.sql" with { type: "text" };
 import environments from "./migrations/0012_environments.sql" with {
   type: "text",
 };
+import environmentDescription from "./migrations/0013_environment_description.sql" with {
+  type: "text",
+};
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -42,6 +45,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0010_wiki_page_chats", sql: wikiPageChats },
   { name: "0011_tasks", sql: tasks },
   { name: "0012_environments", sql: environments },
+  { name: "0013_environment_description", sql: environmentDescription },
 ];
 
 /** 未適用のマイグレーションを順に適用する。 */

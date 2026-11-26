@@ -115,6 +115,10 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       const writeTermPages = createTermPageWriter({
         tasks,
         wiki,
+        descriptionOf: (taskId) => {
+          const description = environments.descriptionOfTask(taskId);
+          return Result.isSuccess(description) ? description.value : undefined;
+        },
         extract: async (prompt) =>
           (await generateText({ model: termModel, prompt, reasoning: "none" }))
             .text,

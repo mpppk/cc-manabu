@@ -88,3 +88,21 @@ describe("isPageTerm", () => {
     expect(isPageTerm("あ".repeat(41))).toBe(false);
   });
 });
+
+test("環境の説明があればプロンプトに入れ、空欄なら入れない（#160）", () => {
+  const base = { question: "q", answer: "a", existing: [] };
+  expect(
+    buildTermExtractionPrompt({
+      ...base,
+      description: " 個人情報の取扱いを検討する ",
+    }),
+  ).toContain(
+    "<environment-description>\n個人情報の取扱いを検討する\n</environment-description>",
+  );
+  expect(
+    buildTermExtractionPrompt({ ...base, description: "  " }),
+  ).not.toContain("<environment-description>");
+  expect(buildTermExtractionPrompt(base)).not.toContain(
+    "<environment-description>",
+  );
+});

@@ -81,7 +81,17 @@ export const createTestContext = (
   const writeTermPages =
     options.extract === undefined
       ? undefined
-      : createTermPageWriter({ tasks, wiki, extract: options.extract });
+      : createTermPageWriter({
+          tasks,
+          wiki,
+          extract: options.extract,
+          descriptionOf: (taskId) => {
+            const description = environments.descriptionOfTask(taskId);
+            return Result.isSuccess(description)
+              ? description.value
+              : undefined;
+          },
+        });
   /** 回答後に走った要約（テストで完了を待つ）。 */
   const summaryJobs: Promise<unknown>[] = [];
   const summarizeAnswer =

@@ -196,7 +196,13 @@ const toTaskDto = (row: TaskRow): TaskDto => ({
 /** クライアントに返す環境。 */
 export type EnvironmentDto = Pick<
   EnvironmentSummary,
-  "id" | "name" | "wikiId" | "wikiName" | "directories" | "taskCount"
+  | "id"
+  | "name"
+  | "wikiId"
+  | "wikiName"
+  | "directories"
+  | "description"
+  | "taskCount"
 >;
 
 const toEnvironmentDto = (row: EnvironmentSummary): EnvironmentDto => ({
@@ -205,6 +211,7 @@ const toEnvironmentDto = (row: EnvironmentSummary): EnvironmentDto => ({
   wikiId: row.wikiId,
   wikiName: row.wikiName,
   directories: row.directories,
+  description: row.description,
   taskCount: row.taskCount,
 });
 
@@ -214,6 +221,8 @@ const directoriesInput = z
   .array(z.string().trim().min(1).max(4096))
   .min(1)
   .max(20);
+/** 環境の目的や扱うテーマ（任意。空欄でもよい）。 */
+const environmentDescription = z.string().trim().max(2000);
 
 /** 環境を 1 件、一覧と同じ形（Wiki の名前・タスクの数つき）で返す。 */
 const environmentDto = (
@@ -435,6 +444,7 @@ export const router = {
         z.object({
           name: environmentName,
           directories: directoriesInput,
+          description: environmentDescription.optional(),
           wikiId: z.string().min(1).optional(),
         }),
       )
@@ -446,6 +456,9 @@ export const router = {
               context.environments.createEnvironment({
                 name: input.name,
                 directories,
+                ...(input.description === undefined
+                  ? {}
+                  : { description: input.description }),
                 ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
               }),
             ),
@@ -455,7 +468,7 @@ export const router = {
         ),
       ),
     /**
-     * 名前・ディレクトリ・参照する Wiki を変える（指定した項目だけ）。
+     * 名前・ディレクトリ・説明・参照する Wiki を変える（指定した項目だけ）。
      * ディレクトリの先頭を変えても、作業ディレクトリは新しいスレッドからしか変わらない。
      */
     update: base
@@ -464,6 +477,7 @@ export const router = {
           id: z.string().min(1),
           name: environmentName.optional(),
           directories: directoriesInput.optional(),
+          description: environmentDescription.optional(),
           wikiId: z.string().min(1).optional(),
         }),
       )
@@ -477,6 +491,9 @@ export const router = {
               context.environments.updateEnvironment(input.id, {
                 ...(input.name === undefined ? {} : { name: input.name }),
                 ...(directories === undefined ? {} : { directories }),
+                ...(input.description === undefined
+                  ? {}
+                  : { description: input.description }),
                 ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
               }),
             ),
