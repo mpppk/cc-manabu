@@ -344,15 +344,12 @@ export const App = ({ api }: { api: ApiClient }) => {
   };
   const models = status?.claude.state === "ready" ? status.claude.models : [];
   const workspace = chatViewId === undefined ? undefined : current;
-  /** 会話の作業ディレクトリのほかに扱える、環境のディレクトリ。 */
-  const extraDirectoriesOf = (chat: ChatDto): string[] => {
+  /** 会話が属するタスクの環境（未所属なら undefined）。 */
+  const environmentOf = (chat: ChatDto): EnvironmentDto | undefined => {
     const environmentId = tasks?.find(
       (item) => item.id === chat.taskId,
     )?.environmentId;
-    return (
-      environments.find((environment) => environment.id === environmentId)
-        ?.directories ?? []
-    ).filter((directory) => directory !== chat.cwd);
+    return environments.find((environment) => environment.id === environmentId);
   };
   const workspaceGroup =
     chats.find((chat) => chat.id === chatViewId)?.groupId ??
@@ -538,7 +535,7 @@ export const App = ({ api }: { api: ApiClient }) => {
                 loading={workspace.chat.id !== chatViewId}
                 models={models}
                 cwd={workspace.chat.cwd}
-                extraDirectories={extraDirectoriesOf(workspace.chat)}
+                environment={environmentOf(workspace.chat)}
                 onActivity={refreshAfterActivity}
                 branches={chats.filter(
                   (chat) => chat.groupId === workspace.chat.groupId,

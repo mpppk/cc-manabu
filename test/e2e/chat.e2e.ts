@@ -1185,6 +1185,49 @@ test("チャットからタスクの進捗と関連リンクを更新し、タ�
   await idle(page);
 });
 
+test("入力欄の下に所属環境の名前を出し、押すと詳細を開く（#192）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "環境表示の検証");
+  await newChat(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const button = main.getByRole("button", {
+    name: "環境: 環境表示の検証（詳細を開く）",
+  });
+  await expect(button).toBeVisible();
+  // 作業ディレクトリ名ではなく、環境名を出す
+  await expect(button).toHaveText("環境表示の検証");
+
+  await button.click();
+  const details = main.getByRole("dialog", {
+    name: "環境「環境表示の検証」の詳細",
+  });
+  await expect(details).toContainText("説明（なし）");
+  await expect(details).toContainText("参照する Wiki環境表示の検証");
+  await expect(details).toContainText("/e2e（既定の作業ディレクトリ）");
+  await expect(details).not.toContainText("このスレッドの作業ディレクトリ");
+  // 閉じると入力を続けられる
+  await page.keyboard.press("Escape");
+  await expect(details).toHaveCount(0);
+  await expect(button).toBeFocused();
+  const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  await box.fill("続けて入力");
+  await expect(box).toHaveValue("続けて入力");
+  await box.fill("");
+
+  // 別の環境のスレッドに切り替えると、環境名も変わる
+  await createTask(page, "別環境の検証");
+  await newChat(page);
+  await expect(
+    main.getByRole("button", { name: "環境: 別環境の検証（詳細を開く）" }),
+  ).toBeVisible();
+
+  // 未所属のスレッドには環境名を出さない
+  await newUnassignedChat(page);
+  await expect(main.getByRole("button", { name: /^環境: / })).toHaveCount(0);
+});
+
 test("タスクの進捗を記録し、一覧で状態ごとに確認できる", async ({ page }) => {
   await open(page);
   const status = page.getByRole("combobox", { name: "状態" });
@@ -2782,11 +2825,15 @@ test("環境のタスクは Wiki を共有し、サイドバーで環境ごと�
   // 環境のスレッドは、選んだディレクトリで動く
   await rowAction(taskRow(page, "共有先"), "「共有先」に新しいスレッド");
   await expect(page).toHaveURL(/\/c\/.+/);
+  // 入力欄の下に環境名を出し、詳細に選んだディレクトリが出る（#192）
+  const mainChat = page.getByRole("region", { name: "メインのチャット" });
+  await mainChat
+    .getByRole("button", { name: "環境: 共通環境（詳細を開く）" })
+    .click();
   await expect(
-    page
-      .getByRole("region", { name: "メインのチャット" })
-      .locator(`[title="${picked}"]`),
-  ).toBeVisible();
+    mainChat.getByRole("dialog", { name: "環境「共通環境」の詳細" }),
+  ).toContainText(`${picked}（既定の作業ディレクトリ）`);
+  await page.keyboard.press("Escape");
 
   // タスクを別の環境に移すと、その環境の下に移る
   await openTaskMenu(page, "共有先", "タスクの設定");
