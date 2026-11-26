@@ -1139,6 +1139,52 @@ test("タスク内のスレッドでは、保存したタスクの情報が Clau
   await idle(page);
 });
 
+test("チャットからタスクの進捗と関連リンクを更新し、タスク画面で確認できる（#187）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "ツール更新の検証");
+  const status = page.getByRole("combobox", { name: "状態" });
+  const nextAction = page.getByRole("textbox", { name: "次にやること" });
+  const links = page.getByRole("list", { name: "関連リンク" });
+  await page.getByRole("textbox", { name: "進捗メモ" }).fill("設計を進めた");
+  await page.getByRole("button", { name: "進捗を保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+
+  await newChat(page);
+  const chatUrl = page.url();
+  await send(page, "タスクを更新: in_progress|API 仕様をレビューする");
+  await expect(page.getByText("進捗を反映しました。")).toBeVisible();
+  await idle(page);
+  await send(page, "リンクを追加: https://example.com/spec|仕様書");
+  await expect(page.getByText("リンクを登録しました。")).toBeVisible();
+  await idle(page);
+  // 不正な URL は追加しない
+  await send(page, "リンクを追加: javascript:alert(1)|だめなリンク");
+  await idle(page);
+
+  // 指定した項目だけがタスク画面に反映される
+  await openTask(page, "ツール更新の検証");
+  await expect(status).toHaveValue("in_progress");
+  await expect(nextAction).toHaveValue("API 仕様をレビューする");
+  await expect(page.getByRole("textbox", { name: "進捗メモ" })).toHaveValue(
+    "設計を進めた",
+  );
+  await expect(links.getByRole("link")).toHaveCount(1);
+  await expect(links.getByRole("link", { name: /仕様書/ })).toHaveAttribute(
+    "href",
+    "https://example.com/spec",
+  );
+
+  // 次の回答に使うタスク情報にも反映される
+  await page.goto(chatUrl);
+  await send(page, "タスクの情報を教えて");
+  const answer = page.locator("[data-assistant-message]").last();
+  await expect(answer).toContainText("状態: 進行中");
+  await expect(answer).toContainText("仕様書: https://example.com/spec");
+  await idle(page);
+});
+
 test("タスクの進捗を記録し、一覧で状態ごとに確認できる", async ({ page }) => {
   await open(page);
   const status = page.getByRole("combobox", { name: "状態" });

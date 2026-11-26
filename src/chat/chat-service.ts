@@ -219,6 +219,13 @@ export const createChatService = (deps: {
    * （batchId）に回答の id を付ける（回答ごとに元に戻すのに使う。#166）。
    */
   onWikiBatchFinish?: (batchId: string, messageId: string) => void;
+  /**
+   * タスクの会話で、Claude が所属タスクの進捗と関連リンクを更新する MCP サーバ（#187）。
+   * 更新先は会話の所属タスクに決まる。タスクに属さない会話には渡さない。
+   */
+  taskTools?: (scope: {
+    taskId: string;
+  }) => Record<string, McpServerConfig> | undefined;
   /** タスクの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
   /**
@@ -320,17 +327,22 @@ export const createChatService = (deps: {
             params.chatId,
             (chunk) => writer.write(chunk),
           );
-          // タスクの会話では、Claude がタスクの Wiki を読み書きできる
-          const mcpServers =
+          // タスクの会話では、Claude がタスクの Wiki と、タスクの進捗・関連リンクを読み書きできる
+          const servers =
             params.taskId === null
-              ? undefined
-              : deps.wikiTools?.({
-                  taskId: params.taskId,
-                  pageId: params.wikiPageId,
-                  chatId: params.chatId,
-                  batchId: wikiBatchId,
-                  question: params.question,
-                });
+              ? []
+              : [
+                  deps.wikiTools?.({
+                    taskId: params.taskId,
+                    pageId: params.wikiPageId,
+                    chatId: params.chatId,
+                    batchId: wikiBatchId,
+                    question: params.question,
+                  }),
+                  deps.taskTools?.({ taskId: params.taskId }),
+                ].filter((server) => server !== undefined);
+          const mcpServers =
+            servers.length === 0 ? undefined : Object.assign({}, ...servers);
           // タスクの情報と Wiki の参照資料は、質問とは別のブロックで渡す（DB の発話には保存しない）
           const context = [
             params.taskId === null

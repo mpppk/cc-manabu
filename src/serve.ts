@@ -45,7 +45,9 @@ import {
   type InstalledPwa,
   openPwa,
 } from "./server/open-pwa.ts";
+import { closePwaOnExit, trackPwaWindow } from "./server/pwa-window.ts";
 import { openBrowser, PortInUseError, startServer } from "./server/server.ts";
+import { createTaskToolServers } from "./task/tools.ts";
 import index from "./web/index.html";
 import { createTermPageWriter } from "./wiki/auto-terms.ts";
 import {
@@ -218,6 +220,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         approvals,
         languageModel: (modelId, options) =>
           createClaudeCode({ ...providerSettings, ...options })(modelId),
+        taskTools: createTaskToolServers({ tasks }),
         wikiTools: createWikiToolServers({
           wiki,
           tasks,
@@ -314,8 +317,19 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       ? undefined
       : { profile: installedPwa.profile, appId: installedPwa.appId });
   if (pwa !== undefined) {
+    // 起動前のウィンドウを覚えておき、今回開いた PWA のウィンドウを Ctrl+C で閉じる（#182）
+    const tracker =
+      process.platform === "darwin"
+        ? await trackPwaWindow(new URL("/", server.url).href)
+        : undefined;
     const launch = await openPwa(server.url, pwa);
-    if (Result.isSuccess(launch)) return;
+    if (Result.isSuccess(launch)) {
+      if (tracker !== undefined) {
+        void tracker.findLaunched();
+        closePwaOnExit(tracker);
+      }
+      return;
+    }
     console.warn(
       `PWA を開けませんでした。 ${launch.error.message} 通常のブラウザで開きます。`,
     );

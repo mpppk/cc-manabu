@@ -26,6 +26,7 @@ import {
   type QueryFunction,
 } from "../../src/provider/index.ts";
 import type { RouterContext } from "../../src/router.ts";
+import { createTaskToolServers } from "../../src/task/tools.ts";
 import { createTermPageWriter } from "../../src/wiki/auto-terms.ts";
 import {
   createWikiContextBuilder,
@@ -118,6 +119,7 @@ export const createTestContext = (
         onRateLimit,
         ...(mcpServers === undefined ? {} : { mcpServers }),
       })(modelId),
+    taskTools: createTaskToolServers({ tasks }),
     wikiTools: createWikiToolServers({ wiki, tasks, history: wikiHistory }),
     onWikiBatchFinish: (batchId, messageId) =>
       wikiHistory.attachAnswer(batchId, messageId),
