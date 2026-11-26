@@ -429,6 +429,7 @@ export const ChatWorkspace = ({
             }
             onOpenSideBranch={(id) => openSide({ kind: "branch", id })}
             onOpenWikiPane={openWikiPane}
+            showRateLimit
           />
         )}
       </section>

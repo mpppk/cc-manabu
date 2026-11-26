@@ -9,7 +9,7 @@ test("CC_MANABU_NO_AUTH=1 のサーバは、トークン付きの URL でなく�
   const context = await browser.newContext();
   const page = await context.newPage();
   await page.goto(`${NO_AUTH_BASE}/`);
-  await expect(page.getByText("Claude Code 0.0.0-e2e")).toBeVisible();
+  await expect(page.locator('main[data-claude-state="ready"]')).toBeVisible();
   await expect(page.getByText("アクセス用のトークンがありません")).toHaveCount(
     0,
   );

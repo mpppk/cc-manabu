@@ -119,3 +119,44 @@ export const describeRateLimit = (
     details,
   };
 };
+
+/** 週間（7 日間）の枠。 */
+const WEEKLY_TYPES = ["seven_day", "seven_day_overage_included"];
+
+/**
+ * メインの入力欄の下に出す利用枠（#170）。週間（7 日間）の枠の利用率とリセット時刻を優先して出す。
+ * 5 時間枠などが上限に近いときは、その枠も添えて注意を促す。週間の枠が無ければ describeRateLimit と同じ。
+ */
+export const describeWeeklyRateLimit = (
+  snapshot: RateLimitSnapshot,
+  now: number,
+): RateLimitView => {
+  const overall = describeRateLimit(snapshot, now);
+  if (overall.tone === "danger") return overall;
+  const current = snapshot.windows.filter(
+    (w) => isCurrent(w, now) && w.utilization !== null,
+  );
+  const weekly = current.find((w) => WEEKLY_TYPES.includes(w.type));
+  if (weekly === undefined || weekly.utilization === null) return overall;
+  const isWarning = (w: RateLimitWindow) =>
+    (w.utilization ?? 0) >= WARNING_UTILIZATION ||
+    w.status === "allowed_warning" ||
+    w.status === "rejected";
+  const others = current.filter((w) => w !== weekly && isWarning(w));
+  return {
+    label: `${windowLabel(weekly.type)}枠 ${percent(weekly.utilization)}${
+      weekly.resetsAt === null
+        ? ""
+        : `・${formatResetTime(weekly.resetsAt, now)} にリセット`
+    }${others
+      .map((w) => `（${windowLabel(w.type)}枠 ${percent(w.utilization ?? 0)}）`)
+      .join("")}`,
+    short: `週 ${percent(weekly.utilization)}${
+      weekly.resetsAt === null
+        ? ""
+        : `・${formatResetTime(weekly.resetsAt, now)} リセット`
+    }${others.length > 0 ? "（注意）" : ""}`,
+    tone: isWarning(weekly) || others.length > 0 ? "warning" : "normal",
+    details: overall.details,
+  };
+};

@@ -390,6 +390,7 @@ export const Sidebar = ({
   onSetAutoTerms,
   onSetTaskEnvironment,
   onOpenTaskList,
+  onOpenGeneralSettings,
   onSearch,
   onOpenSearchHit,
 }: {
@@ -442,6 +443,8 @@ export const Sidebar = ({
     environmentId: string,
   ) => Promise<void>;
   onOpenTaskList: () => void;
+  /** 設定の「一般」を開く（#170）。 */
+  onOpenGeneralSettings: () => void;
   /** スレッドを検索する（#115）。 */
   onSearch: (q: string) => Promise<SearchResult>;
   /** 検索結果を開く。messageId があればその発言へ移動する。 */
@@ -695,6 +698,18 @@ export const Sidebar = ({
           >
             <Search />
           </Button>
+          <DropdownMenu
+            label="設定"
+            icon={<Settings />}
+            triggerClassName="size-9"
+            items={[
+              {
+                label: "一般",
+                icon: <SlidersHorizontal />,
+                onSelect: onOpenGeneralSettings,
+              },
+            ]}
+          />
         </div>
       </div>
       {searchOpen && (
