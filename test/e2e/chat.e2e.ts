@@ -779,7 +779,11 @@ test("回答から用語ノートが自動で作られ、編集を保ち、設�
   await send(page, "「止めたあとの語」について");
   await idle(page);
   await openTermsWiki();
-  await expect(page.getByText("自動作成: オフ")).toBeVisible();
+  await page.getByRole("button", { name: "Wiki の概要" }).click();
+  await expect(page.getByRole("dialog", { name: "Wiki の概要" })).toContainText(
+    "回答からの用語ノートの自動作成: オフ",
+  );
+  await page.keyboard.press("Escape");
   await page.waitForTimeout(500);
   await page.reload();
   await expect(wikiPages.getByText("関係タプル")).toBeVisible();
@@ -3042,12 +3046,47 @@ test("環境のタスクは Wiki を共有し、サイドバーで環境ごと�
   await page.getByRole("button", { name: "作成" }).click();
   await expect(taskNames("共有元")).toHaveText(["共有元", "共有先"]);
 
-  // 同じページが見え、共有していることが分かる
+  // 同じページが見え、概要から参照しているタスクが分かる（#213）
   await openWiki(page, "共有元");
-  await expect(
-    page.getByText("「共有先」と共有している Wiki です"),
-  ).toBeVisible();
   await expect(page.getByRole("button", { name: "共有用語" })).toBeVisible();
+  const header = page.locator("main > header");
+  await header.getByRole("button", { name: "Wiki の概要" }).click();
+  const overview = page.getByRole("dialog", { name: "Wiki の概要" });
+  await expect(overview).toContainText(
+    "回答からの用語ノートの自動作成: オン（タスクの設定で変更できます）",
+  );
+  const referencing = overview.getByRole("list", {
+    name: "この Wiki を参照しているタスク",
+  });
+  await expect(referencing).toHaveCount(0);
+  await overview
+    .getByRole("button", { name: "2件の参照しているタスクがあります" })
+    .click();
+  await expect(referencing.getByRole("button")).toHaveText([
+    "共有元",
+    "共有先",
+  ]);
+  // 押すとそのタスクを開く
+  await referencing.getByRole("button", { name: "共有先" }).click();
+  await expect(overview).toHaveCount(0);
+  await expect(header).toContainText("共有先");
+  await expect(header.getByRole("button", { name: "Wiki の概要" })).toHaveCount(
+    0,
+  );
+  await openWiki(page, "共有元");
+  // 操作ボタンはヘッダーの右側に並び、本文側の見出しと説明は出さない
+  for (const name of [
+    "元に戻す",
+    "やり直す",
+    "チェックポイント",
+    "新しいノート",
+  ]) {
+    await expect(header.getByRole("button", { name })).toBeVisible();
+  }
+  await expect(page.getByRole("heading", { name: "Wiki: 共有元" })).toHaveCount(
+    0,
+  );
+  await expect(page.getByText("と共有している Wiki")).toHaveCount(0);
 
   // 3 つ目は別の環境になる
   await createTask(page, "別の環境");
