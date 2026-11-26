@@ -928,8 +928,14 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
 }) => {
   await open(page);
   await createTask(page, "ペインの検証");
+  const lastParagraph = "ノートの末尾です。";
+  const longNote = [
+    "主体・関係・対象の **3 つ組**。",
+    ...Array.from({ length: 40 }, (_, index) => `補足 ${index + 1}`),
+    lastParagraph,
+  ].join("\n\n");
   for (const [title, aliases, body] of [
-    ["関係タプル", "relation tuple", "主体・関係・対象の **3 つ組**。"],
+    ["関係タプル", "relation tuple", longNote],
     ["認可モデル", "", "権限を決める仕組み。"],
   ] as const) {
     await openWiki(page, "ペインの検証");
@@ -954,6 +960,18 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
     exact: true,
   });
   const pane = page.getByRole("complementary", { name: "ノート" });
+  const expectNoteScroll = async () => {
+    const content = pane.locator(":scope > header + div");
+    const close = pane.getByRole("button", { name: "ノートを閉じる" });
+    const closePosition = await close.boundingBox();
+    await expect(pane.getByText(lastParagraph)).not.toBeInViewport();
+    await content.hover();
+    await page.mouse.wheel(0, 5000);
+    await expect(pane.getByText(lastParagraph)).toBeInViewport();
+    expect(await close.boundingBox()).toEqual(closePosition);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(content).toHaveCSS("overscroll-behavior-y", "none");
+  };
   const tuple = main
     .locator("button[data-wiki-term]", { hasText: "関係タプル" })
     .first();
@@ -973,6 +991,7 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
     main.getByText("関係タプル と 認可モデル の関係", { exact: true }),
   ).toBeVisible();
   await expect(page).toHaveURL(chatUrl);
+  await expectNoteScroll();
 
   // 別の用語をクリックすると切り替わり、Escape で閉じると用語にフォーカスが戻る
   await model.click();
@@ -1038,6 +1057,7 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
   await expect(main).toBeHidden();
   expect((await pane.boundingBox())?.width).toBe(700);
+  await expectNoteScroll();
   await pane.getByRole("button", { name: "ノートを閉じる" }).click();
   await expect(main).toBeVisible();
   await expect(mainInput).toHaveValue("書きかけの質問");

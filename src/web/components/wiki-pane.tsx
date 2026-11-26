@@ -302,7 +302,7 @@ export const WikiPane = ({
       ref={panel}
       tabIndex={-1}
       aria-label="ノート"
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none max-lg:fixed max-lg:inset-0 max-lg:z-30 lg:w-[42%] lg:min-w-80 lg:max-w-xl lg:flex-none lg:border-l"
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none max-lg:fixed max-lg:inset-x-0 max-lg:top-0 max-lg:z-30 max-lg:h-dvh lg:w-[42%] lg:min-w-80 lg:max-w-xl lg:flex-none lg:border-l"
       onKeyDown={(event) => {
         if (event.key === "Escape" && !event.defaultPrevented) {
           event.preventDefault();
@@ -336,7 +336,7 @@ export const WikiPane = ({
           </Button>
         </div>
       </header>
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-none">
         <div className="flex flex-col gap-3 p-4">
           {state.status === "loading" && (
             <p role="status" className="text-muted-foreground text-sm">
