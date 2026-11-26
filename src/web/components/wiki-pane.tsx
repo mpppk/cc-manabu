@@ -4,6 +4,7 @@ import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto } from "../../router.ts";
 import { isPageTerm, normalizeTerm } from "../../wiki/terms.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { sidePanelWidthProps } from "../lib/side-panel-width.ts";
 import { cn } from "../lib/utils.ts";
 import { Markdown } from "./markdown.tsx";
 import { SelectionPopup, useTextSelection } from "./selection-popup.tsx";
@@ -242,6 +243,7 @@ export const WikiPane = ({
   onAskSelection,
   onWikiPageCreated,
   revision = 0,
+  width,
 }: {
   api: ApiClient;
   /** ページを開いた会話のタスク（選択範囲からのページ作成に使う）。 */
@@ -263,7 +265,10 @@ export const WikiPane = ({
    * 表示中のページは読み込み中の表示にせず、そのまま差し替える。
    */
   revision?: number;
+  /** メインと並べるときの幅（#209）。省略すると既定の幅。 */
+  width?: number | undefined;
 }) => {
+  const widthProps = sidePanelWidthProps(width);
   const [state, setState] = useState<State>({ status: "loading" });
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -302,7 +307,11 @@ export const WikiPane = ({
       ref={panel}
       tabIndex={-1}
       aria-label="ノート"
-      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none max-lg:fixed max-lg:inset-x-0 max-lg:top-0 max-lg:z-30 max-lg:h-dvh lg:w-[42%] lg:min-w-80 lg:max-w-xl lg:flex-none lg:border-l"
+      className={cn(
+        "flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none max-lg:fixed max-lg:inset-x-0 max-lg:top-0 max-lg:z-30 max-lg:h-dvh lg:flex-none lg:border-l",
+        widthProps.className,
+      )}
+      style={widthProps.style}
       onKeyDown={(event) => {
         if (event.key === "Escape" && !event.defaultPrevented) {
           event.preventDefault();

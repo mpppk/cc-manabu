@@ -3158,6 +3158,98 @@ test("左サイドバーの幅をドラッグとキーボードで変え、開�
   await expect.poll(() => widthOf(sidebar)).toBe(232);
 });
 
+test("右側のペインの幅をドラッグとキーボードで変え、開き直しや再読み込みでも保つ（#209）", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await open(page);
+  await createTask(page, "右ペインの幅");
+  await openWiki(page, "右ペインの幅");
+  await page.getByRole("button", { name: "新しいノート" }).click();
+  await page
+    .getByRole("textbox", { name: "ノートのタイトル" })
+    .fill("幅の検証");
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("右側のペインと並べる。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "幅の検証" })).toBeVisible();
+
+  const ask = page.getByRole("button", { name: "このノートについて質問" });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const handle = page.getByRole("separator", { name: "右側のペインの幅" });
+  const widthOf = async (locator: Locator) =>
+    Math.round((await locator.boundingBox())?.width ?? 0);
+  const rightOf = async (locator: Locator) => {
+    const box = await locator.boundingBox();
+    return Math.round((box?.x ?? 0) + (box?.width ?? 0));
+  };
+
+  // 閉じている間はハンドルを出さない。保存していなければ既定の幅（並べる領域の 42%）
+  await expect(handle).toHaveCount(0);
+  await ask.click();
+  await expect(side).toBeVisible();
+  // 並べる領域 = 1600 - サイドバー 256 - ノートの一覧 240 = 1104
+  await expect.poll(() => widthOf(side)).toBe(Math.round(1104 * 0.42));
+  await expect(handle).toHaveAttribute("aria-valuemax", String(1104 - 360));
+
+  // 左へドラッグすると広がり、右端は画面の端のまま
+  const box = await handle.boundingBox();
+  if (box === null) throw new Error("ハンドルが見えない");
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 60, y, { steps: 4 });
+  await expect.poll(() => widthOf(side)).toBe(464 + 60);
+  await page.mouse.move(x - 100, y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => widthOf(side)).toBe(564);
+  await expect.poll(() => rightOf(side)).toBe(1600);
+  await expect(handle).toHaveAttribute("aria-valuenow", "564");
+
+  // キーボードでは → で狭まる
+  await handle.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(handle).toHaveAttribute("aria-valuenow", "548");
+  await expect.poll(() => widthOf(side)).toBe(548);
+
+  // 閉じて開き直しても、再読み込みしても戻る
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await expect(handle).toHaveCount(0);
+  await ask.click();
+  await expect.poll(() => widthOf(side)).toBe(548);
+  await page.reload();
+  await ask.click();
+  await expect.poll(() => widthOf(side)).toBe(548);
+
+  // 左サイドバーを広げきっても、ノートの本文と右側のペインの幅を残す
+  const sidebarHandle = page.getByRole("separator", {
+    name: "サイドバーの幅",
+  });
+  await sidebarHandle.focus();
+  await page.keyboard.press("End");
+  await expect(sidebarHandle).toHaveAttribute(
+    "aria-valuenow",
+    String(1600 - 360 - 240 - 320),
+  );
+  await expect.poll(() => widthOf(side)).toBe(320);
+  // 右側のペインを閉じると、サイドバーはまた広げられる
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await expect(sidebarHandle).toHaveAttribute(
+    "aria-valuemax",
+    String(1600 - 360),
+  );
+  await sidebarHandle.focus();
+  await page.keyboard.press("Home");
+
+  // 狭い画面では右側のペインを単独で、画面幅に合わせて表示する（ハンドルは出さない）
+  await page.setViewportSize({ width: 800, height: 900 });
+  await ask.click();
+  await expect(side).toBeVisible();
+  await expect(handle).toBeHidden();
+});
+
 test("macOS では Ctrl+B を入力欄に渡し、⌘B でサイドバーを開閉する", async ({
   page,
 }) => {

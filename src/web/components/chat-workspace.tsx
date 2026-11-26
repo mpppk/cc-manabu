@@ -12,10 +12,18 @@ import type { SendSettings } from "../lib/chat-transport.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
+import {
+  MIN_SIDE_PANEL_WIDTH,
+  sidePanelWidthProps,
+  useElementWidth,
+  useReserveMainWidth,
+  useSidePanelWidth,
+} from "../lib/side-panel-width.ts";
 import { cn } from "../lib/utils.ts";
 import { ChatView, type ChatViewProps, QuoteBlock } from "./chat-view.tsx";
 import { Composer } from "./composer.tsx";
 import { ModelPicker } from "./model-picker.tsx";
+import { PaneResizer } from "./pane-resizer.tsx";
 import { Button } from "./ui/button.tsx";
 import { WikiPane } from "./wiki-pane.tsx";
 
@@ -51,6 +59,7 @@ export const SideChat = ({
   api,
   models,
   hidden = false,
+  width,
   ...callbacks
 }: Pick<
   ChatViewProps,
@@ -68,7 +77,10 @@ export const SideChat = ({
    * 消さずに隠すので、閉じると入力途中のメッセージごと元に戻る。
    */
   hidden?: boolean;
+  /** メインと並べるときの幅（#209）。省略すると既定の幅。 */
+  width?: number | undefined;
 }) => {
+  const widthProps = sidePanelWidthProps(width);
   const wiki = request.kind === "wiki" ? request : undefined;
   const taskId = wiki?.taskId;
   const pageId = wiki?.pageId;
@@ -202,12 +214,14 @@ export const SideChat = ({
       tabIndex={-1}
       aria-label="サイドチャット"
       className={cn(
-        "flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none lg:w-[42%] lg:min-w-80 lg:max-w-xl lg:flex-none lg:border-l",
+        "flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none lg:flex-none lg:border-l",
+        widthProps.className,
         wiki === undefined
           ? "max-lg:fixed max-lg:inset-0 max-lg:z-30"
           : "max-lg:flex-[2] max-lg:border-t",
         hidden && "hidden",
       )}
+      style={widthProps.style}
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="min-w-0">
@@ -314,6 +328,23 @@ export const SideChat = ({
   );
 };
 
+/** 右側のペインの左端に置く、幅を変えるハンドル（#209）。狭い画面で単独表示するときは出さない。 */
+export const SidePanelResizer = (props: {
+  width: number;
+  min: number;
+  max: number;
+  onResize: (width: number) => void;
+  onCommit: (width: number) => void;
+}) => (
+  <PaneResizer
+    side="right"
+    label="右側のペインの幅"
+    title="ドラッグして右側のペインの幅を変える（←→ キーでも変えられます）"
+    className="max-lg:hidden"
+    {...props}
+  />
+);
+
 /**
  * メインの会話と、右側のペイン（サイドチャットか Wiki ページのどちらか 1 つ）。
  * 右側のペインは常に 1 つだけで、新しく開くと前のものと入れ替わる。
@@ -401,8 +432,14 @@ export const ChatWorkspace = ({
     setWikiRevision((revision) => revision + 1);
   };
 
+  // 右側のペインの幅（#209）。メインと並べる領域の幅に収める
+  const row = useRef<HTMLDivElement>(null);
+  const sidePanel = useSidePanelWidth(useElementWidth(row));
+  const sideOpen = page !== undefined || side !== undefined;
+  useReserveMainWidth(sideOpen ? MIN_SIDE_PANEL_WIDTH : 0);
+
   return (
-    <div className="flex min-h-0 min-w-0 flex-1">
+    <div ref={row} className="flex min-h-0 min-w-0 flex-1">
       <section
         ref={main}
         aria-label="メインのチャット"
@@ -433,10 +470,20 @@ export const ChatWorkspace = ({
           />
         )}
       </section>
+      {sideOpen && (
+        <SidePanelResizer
+          width={sidePanel.width}
+          min={sidePanel.min}
+          max={sidePanel.max}
+          onResize={sidePanel.resize}
+          onCommit={sidePanel.commit}
+        />
+      )}
       {page !== undefined && (
         <WikiPane
           key={page.id}
           api={props.api}
+          width={sidePanel.width}
           taskId={page.taskId}
           pageId={page.pageId}
           revision={wikiRevision}
@@ -470,6 +517,7 @@ export const ChatWorkspace = ({
           api={props.api}
           models={props.models}
           hidden={overlay !== undefined}
+          width={sidePanel.width}
           onClose={closeSide}
           onActivity={onActivity}
           onOpenWikiPane={openWikiPane}
