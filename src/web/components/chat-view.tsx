@@ -1159,6 +1159,59 @@ export const ChatView = ({
     ...imageFileParts(images),
     ...(text === "" ? [] : [{ type: "text" as const, text }]),
   ];
+  /**
+   * 現在地を維持して送る分岐元（#225）。HEAD の回答（「ここから分岐」で選んだ回答か、会話の最後の回答）。
+   * 送れないときは理由。メインのチャットで、分岐をサイドで開けるときだけ使う。
+   */
+  const headMessage = messages[visibleCount - 1];
+  const branchSendBlocker =
+    busy && branchFrom === undefined
+      ? "回答の生成中は、生成中の回答から分岐できません。終わるまで待つか、「ここから分岐」で前の回答を選んでください。"
+      : headMessage === undefined || headMessage.role !== "assistant"
+        ? "分岐元の回答がまだありません。回答が届いてから送ってください。"
+        : headMessage.metadata?.claudeCode?.lastAssistantUuid === undefined
+          ? "この回答からは分岐できません。"
+          : creatingBranch
+            ? "分岐を作成しています。"
+            : undefined;
+  const sendToBranch = async (text: string, images: ImageAttachment[]) => {
+    if (branchSendBlocker !== undefined || headMessage === undefined) {
+      return false;
+    }
+    if (onOpenSideBranch === undefined) return false;
+    requestNotificationPermission();
+    setCreatingBranch(true);
+    setBranchError(undefined);
+    const branchId = crypto.randomUUID();
+    try {
+      const { model, effort } = settingsRef.current;
+      await api.chat.branch({
+        parentId: chat.id,
+        messageId: headMessage.id,
+        branchId,
+        message: {
+          id: crypto.randomUUID(),
+          role: "user",
+          parts: partsOf(text, images),
+        },
+        model,
+        ...(effort === undefined ? {} : { effort }),
+      });
+      // メインの会話と現在地（HEAD）はそのまま。回答はサイドチャットに出す
+      quoteSent();
+      onActivity?.();
+      onOpenSideBranch(branchId);
+      return true;
+    } catch (failure) {
+      setBranchError(
+        failure instanceof Error ? failure.message : "分岐できませんでした。",
+      );
+      return false;
+    } finally {
+      setCreatingBranch(false);
+    }
+  };
+
   /** 送ったので、添えた引用を外す（分岐の取り消しはしない）。 */
   const quoteSent = () => {
     onClearQuote?.();
@@ -1508,6 +1561,11 @@ export const ChatView = ({
             busy={busy}
             pending={creatingBranch}
             messageLabel={side ? "サイドチャットのメッセージ" : "メッセージ"}
+            branchSend={
+              !side && onOpenSideBranch !== undefined
+                ? { blocker: branchSendBlocker, onSubmit: sendToBranch }
+                : undefined
+            }
             queueing={queueing && branchFrom === undefined}
             toolbar={
               <ModelPicker
