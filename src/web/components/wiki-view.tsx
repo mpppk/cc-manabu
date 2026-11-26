@@ -9,7 +9,14 @@ import {
   Search,
   Trash2,
 } from "lucide-react";
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto, WikiVersionDto } from "../../router.ts";
@@ -31,7 +38,12 @@ import {
   WikiOverviewButton,
   type WikiReferencingTask,
 } from "./wiki-overview.tsx";
-import { type WikiNoteTerms, WikiPageContent, WikiPane } from "./wiki-pane.tsx";
+import {
+  type WikiNoteTerms,
+  WikiPageContent,
+  WikiPane,
+  type WikiSelectionActions,
+} from "./wiki-pane.tsx";
 
 type Draft = { title: string; aliases: string; body: string };
 
@@ -263,7 +275,7 @@ export const WikiView = ({
     pageId: string;
     returnFocus: HTMLElement | null;
   }>();
-  const openTermPane = (termPageId: string) => {
+  const openTermPane = useCallback((termPageId: string) => {
     const active = document.activeElement;
     setTermPane({
       id: crypto.randomUUID(),
@@ -273,7 +285,7 @@ export const WikiView = ({
           ? active
           : null,
     });
-  };
+  }, []);
   const closeTermPane = () => {
     const returnFocus = termPane?.returnFocus;
     setTermPane(undefined);
@@ -332,12 +344,32 @@ export const WikiView = ({
     }),
     [api, pages, onNavigate],
   );
+  // Q&A の用語は、右側のペインで開く（#205）
+  const qaTerms = useMemo<WikiNoteTerms>(
+    () => ({ ...noteTerms, open: openTermPane, openLabel: undefined }),
+    [noteTerms, openTermPane],
+  );
+  /** 本文・Q&A の選択範囲から、質問・ノートの作成をするための設定。 */
+  const selectionActions = (id: string): WikiSelectionActions => ({
+    api,
+    taskId,
+    onAsk: (selected) => {
+      setQuote(selected);
+      setAskingPageId(id);
+    },
+    onPageCreated: () => void refresh(),
+    onOpenPage: onNavigate,
+  });
   const asking = pageId !== undefined && askingPageId === pageId;
+  /** 右側のペイン（サイドチャットか、用語から開いたノート）を開いているか。 */
+  const sideOpen = asking || termPane !== undefined;
   // 右側のペインの幅（#209）。ノート本文と並べる領域の幅に収める
   const row = useRef<HTMLDivElement>(null);
   const sidePanel = useSidePanelWidth(useElementWidth(row));
   // 左サイドバーを広げても、ノートの一覧・本文・右側のペインが並ぶ幅を残す
-  useReserveMainWidth(asking ? WIKI_PAGE_LIST_WIDTH + MIN_SIDE_PANEL_WIDTH : 0);
+  useReserveMainWidth(
+    sideOpen ? WIKI_PAGE_LIST_WIDTH + MIN_SIDE_PANEL_WIDTH : 0,
+  );
   const openChatButton = (label: string) => (
     <Button
       ref={askButton}
@@ -531,24 +563,18 @@ export const WikiView = ({
         <WikiPageContent
           page={page}
           onOpenChat={onOpenChat}
-          selectionActions={{
-            api,
-            taskId,
-            onAsk: (selected) => {
-              setQuote(selected);
-              setAskingPageId(page.id);
-            },
-            onPageCreated: () => void refresh(),
-            onOpenPage: onNavigate,
-          }}
+          selectionActions={selectionActions(page.id)}
           terms={noteTerms}
         />
         {historyPanel(page.id)}
         <PageQaList
           api={api}
           taskId={taskId}
-          pageId={page.id}
+          page={page}
           revision={qaRevision}
+          selectionActions={selectionActions(page.id)}
+          terms={qaTerms}
+          onOpenAnswer={onOpenAnswer}
         />
         <Dialog
           open={deleting}
@@ -626,7 +652,7 @@ export const WikiView = ({
           </div>
           {header}
         </div>
-        {asking && (
+        {sideOpen && (
           <SidePanelResizer
             width={sidePanel.width}
             min={sidePanel.min}
@@ -661,7 +687,7 @@ export const WikiView = ({
             onWikiPageCreated={() => void refresh()}
           />
         )}
-        {asking && termPane !== undefined && (
+        {termPane !== undefined && (
           <WikiPane
             key={termPane.id}
             api={api}

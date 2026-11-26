@@ -140,6 +140,12 @@ export class AnswerNotFoundError extends ErrorFactory({
   fields: ErrorFactory.fields<{ messageId: string }>(),
 }) {}
 
+export class WikiPageQaNotFoundError extends ErrorFactory({
+  name: "WikiPageQaNotFoundError",
+  message: (fields) => `Q&A not found: ${fields.qaId}`,
+  fields: ErrorFactory.fields<{ qaId: string }>(),
+}) {}
+
 export class InvalidPageTermError extends ErrorFactory({
   name: "InvalidPageTermError",
   message: `A page term must be a single line of ${MIN_PAGE_TERM_LENGTH} to ${MAX_PAGE_TERM_LENGTH} characters.`,
@@ -156,6 +162,7 @@ export type GenerateWikiPageError =
   | DatabaseError
   | ChatWithoutTaskError
   | AnswerNotFoundError
+  | WikiPageQaNotFoundError
   | WikiPageUnavailableError
   | InvalidPageTermError
   | WikiPageGenerationError;
@@ -197,18 +204,22 @@ export type AnswerTermInput = {
   term: string;
 };
 
-/** Wiki ページの本文で選んだ語句。 */
+/**
+ * Wiki ページの本文で選んだ語句。qaId があれば、そのページの Q&A（#205）の中で選んだ語句で、
+ * ページの本文ではなく Q&A を資料にする。
+ */
 export type PageTermInput = {
   taskId: string;
   pageId: string;
   term: string;
+  qaId?: string | undefined;
 };
 
 /** 語句を書くための資料と、作るページの置き場所。 */
 type Prepared = {
   wikiId: string;
   source: PageGenerationSource;
-  /** 作ったページに残す元の回答（Wiki ページから作るときは無い）。 */
+  /** 作ったページに残す元の回答（Wiki ページの本文から作るときは無い）。 */
   origin: { chatId: string; messageId: string } | null;
 };
 
@@ -220,7 +231,7 @@ type Prepared = {
 export const createWikiPageGenerator = (deps: {
   tasks: Pick<TaskRepository, "getTask">;
   chats: Pick<ChatRepository, "getChat">;
-  wiki: Pick<WikiRepository, "listPages" | "createTermPages">;
+  wiki: Pick<WikiRepository, "listPages" | "createTermPages" | "listQas">;
   /** Wiki ページから作るときに、ページがタスクの Wiki に属するか確かめて読む。 */
   readWikiPage?: WikiPageReader;
   /** ページ生成のモデル呼び出し（プロンプトを受け取り、出力の文字列を返す）。 */
@@ -268,13 +279,30 @@ export const createWikiPageGenerator = (deps: {
     if (deps.readWikiPage === undefined) {
       return Result.fail(new WikiPageGenerationError());
     }
-    return Result.pipe(
-      deps.readWikiPage(input.taskId, input.pageId),
-      Result.map((page) => ({
-        wikiId: page.wikiId,
-        source: { page: { title: page.title, body: page.body } },
+    const page = deps.readWikiPage(input.taskId, input.pageId);
+    if (Result.isFailure(page)) return page;
+    const { wikiId, title, body } = page.value;
+    const { qaId } = input;
+    if (qaId === undefined) {
+      return Result.succeed({
+        wikiId,
+        source: { page: { title, body } },
         origin: null,
-      })),
+      });
+    }
+    // Q&A から作るときは、その質問と回答を資料にし、Q&A の元の回答を残す
+    return Result.pipe(
+      deps.wiki.listQas(input.taskId, input.pageId),
+      Result.andThen((qas) => {
+        const qa = qas.find((row) => row.id === qaId);
+        return qa === undefined
+          ? Result.fail(new WikiPageQaNotFoundError({ qaId }))
+          : Result.succeed({
+              wikiId,
+              source: { question: qa.question, answer: qa.answer },
+              origin: { chatId: qa.chatId, messageId: qa.messageId },
+            });
+      }),
     );
   };
 

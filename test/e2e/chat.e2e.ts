@@ -2454,6 +2454,7 @@ test("Wiki ページへの質問と回答から Q&A を作り、ページの下�
   await ask("委託先に渡すと第三者提供？");
   await expect(qas).toHaveCount(1, { timeout: 10_000 });
   await expect(qas.first()).toContainText("Q: 委託先に渡すと第三者提供？");
+  await qas.first().getByRole("button", { name: "回答を開く" }).click();
   await expect(qas.first()).toContainText("文字の回答の要約");
 
   // 文脈に依存する追加の質問は、何を指すかを補った Q&A になる
@@ -2479,6 +2480,121 @@ test("Wiki ページへの質問と回答から Q&A を作り、ページの下�
   await expect(qas).toHaveCount(0);
   await page.goto(pageUrl);
   await expect(qas).toHaveCount(2);
+});
+
+test("ノートの Q&A は質問だけを並べ、項目ごとに回答と元のスレッドへのリンクを開閉する（#205）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "Q&A 開閉");
+  await openWiki(page, "Q&A 開閉");
+  for (const [title, body] of [
+    ["第三者提供", "本人以外に個人データを渡すこと。"],
+    ["委託", "業務を外部に任せること。"],
+  ] as const) {
+    await page.getByRole("button", { name: "新しいノート" }).click();
+    await page.getByRole("textbox", { name: "ノートのタイトル" }).fill(title);
+    await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(body);
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  }
+  const noteUrl = page.url();
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const composer = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  const ask = async (text: string) => {
+    await composer.fill(text);
+    await composer.press("Enter");
+    await expect(side.getByText(text, { exact: true })).toBeVisible();
+    await expect(
+      side.getByRole("button", { name: "送信", exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
+  };
+  const qas = page.getByRole("region", { name: "Q&A" }).getByRole("listitem");
+  const answerOf = (index: number) =>
+    qas.nth(index).getByText("文字の回答の要約");
+  const toggleOf = (index: number) =>
+    qas.nth(index).getByRole("button", { name: /^回答を(開く|閉じる)$/ });
+
+  await page.getByRole("button", { name: "このノートについて質問" }).click();
+  await ask("第三者提供にあたる？");
+  await expect(qas).toHaveCount(1, { timeout: 10_000 });
+
+  // 開いた直後は質問だけ。ボタンで回答とリンクを開閉できる（キーボードでも）
+  await expect(qas.first()).toContainText("Q: 第三者提供にあたる？");
+  await expect(answerOf(0)).toHaveCount(0);
+  await expect(toggleOf(0)).toHaveAttribute("aria-expanded", "false");
+  await toggleOf(0).click();
+  await expect(answerOf(0)).toBeVisible();
+  await expect(
+    qas.first().getByRole("button", { name: "元のスレッドを開く" }),
+  ).toBeVisible();
+  await toggleOf(0).press("Enter");
+  await expect(answerOf(0)).toHaveCount(0);
+  await toggleOf(0).press("Space");
+  await expect(answerOf(0)).toBeVisible();
+
+  // 新しい Q&A が足されても、開いた項目は開いたまま。新しい項目は閉じている
+  await ask("第三者提供との違いは？");
+  await expect(qas).toHaveCount(2, { timeout: 10_000 });
+  await expect(answerOf(0)).toBeVisible();
+  await expect(toggleOf(1)).toHaveAttribute("aria-expanded", "false");
+  await expect(answerOf(1)).toHaveCount(0);
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+
+  // Q と A の用語（閲覧中のノート自身は除く）に下線。閉じた Q の用語を押しても、開閉状態は変わらない
+  const qTerm = qas
+    .nth(1)
+    .locator("[data-wiki-qa] button[data-wiki-term]", {
+      hasText: "第三者提供",
+    })
+    .first();
+  await expect(qTerm).toBeVisible();
+  await qTerm.hover();
+  await expect(page.getByRole("dialog", { name: "用語の説明" })).toContainText(
+    "本人以外に個人データを渡すこと。",
+  );
+  await qTerm.click();
+  const pane = page.getByRole("complementary", { name: "ノート" });
+  await expect(pane.getByRole("heading", { name: "第三者提供" })).toBeVisible();
+  await expect(toggleOf(1)).toHaveAttribute("aria-expanded", "false");
+  await expect(answerOf(0)).toBeVisible();
+  await pane.getByRole("button", { name: "ノートを閉じる" }).click();
+  await expect(pane).toHaveCount(0);
+
+  // 閉じた Q の文を選んでも開閉状態は変わらず、選択部分を引用して質問できる
+  const popup = page.getByRole("toolbar", { name: "選択範囲の操作" });
+  await selectAnswerText(qas.nth(1).locator("[data-wiki-qa]"), "との違い");
+  await expect(popup).toBeVisible();
+  await expect(toggleOf(1)).toHaveAttribute("aria-expanded", "false");
+  await popup.getByRole("button", { name: "質問", exact: true }).click();
+  await expect(side.locator("blockquote")).toHaveText("との違い");
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+
+  // A の語句から、その Q&A を参照資料にしてノートを作れる
+  await selectAnswerText(
+    qas.nth(0).locator("[data-wiki-qa]").last(),
+    "回答の要約",
+  );
+  await popup.getByRole("button", { name: "ノートを作成" }).click();
+  await expect(
+    page
+      .getByRole("status")
+      .filter({ hasText: "「回答の要約」のノートを作成しました。" }),
+  ).toBeVisible();
+  await expect(answerOf(0)).toBeVisible();
+
+  // リンクから元のスレッドを開き、対応する回答へ移る
+  await qas.first().getByRole("button", { name: "元のスレッドを開く" }).click();
+  await expect(page).toHaveURL(/\/c\/.+/);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  await expect(
+    main.getByText("第三者提供にあたる？", { exact: true }),
+  ).toBeVisible();
+  await page.goto(noteUrl);
+  await expect(qas).toHaveCount(2);
+  await expect(answerOf(0)).toHaveCount(0);
 });
 
 test("ノートの変更履歴・差分・復元、元に戻す / やり直す、回答ごとの取り消し、チェックポイント（#166）", async ({
