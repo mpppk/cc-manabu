@@ -53,6 +53,11 @@ import {
   PAGE_GENERATION_SETTINGS,
 } from "../../src/wiki/page-generation.ts";
 import {
+  createPageQaWriter,
+  PAGE_QA_MODEL,
+  PAGE_QA_SETTINGS,
+} from "../../src/wiki/page-qa.ts";
+import {
   TERM_EXTRACTION_MODEL,
   TERM_EXTRACTION_SETTINGS,
 } from "../../src/wiki/terms.ts";
@@ -129,6 +134,17 @@ const wikiThreadTitler = createWikiThreadTitler({
   generate: async (prompt) =>
     (await generateText({ model: threadTitleModel, prompt })).text,
 });
+const pageQaModel = createClaudeCode({
+  cwd: "/e2e",
+  query,
+  ...PAGE_QA_SETTINGS,
+})(PAGE_QA_MODEL);
+const writePageQa = createPageQaWriter({
+  chats,
+  wiki,
+  generate: async (prompt) =>
+    (await generateText({ model: pageQaModel, prompt })).text,
+});
 const registry = new RunnerRegistry();
 const chatService = createChatService({
   chats,
@@ -149,6 +165,7 @@ const chatService = createChatService({
   onAnswerFinish: (event) => {
     void summarizeAnswer(event);
     void wikiThreadTitler.onAnswerFinish(event);
+    void writePageQa(event);
   },
   onWikiChatCreated: (chat) => wikiThreadTitler.track(chat),
 });

@@ -234,6 +234,41 @@ export const wikiPages = sqliteTable(
   (table) => [index("wiki_pages_wiki_id_idx").on(table.wikiId)],
 );
 
+/**
+ * Wiki ページへの質問と回答から作った Q&A（#159）。ページの本文の下に出す。
+ * 「このページについて質問」の会話の回答ごとに 1 つ作り、タスクとページの組ごとに見せる
+ * （Wiki を共有していても、ほかのタスクの Q&A は混ぜない）。元の会話を消すと一緒に消える。
+ */
+export const wikiPageQas = sqliteTable(
+  "wiki_page_qas",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    /** ページを削除しても会話の履歴とともに残すよう、外部キーにはしない（chats.wikiPageId と同じ）。 */
+    wikiPageId: text("wiki_page_id").notNull(),
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    /** 元の回答（assistant メッセージ）の id。同じ回答から 2 つ作らない。 */
+    messageId: text("message_id").notNull(),
+    /** 会話を開かなくても意味が分かるように整えた質問。 */
+    question: text("question").notNull(),
+    /** 元の回答に沿って要約した回答。 */
+    answer: text("answer").notNull(),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+  },
+  (table) => [
+    uniqueIndex("wiki_page_qas_message_idx").on(table.messageId),
+    index("wiki_page_qas_task_page_idx").on(table.taskId, table.wikiPageId),
+  ],
+);
+
+export type WikiPageQaRow = typeof wikiPageQas.$inferSelect;
+
 /** タスクの関連リンク（GitHub リポジトリ・設計資料など、繰り返し開く URL）。 */
 export const taskLinks = sqliteTable(
   "task_links",

@@ -170,6 +170,7 @@ test("移行: 既存のタスクはそれぞれ同じ ID・名前の Wiki を持
     "0011_tasks",
     "0012_environments",
     "0013_environment_description",
+    "0014_wiki_page_qas",
   ]);
   const db = drizzle(sqlite, { schema });
   const repoTasks = createTaskRepository(db);

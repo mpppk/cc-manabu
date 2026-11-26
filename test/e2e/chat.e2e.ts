@@ -1899,6 +1899,69 @@ test("サイドチャットの用語もサイドパネルで開き、閉じる�
   await expect(page.getByRole("heading", { name: "方式B" })).toBeVisible();
 });
 
+test("Wiki ページへの質問と回答から Q&A を作り、ページの下に出す（#159）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "Q&A の検証");
+  await openWiki(page, "Q&A の検証");
+  const createPage = async (title: string) => {
+    await page.getByRole("button", { name: "新しいページ" }).click();
+    await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+    await page
+      .getByRole("textbox", { name: "本文（Markdown）" })
+      .fill("本文。");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  };
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const composer = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  const ask = async (text: string) => {
+    await composer.fill(text);
+    await composer.press("Enter");
+    await expect(side.getByText(text, { exact: true })).toBeVisible();
+    await expect(
+      side.getByRole("button", { name: "送信", exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
+  };
+  const qas = page.getByRole("region", { name: "Q&A" }).getByRole("listitem");
+
+  await createPage("委託");
+  const pageUrl = page.url();
+  await expect(qas).toHaveCount(0);
+  await page.getByRole("button", { name: "このページについて質問" }).click();
+  await ask("委託先に渡すと第三者提供？");
+  await expect(qas).toHaveCount(1, { timeout: 10_000 });
+  await expect(qas.first()).toContainText("Q: 委託先に渡すと第三者提供？");
+  await expect(qas.first()).toContainText("文字の回答の要約");
+
+  // 文脈に依存する追加の質問は、何を指すかを補った Q&A になる
+  await ask("それはなぜ？");
+  await expect(qas).toHaveCount(2, { timeout: 10_000 });
+  await expect(qas.nth(1)).toContainText(
+    "Q: それはなぜ？（委託先に渡すと第三者提供？ について）",
+  );
+
+  // 作成に失敗しても、会話と既存の Q&A はそのまま
+  await ask("Q&A失敗する質問");
+  await page.waitForTimeout(1500);
+  await expect(qas).toHaveCount(2);
+  await expect(
+    side.getByText("Q&A失敗する質問", { exact: true }),
+  ).toBeVisible();
+
+  // サイドチャットを閉じて開き直しても残り、別のページには混ざらない
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await page.reload();
+  await expect(qas).toHaveCount(2);
+  await createPage("別のページ");
+  await expect(qas).toHaveCount(0);
+  await page.goto(pageUrl);
+  await expect(qas).toHaveCount(2);
+});
+
 test("スレッドをタイトルと本文で検索し、一致した発言へ移動できる", async ({
   page,
 }) => {

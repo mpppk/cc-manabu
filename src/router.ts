@@ -702,6 +702,25 @@ export const router = {
       );
       return { chat: toChatDto(chat), messages: messages.map(toMessageDto) };
     }),
+    /**
+     * このタスクでページについて質問した回答から作った Q&A（作った順。#159）。
+     * Wiki を共有していても、ほかのタスクの Q&A は返さない。
+     */
+    qas: base.input(wikiChatTarget).handler(async ({ context, input }) =>
+      (
+        await unwrapForOrpc(
+          context.wiki.listQas(input.taskId, input.pageId),
+          ERROR_CODES,
+        )
+      ).map((row) => ({
+        id: row.id,
+        chatId: row.chatId,
+        messageId: row.messageId,
+        question: row.question,
+        answer: row.answer,
+        createdAt: row.createdAt,
+      })),
+    ),
     /** 初回送信で会話を作る。回答は通常どおり chat.reconnect で受け取る。 */
     ask: base
       .input(wikiChatTarget.extend({ message: userMessage, ...sendSettings }))
