@@ -49,6 +49,7 @@ import {
   TERM_EXTRACTION_MODEL,
   TERM_EXTRACTION_SETTINGS,
 } from "./wiki/terms.ts";
+import { createWikiToolServers } from "./wiki/tools.ts";
 
 /** DB を開いてサーバを立ち上げ、設定に応じてブラウザを開く。 */
 export const serve = async (config: RuntimeConfig): Promise<void> => {
@@ -121,6 +122,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         tasks,
         chats,
         wiki,
+        readWikiPage: createWikiPageReader(wiki, tasks),
         generate: async (prompt) =>
           (await generateText({ model: pageModel, prompt, reasoning: "none" }))
             .text,
@@ -149,8 +151,9 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         chats,
         registry,
         approvals,
-        languageModel: (modelId, { canUseTool }) =>
-          createClaudeCode({ ...providerSettings, canUseTool })(modelId),
+        languageModel: (modelId, options) =>
+          createClaudeCode({ ...providerSettings, ...options })(modelId),
+        wikiTools: createWikiToolServers({ wiki, tasks }),
         wikiContext: createWikiContextBuilder(wiki, tasks),
         readWikiPage: createWikiPageReader(wiki, tasks),
         directoriesOf: (taskId) => {

@@ -981,7 +981,25 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   await model.click();
   await expect(pane.getByRole("heading", { name: "認可モデル" })).toBeVisible();
   await expect(side).toHaveCount(0);
-  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+
+  // ペインの本文を選んで質問すると、そのページについてのサイドチャットに入れ替わる
+  await selectAnswerText(pane.locator("[data-wiki-page-body]"), "権限を決める");
+  await page
+    .getByRole("toolbar", { name: "選択範囲の操作" })
+    .getByRole("button", { name: "質問", exact: true })
+    .click();
+  await expect(pane).toHaveCount(0);
+  await expect(side).toContainText("認可モデル");
+  await expect(side.locator("blockquote")).toHaveText("権限を決める");
+  const sideInput = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  await expect(sideInput).toBeFocused();
+  await sideInput.fill("具体例は？");
+  await sideInput.press("Enter");
+  await expect(side.getByText("具体例は？", { exact: true })).toBeVisible();
+  await expect(mainInput).toHaveValue("書きかけの質問");
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
 
   // 狭い画面ではペインが全面に出て、閉じるとメインの HEAD と下書きに戻る
   await page.setViewportSize({ width: 700, height: 740 });
@@ -1863,6 +1881,76 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
   await expect(side.getByRole("alert")).toContainText(
     "この Wiki ページを参照できません",
   );
+});
+
+test("Wiki ページの本文の選択範囲から、ページを作ったり引用して質問したりできる", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "本文選択の検証");
+  await openWiki(page, "本文選択の検証");
+  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page
+    .getByRole("textbox", { name: "ページのタイトル" })
+    .fill("決済 API");
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("決済 API は冪等性キーを受け取る。\n\n再送しても二重に課金しない。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "決済 API" })).toBeVisible();
+  const url = page.url();
+  const body = page.locator("[data-wiki-page-body]");
+  const popup = page.getByRole("toolbar", { name: "選択範囲の操作" });
+
+  // 語句を選んでページを作ると、画面を移らずに知らせ、作ったページを開ける
+  await selectAnswerText(body, "冪等性キー");
+  await popup.getByRole("button", { name: "ページを作成" }).click();
+  await expect(
+    page.getByRole("status").filter({ hasText: "のページを作成しています" }),
+  ).toBeVisible();
+  const created = page
+    .getByRole("status")
+    .filter({ hasText: "「冪等性キー」のページを作成しました。" });
+  await expect(created).toBeVisible();
+  await expect(page).toHaveURL(url);
+  await expect(
+    page
+      .getByRole("navigation", { name: "Wiki のページ一覧" })
+      .getByRole("button", { name: "冪等性キー" }),
+  ).toBeVisible();
+  await created.getByRole("button", { name: "開く" }).click();
+  await expect(page.getByRole("heading", { name: "冪等性キー" })).toBeVisible();
+  await expect(page.getByText("冪等性キー は回答に出てきた語。")).toBeVisible();
+
+  // 選んだ部分を引用して質問すると、引用付きでサイドチャットに送れる
+  await page.goto(url);
+  await expect(page.getByRole("heading", { name: "決済 API" })).toBeVisible();
+  await selectAnswerText(body, "二重に課金しない");
+  await popup.getByRole("button", { name: "質問" }).click();
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const composer = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  await expect(side.locator("blockquote")).toHaveText("二重に課金しない");
+  await expect(composer).toBeFocused();
+  await composer.fill("なぜ？");
+  await composer.press("Enter");
+  await expect(side.getByText("なぜ？", { exact: true })).toBeVisible();
+  await expect(side.locator("blockquote")).toHaveText("二重に課金しない");
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(
+    "決済 API",
+  );
+
+  // 開いたまま別の部分を選ぶと、次の質問に添える引用になり、外すこともできる
+  await selectAnswerText(body, "冪等性キーを受け取る");
+  await popup.getByRole("button", { name: "質問" }).click();
+  await expect(side.locator("blockquote")).toHaveCount(2);
+  await expect(side.locator("blockquote").last()).toHaveText(
+    "冪等性キーを受け取る",
+  );
+  await expect(composer).toBeFocused();
+  await side.getByRole("button", { name: "引用を外す" }).click();
+  await expect(side.locator("blockquote")).toHaveCount(1);
 });
 
 test("環境のタスクは Wiki を共有し、サイドバーで環境ごとにまとまる", async ({

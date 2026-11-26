@@ -4,10 +4,12 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
+import { WIKI_READ_TOOL_NAMES } from "../wiki/tool-names.ts";
 
 /**
  * Claude Code が自動で許可しない読み取り系のうち、cc-manabu が承認なしで許可するツール。
  * WebFetch は URL 経由で情報を外に送れるので含めない（docs/spikes/permissions.md）。
+ * Wiki のツールは読むものだけ許可し、ページを書き換えるものは承認を求める。
  */
 export const AUTO_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "Read",
@@ -15,6 +17,7 @@ export const AUTO_ALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "Grep",
   "WebSearch",
   "TodoWrite",
+  ...WIKI_READ_TOOL_NAMES,
 ]);
 
 export type ApprovalStatus = "pending" | "allowed" | "denied";

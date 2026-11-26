@@ -92,11 +92,12 @@ export const createWikiRepository = (db: Db) => ({
    * 回答から取り出した用語のページを作る。タイトルか別名がすでにある語は作らない（既存のページを使う）。
    * 照合と作成を 1 つのトランザクションで同期的に行うので、並行・再試行でも重複しない。
    * 既存のページは書き換えない。作ったページを返す。
+   * source は元の回答。Wiki ページから作ったときなど、回答が無ければ null。
    */
   createTermPages: (
     wikiId: string,
     candidates: readonly TermCandidate[],
-    source: { chatId: string; messageId: string },
+    source: { chatId: string; messageId: string } | null,
   ): Result.Result<WikiPageRow[], DatabaseError> =>
     run(() =>
       db.transaction((tx) => {
@@ -128,8 +129,8 @@ export const createWikiRepository = (db: Db) => ({
                 aliases: candidate.aliases,
                 body: candidate.summary,
                 origin: "auto",
-                sourceChatId: source.chatId,
-                sourceMessageId: source.messageId,
+                sourceChatId: source?.chatId ?? null,
+                sourceMessageId: source?.messageId ?? null,
                 createdAt: now,
                 updatedAt: now,
               })

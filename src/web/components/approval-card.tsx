@@ -1,7 +1,8 @@
 import { ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import { useState } from "react";
 import type { ApprovalData } from "../../chat/approval-broker.ts";
-import { summarizeToolInput } from "../lib/tool-display.ts";
+import { wikiToolLabel } from "../../wiki/tool-names.ts";
+import { summarizeToolInput, toolLabel } from "../lib/tool-display.ts";
 import { InputView } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
 
@@ -49,7 +50,8 @@ export const ApprovalCard = ({
         ) : (
           <ShieldX className="size-4 text-amber-600" />
         )}
-        {approval.toolName} の実行を{allowed ? "許可しました" : "拒否しました"}
+        {toolLabel(approval.toolName)} の実行を
+        {allowed ? "許可しました" : "拒否しました"}
         {!allowed &&
           approval.message !== undefined &&
           `（${approval.message}）`}
@@ -66,7 +68,10 @@ export const ApprovalCard = ({
         <ShieldAlert className="size-5 shrink-0 text-amber-600" />
         <div className="min-w-0">
           <p className="font-medium">
-            {approval.displayName ?? approval.toolName} を実行してもよいですか？
+            {wikiToolLabel(approval.toolName) ??
+              approval.displayName ??
+              approval.toolName}{" "}
+            を実行してもよいですか？
           </p>
           {(approval.description ?? summary) !== "" && (
             <p className="truncate text-muted-foreground text-xs">

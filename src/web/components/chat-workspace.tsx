@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChatUIMessage } from "../../chat/chat-service.ts";
-import type { QuoteData } from "../../chat/quote.ts";
+import type { AnswerQuote, WikiPageQuote } from "../../chat/quote.ts";
 import type { ChatDto } from "../../router.ts";
 import type { SendSettings } from "../lib/chat-transport.ts";
 import { branchLabel } from "../lib/groups.ts";
@@ -15,15 +15,17 @@ import { WikiPane } from "./wiki-pane.tsx";
 
 type SideDraft = {
   parentId: string;
-  quote: QuoteData;
+  quote: AnswerQuote;
   settings: SendSettings;
 };
 type BranchRequest = { kind: "branch"; id: string; draft?: SideDraft };
-type WikiRequest = {
+/** Wiki ページにひも付く会話。quote があれば、次の質問に添える。 */
+export type WikiRequest = {
   kind: "wiki";
   taskId: string;
   pageId: string;
-  title?: string;
+  title?: string | undefined;
+  quote?: WikiPageQuote | undefined;
 };
 type SideConversation = { chat: ChatDto; messages: ChatUIMessage[] };
 /** 回答中の用語・引用から、会話の右側に開く Wiki ページ。 */
@@ -53,6 +55,10 @@ export const SideChat = ({
   const wiki = request.kind === "wiki" ? request : undefined;
   const taskId = wiki?.taskId;
   const pageId = wiki?.pageId;
+  // Wiki ページの本文から選んだ引用。開いたまま別の部分を選んだら差し替える
+  const requestedQuote = wiki?.quote;
+  const [wikiQuote, setWikiQuote] = useState(requestedQuote);
+  useEffect(() => setWikiQuote(requestedQuote), [requestedQuote]);
   const draft = request.kind === "branch" ? request.draft : undefined;
   const branchId = request.kind === "branch" ? request.id : undefined;
   const [submittedId, setSubmittedId] = useState<string>();
@@ -65,6 +71,15 @@ export const SideChat = ({
   useEffect(() => {
     panel.current?.focus();
   }, []);
+  // 引用を添えたら、続けて質問を書けるよう入力欄に移る。会話があれば ChatView が移すので、
+  // ここでは最初の質問の入力欄（会話が無いと分かってから出る）だけを扱う
+  const composingFirst = conversation === null;
+  useEffect(() => {
+    if (wikiQuote === undefined || !composingFirst) return;
+    panel.current
+      ?.querySelector<HTMLTextAreaElement>("textarea:not([disabled])")
+      ?.focus();
+  }, [wikiQuote, composingFirst]);
 
   const chatId = submittedId ?? (draft === undefined ? branchId : undefined);
   const loadConversation = useCallback(async () => {
@@ -103,6 +118,9 @@ export const SideChat = ({
         id: crypto.randomUUID(),
         role: "user" as const,
         parts: [
+          ...(wiki === undefined || wikiQuote === undefined
+            ? []
+            : [{ type: "data-quote" as const, data: wikiQuote }]),
           ...imageFileParts(images),
           ...(text === "" ? [] : [{ type: "text" as const, text }]),
         ],
@@ -131,6 +149,7 @@ export const SideChat = ({
               })
             : undefined;
       if (result === undefined) return false;
+      setWikiQuote(undefined);
       setConversation(undefined);
       setSubmittedId(result.chatId);
     } catch (failure) {
@@ -191,6 +210,12 @@ export const SideChat = ({
           initialMessages={conversation.messages}
           models={models}
           side
+          {...(wiki === undefined
+            ? {}
+            : {
+                pendingQuote: wikiQuote,
+                onClearQuote: () => setWikiQuote(undefined),
+              })}
           {...callbacks}
         />
       ) : conversation === undefined ? (
@@ -216,6 +241,20 @@ export const SideChat = ({
         <>
           <div className="flex-1 overflow-y-auto p-4">
             {draft !== undefined && <QuoteBlock text={draft.quote.text} />}
+            {wiki !== undefined && wikiQuote !== undefined && (
+              <div className="flex items-start gap-1">
+                <QuoteBlock text={wikiQuote.text} />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0"
+                  aria-label="引用を外す"
+                  onClick={() => setWikiQuote(undefined)}
+                >
+                  <X className="size-3.5" aria-hidden />
+                </Button>
+              </div>
+            )}
           </div>
           <div className="border-t p-4">
             {error !== undefined && (
@@ -249,7 +288,9 @@ export const ChatWorkspace = ({
   /** 別のスレッドの会話を開く（Wiki ページの「元の回答を開く」）。 */
   onOpenChat?: (chatId: string) => void;
 }) => {
-  const [side, setSide] = useState<BranchRequest | PageRequest>();
+  const [side, setSide] = useState<
+    BranchRequest | PageRequest | (WikiRequest & { id: string })
+  >();
   if (!loading && side?.id === props.chat.id) setSide(undefined);
   const main = useRef<HTMLElement>(null);
   const focusComposer = () =>
@@ -281,6 +322,12 @@ export const ChatWorkspace = ({
     });
   }, []);
   const onOpenWikiPage = props.onOpenWikiPage;
+  // 会話で Claude が Wiki を編集したかもしれないので、送信・完了のたびに開いているページを読み直す
+  const [wikiRevision, setWikiRevision] = useState(0);
+  const onActivity = () => {
+    props.onActivity?.();
+    setWikiRevision((revision) => revision + 1);
+  };
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
@@ -300,6 +347,7 @@ export const ChatWorkspace = ({
           <ChatView
             key={props.chat.id}
             {...props}
+            onActivity={onActivity}
             onAskSelection={(quote, settings) =>
               setSide({
                 kind: "branch",
@@ -316,8 +364,24 @@ export const ChatWorkspace = ({
         <WikiPane
           key={side.id}
           api={props.api}
+          taskId={side.taskId}
           pageId={side.pageId}
+          revision={wikiRevision}
           onClose={closeSide}
+          onOpenPage={(pageId) => openWikiPane(side.taskId, pageId)}
+          onAskSelection={(quote) =>
+            setSide({
+              kind: "wiki",
+              id: crypto.randomUUID(),
+              taskId: side.taskId,
+              pageId: side.pageId,
+              title: quote.sourcePage.title,
+              quote,
+            })
+          }
+          {...(props.onWikiPageCreated === undefined
+            ? {}
+            : { onWikiPageCreated: props.onWikiPageCreated })}
           onOpenFull={
             onOpenWikiPage === undefined
               ? undefined
@@ -332,9 +396,7 @@ export const ChatWorkspace = ({
           api={props.api}
           models={props.models}
           onClose={closeSide}
-          {...(props.onActivity === undefined
-            ? {}
-            : { onActivity: props.onActivity })}
+          onActivity={onActivity}
           {...(props.onOpenWikiPage === undefined
             ? {}
             : { onOpenWikiPage: props.onOpenWikiPage })}

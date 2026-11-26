@@ -1,5 +1,8 @@
 import type { LanguageModelV4 } from "@ai-sdk/provider";
-import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
+import type {
+  CanUseTool,
+  McpServerConfig,
+} from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
 import {
@@ -190,11 +193,22 @@ export const createChatService = (deps: {
   chats: ChatRepository;
   registry: RunnerRegistry;
   approvals: ApprovalBroker;
-  /** 会話ごとの canUseTool を差し込んだモデルを返す。 */
+  /** 会話ごとの canUseTool（と MCP サーバ）を差し込んだモデルを返す。 */
   languageModel: (
     modelId: string,
-    options: { canUseTool: CanUseTool },
+    options: {
+      canUseTool: CanUseTool;
+      mcpServers?: Record<string, McpServerConfig>;
+    },
   ) => LanguageModelV4;
+  /**
+   * タスクの会話で、Claude がタスクの Wiki を読み書きする MCP サーバ。
+   * Wiki ページにひも付く会話なら pageId を渡す。無い・undefined を返すときは、ツールなしで生成する。
+   */
+  wikiTools?: (scope: {
+    taskId: string;
+    pageId: string | null;
+  }) => Record<string, McpServerConfig> | undefined;
   /** タスクの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
   readWikiPage?: WikiPageReader;
@@ -259,6 +273,8 @@ export const createChatService = (deps: {
     content: UserContent;
     /** 会話の所属タスク（回答後の用語ページ作成に使う）。 */
     taskId: string | null;
+    /** 会話がひも付く Wiki ページ（Wiki のツールに、会話の対象のページとして伝える）。 */
+    wikiPageId: string | null;
     /** 作業ディレクトリ（会話を作ったときに決まる。セッションの resume に要る）。 */
     cwd: string;
     /** 作業ディレクトリのほかに扱えるディレクトリ（環境の設定）。 */
@@ -282,8 +298,19 @@ export const createChatService = (deps: {
             params.chatId,
             (chunk) => writer.write(chunk),
           );
+          // タスクの会話では、Claude がタスクの Wiki を読み書きできる
+          const mcpServers =
+            params.taskId === null
+              ? undefined
+              : deps.wikiTools?.({
+                  taskId: params.taskId,
+                  pageId: params.wikiPageId,
+                });
           const result = streamText({
-            model: deps.languageModel(params.model, { canUseTool }),
+            model: deps.languageModel(params.model, {
+              canUseTool,
+              ...(mcpServers === undefined ? {} : { mcpServers }),
+            }),
             messages: [{ role: "user", content: params.content }],
             ...(params.effort === null ? {} : { reasoning: params.effort }),
             providerOptions: {
@@ -452,6 +479,7 @@ export const createChatService = (deps: {
           ...resumeOf(chat),
           content: toUserContent(input.message.parts),
           taskId: chat.taskId,
+          wikiPageId: chat.wikiPageId,
           ...workspaceOf(chat),
           question: textOf(input.message.parts),
           context,
@@ -591,6 +619,7 @@ export const createChatService = (deps: {
               ...resumeOf(created),
               content: toUserContent(input.message.parts),
               taskId: created.taskId,
+              wikiPageId: created.wikiPageId,
               ...workspaceOf(created),
               question: textOf(input.message.parts),
               context,
@@ -646,6 +675,7 @@ export const createChatService = (deps: {
               : (chat.sessionId ?? chat.forkSessionId),
           content: toUserContent(userMessage.parts),
           taskId: chat.taskId,
+          wikiPageId: chat.wikiPageId,
           ...workspaceOf(chat),
           question: textOf(userMessage.parts),
           context: context.value,

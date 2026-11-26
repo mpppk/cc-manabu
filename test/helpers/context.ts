@@ -29,6 +29,7 @@ import {
   createWikiPageReader,
 } from "../../src/wiki/context.ts";
 import { createWikiPageGenerator } from "../../src/wiki/page-generation.ts";
+import { createWikiToolServers } from "../../src/wiki/tools.ts";
 
 /**
  * インメモリ DB と、差し替えた query() を使うルータのコンテキストを作る。
@@ -90,10 +91,15 @@ export const createTestContext = (
     chats,
     registry,
     approvals,
-    languageModel: (modelId, { canUseTool }) =>
-      createClaudeCode({ cwd: "/work", query, canUseTool, onRateLimit })(
-        modelId,
-      ),
+    languageModel: (modelId, { canUseTool, mcpServers }) =>
+      createClaudeCode({
+        cwd: "/work",
+        query,
+        canUseTool,
+        onRateLimit,
+        ...(mcpServers === undefined ? {} : { mcpServers }),
+      })(modelId),
+    wikiTools: createWikiToolServers({ wiki, tasks }),
     wikiContext: createWikiContextBuilder(wiki, tasks),
     readWikiPage: createWikiPageReader(wiki, tasks),
     directoriesOf: (taskId) => {
@@ -153,6 +159,7 @@ export const createTestContext = (
       tasks,
       chats,
       wiki,
+      readWikiPage: createWikiPageReader(wiki, tasks),
       generate:
         options.generatePage ??
         (() => {

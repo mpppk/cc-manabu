@@ -1,3 +1,9 @@
+import { WIKI_TOOL_NAMES, wikiToolLabel } from "../../wiki/tool-names.ts";
+
+/** 画面に出すツールの名前（Wiki のツールは日本語の名前にする）。 */
+export const toolLabel = (toolName: string): string =>
+  wikiToolLabel(toolName) ?? toolName;
+
 /** ツールの入力から、カードの見出しに出す短い説明を作る。 */
 export const summarizeToolInput = (
   toolName: string,
@@ -35,6 +41,14 @@ export const summarizeToolInput = (
     case "Task":
     case "Agent":
       return pick("description", "prompt");
+    case WIKI_TOOL_NAMES.listPages:
+      return "";
+    case WIKI_TOOL_NAMES.readPage:
+    case WIKI_TOOL_NAMES.editPage:
+      return pick("id");
+    case WIKI_TOOL_NAMES.createPage:
+    case WIKI_TOOL_NAMES.updatePage:
+      return pick("title", "id");
     default:
       return pick("description", "file_path", "command", "url", "query");
   }

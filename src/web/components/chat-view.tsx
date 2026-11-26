@@ -2,18 +2,15 @@ import { useChat } from "@ai-sdk/react";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import {
   ChevronRight,
-  FilePlus,
   Folder,
   GitBranch,
   Loader2,
   Pencil,
   RotateCcw,
-  TextQuote,
   X,
 } from "lucide-react";
 import {
   Fragment,
-  type RefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -21,7 +18,11 @@ import {
   useState,
 } from "react";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
-import { type QuoteData, quotesOf } from "../../chat/quote.ts";
+import {
+  type AnswerQuote,
+  type QuoteData,
+  quotesOf,
+} from "../../chat/quote.ts";
 import type { ChatDto } from "../../router.ts";
 import { citedPageIds, linkWikiCitations } from "../../wiki/citations.ts";
 import {
@@ -48,6 +49,7 @@ import { ModelPicker } from "./model-picker.tsx";
 import { PromptCacheTimer } from "./prompt-cache-timer.tsx";
 import { QueuePanel, type QueueState } from "./queue-panel.tsx";
 import { Reasoning } from "./reasoning.tsx";
+import { SelectionPopup, useTextSelection } from "./selection-popup.tsx";
 import { StepGroup } from "./step-group.tsx";
 import { isDenied, ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
@@ -435,150 +437,6 @@ export const QuoteBlock = ({ text }: { text: string }) => (
   </blockquote>
 );
 
-/** 回答の中の選択範囲と、その画面上の位置（ポップアップを出す場所）。 */
-type AnswerSelection = {
-  messageId: string;
-  text: string;
-  rect: { top: number; bottom: number; left: number; right: number };
-};
-
-/**
- * 回答の中の選択範囲。1 つの完了した回答の中だけを対象にする（#91）。
- * 選択が無い・複数の回答にまたがるときは undefined。スクロールしたら位置を取り直す。
- */
-const useAnswerSelection = (
-  transcript: RefObject<HTMLDivElement | null>,
-  enabled: boolean,
-) => {
-  const [selection, setSelection] = useState<AnswerSelection>();
-  useEffect(() => {
-    if (!enabled) {
-      setSelection(undefined);
-      return;
-    }
-    const update = () => {
-      const current = window.getSelection();
-      const text = current?.toString() ?? "";
-      if (
-        current === null ||
-        current.isCollapsed ||
-        current.rangeCount === 0 ||
-        text.trim() === ""
-      ) {
-        setSelection(undefined);
-        return;
-      }
-      const answerOf = (node: Node | null) =>
-        (node instanceof Element ? node : node?.parentElement)?.closest(
-          "[data-assistant-message]",
-        );
-      const anchor = answerOf(current.anchorNode);
-      const focus = answerOf(current.focusNode);
-      const messageId = anchor?.getAttribute("data-assistant-message");
-      if (
-        anchor === undefined ||
-        anchor === null ||
-        anchor !== focus ||
-        !transcript.current?.contains(anchor) ||
-        messageId === null ||
-        messageId === undefined
-      ) {
-        setSelection(undefined);
-        return;
-      }
-      const { top, bottom, left, right } = current
-        .getRangeAt(0)
-        .getBoundingClientRect();
-      setSelection({
-        messageId,
-        text: text.replace(/\n{3,}/g, "\n\n").trim(),
-        rect: { top, bottom, left, right },
-      });
-    };
-    document.addEventListener("selectionchange", update);
-    window.addEventListener("scroll", update, true);
-    window.addEventListener("resize", update);
-    return () => {
-      document.removeEventListener("selectionchange", update);
-      window.removeEventListener("scroll", update, true);
-      window.removeEventListener("resize", update);
-    };
-  }, [enabled, transcript]);
-  return selection;
-};
-
-const POPUP_HEIGHT = 36;
-const POPUP_GAP = 8;
-const POPUP_WIDTH = 200;
-
-/** 回答の選択範囲のすぐ上（上に余白が無ければ下）に出す操作（#121）。 */
-const SelectionPopup = ({
-  selection,
-  onAsk,
-  onCreatePage,
-  createPageTitle,
-}: {
-  selection: AnswerSelection;
-  /** 質問する（分岐できる回答だけ）。 */
-  onAsk: (() => void) | undefined;
-  /** 選んだ語句の Wiki のページを AI で作る（タスクの会話だけ）。 */
-  onCreatePage: (() => void) | undefined;
-  /** 「ページを作成」の説明（押せない理由を含む）。 */
-  createPageTitle: string;
-}) => {
-  const { rect } = selection;
-  const above = rect.top - POPUP_HEIGHT - POPUP_GAP;
-  const top = above >= 56 ? above : rect.bottom + POPUP_GAP;
-  const center = (rect.left + rect.right) / 2;
-  const left = Math.min(
-    Math.max(8, center - POPUP_WIDTH / 2),
-    window.innerWidth - POPUP_WIDTH - 8,
-  );
-  // 押したときに選択が外れないようにする
-  const keepSelection = {
-    onMouseDown: (event: { preventDefault: () => void }) =>
-      event.preventDefault(),
-    onPointerDown: (event: { preventDefault: () => void }) =>
-      event.preventDefault(),
-  };
-  return (
-    <div
-      role="toolbar"
-      aria-label="選択範囲の操作"
-      className="fixed z-40 flex items-center gap-1 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md"
-      style={{ top, left }}
-      {...keepSelection}
-    >
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 px-2 text-xs"
-        disabled={onAsk === undefined}
-        title={
-          onAsk === undefined
-            ? "この回答からは分岐できません"
-            : "選んだ部分を引用してサイドチャットで質問します"
-        }
-        onClick={onAsk}
-      >
-        <TextQuote className="size-3.5" />
-        質問
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-7 px-2 text-xs"
-        disabled={onCreatePage === undefined}
-        title={createPageTitle}
-        onClick={onCreatePage}
-      >
-        <FilePlus className="size-3.5" />
-        ページを作成
-      </Button>
-    </div>
-  );
-};
-
 /** 同じスレッドの会話を切り替えるメニュー（#76）。 */
 const BranchSwitcher = ({
   current,
@@ -844,7 +702,13 @@ export type ChatViewProps = {
    */
   onOpenWikiPane?: (taskId: string, pageId: string) => void;
   side?: boolean;
-  onAskSelection?: (quote: QuoteData, settings: SendSettings) => void;
+  onAskSelection?: (quote: AnswerQuote, settings: SendSettings) => void;
+  /**
+   * 次に送るメッセージに添える引用（Wiki ページの本文から選んだ部分など）。
+   * 入力欄の上に出し、送ったら onClearQuote を呼ぶ。
+   */
+  pendingQuote?: QuoteData | undefined;
+  onClearQuote?: () => void;
   /** 作業フォルダ（入力欄の下に出す）。 */
   cwd?: string;
   /** 作業フォルダのほかに Claude Code が扱えるディレクトリ（環境の設定）。 */
@@ -867,6 +731,8 @@ export const ChatView = ({
   onWikiPageCreated,
   side = false,
   onAskSelection,
+  pendingQuote,
+  onClearQuote,
   cwd,
   extraDirectories = [],
 }: ChatViewProps) => {
@@ -995,10 +861,12 @@ export const ChatView = ({
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [branchError, setBranchError] = useState<string>();
   const transcript = useRef<HTMLDivElement>(null);
-  const selection = useAnswerSelection(
+  const selection = useTextSelection(
     transcript,
+    "data-assistant-message",
     onAskSelection !== undefined || onWikiPageCreated !== undefined,
   );
+  const selectedMessageId = selection?.sourceId;
   const cancelBranch = () => {
     setBranchFrom(undefined);
     setBranchError(undefined);
@@ -1007,12 +875,12 @@ export const ChatView = ({
     selection === undefined
       ? undefined
       : turns.find((turn) =>
-          turn.answers.some((m) => m.id === selection.messageId),
+          turn.answers.some((m) => m.id === selectedMessageId),
         );
   const selectedAnswer =
-    (!busy || selection?.messageId !== messages.at(-1)?.id) &&
+    (!busy || selectedMessageId !== messages.at(-1)?.id) &&
     (selectedTurn?.question === undefined || isOpen(selectedTurn.question.id))
-      ? selectedTurn?.answers.find((m) => m.id === selection?.messageId)
+      ? selectedTurn?.answers.find((m) => m.id === selectedMessageId)
       : undefined;
   const askSelection =
     selection !== undefined &&
@@ -1022,7 +890,7 @@ export const ChatView = ({
           onAskSelection(
             {
               text: selection.text,
-              sourceMessageId: selection.messageId,
+              sourceMessageId: selection.sourceId,
             },
             settingsRef.current,
           );
@@ -1076,7 +944,7 @@ export const ChatView = ({
     selectedTerm !== undefined &&
     createPageBlocker === undefined
       ? () => {
-          void generatePage(selection.messageId, selectedTerm);
+          void generatePage(selection.sourceId, selectedTerm);
           window.getSelection()?.removeAllRanges();
         }
       : undefined;
@@ -1156,12 +1024,22 @@ export const ChatView = ({
     await queue.refresh();
   };
 
+  /** 送るメッセージの parts（添える引用・画像・本文）。 */
+  const partsOf = (
+    text: string,
+    images: ImageAttachment[],
+  ): ChatUIMessage["parts"] => [
+    ...(pendingQuote === undefined
+      ? []
+      : [{ type: "data-quote" as const, data: pendingQuote }]),
+    ...imageFileParts(images),
+    ...(text === "" ? [] : [{ type: "text" as const, text }]),
+  ];
+
   const enqueue = (text: string, images: ImageAttachment[]) => {
     requestNotificationPermission();
-    const parts = [
-      ...imageFileParts(images),
-      ...(text === "" ? [] : [{ type: "text" as const, text }]),
-    ];
+    const parts = partsOf(text, images);
+    onClearQuote?.();
     void queueAction(() =>
       api.queue.add({
         chatId: chat.id,
@@ -1173,19 +1051,24 @@ export const ChatView = ({
   const submit = (text: string, images: ImageAttachment[]) => {
     if (busy || creatingBranch) return;
     requestNotificationPermission();
-    const files = imageFileParts(images);
+    const parts = partsOf(text, images);
+    onClearQuote?.();
     if (branchFrom !== undefined) {
-      return createBranch(branchFrom, [
-        ...files,
-        ...(text === "" ? [] : [{ type: "text" as const, text }]),
-      ]);
+      return createBranch(branchFrom, parts);
     }
-    void sendMessage(text === "" ? { files } : { text, files }).then(() =>
-      onActivity?.(),
-    );
+    void sendMessage({ parts }).then(() => onActivity?.());
     // タイトルと状態（生成中）をすぐ一覧に反映する
     setTimeout(() => onActivity?.(), 300);
   };
+
+  // 引用を添えたら、続けて質問を書けるよう入力欄に移る
+  const root = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (pendingQuote === undefined) return;
+    root.current
+      ?.querySelector<HTMLTextAreaElement>("textarea:not([disabled])")
+      ?.focus();
+  }, [pendingQuote]);
 
   const onStop = async () => {
     // サーバ側の生成を止めてから、購読を切る
@@ -1280,15 +1163,22 @@ export const ChatView = ({
       {selection !== undefined && selectedAnswer !== undefined && (
         <SelectionPopup
           selection={selection}
-          onAsk={askSelection}
-          onCreatePage={createPageFromSelection}
-          createPageTitle={
-            createPageBlocker ??
-            "選んだ語句の Wiki のページを AI で作ります（画面は移りません）"
-          }
+          ask={{
+            onClick: askSelection,
+            title:
+              askSelection === undefined
+                ? "この回答からは分岐できません"
+                : "選んだ部分を引用してサイドチャットで質問します",
+          }}
+          createPage={{
+            onClick: createPageFromSelection,
+            title:
+              createPageBlocker ??
+              "選んだ語句の Wiki のページを AI で作ります（画面は移りません）",
+          }}
         />
       )}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div ref={root} className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div ref={transcript} className="flex-1 overflow-y-auto">
           <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
             {!side && branches.length > 1 && (
@@ -1457,6 +1347,22 @@ export const ChatView = ({
             >
               {queueError}
             </p>
+          )}
+          {pendingQuote !== undefined && (
+            <div className="mx-auto mb-2 flex max-w-3xl items-start gap-1">
+              <QuoteBlock text={pendingQuote.text} />
+              {onClearQuote !== undefined && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 shrink-0"
+                  aria-label="引用を外す"
+                  onClick={onClearQuote}
+                >
+                  <X className="size-3.5" aria-hidden />
+                </Button>
+              )}
+            </div>
           )}
           <Composer
             busy={busy}
