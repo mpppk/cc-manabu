@@ -52,6 +52,11 @@ import {
   PAGE_GENERATION_SETTINGS,
 } from "./wiki/page-generation.ts";
 import {
+  createPageQaWriter,
+  PAGE_QA_MODEL,
+  PAGE_QA_SETTINGS,
+} from "./wiki/page-qa.ts";
+import {
   TERM_EXTRACTION_MODEL,
   TERM_EXTRACTION_SETTINGS,
 } from "./wiki/terms.ts";
@@ -171,6 +176,23 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
             })
           ).text,
       });
+      // Wiki ページへの質問と回答からの Q&A も同じく軽い呼び出し（#159）
+      const pageQaModel = createClaudeCode({
+        ...providerSettings,
+        ...PAGE_QA_SETTINGS,
+      })(PAGE_QA_MODEL);
+      const writePageQa = createPageQaWriter({
+        chats,
+        wiki,
+        generate: async (prompt) =>
+          (
+            await generateText({
+              model: pageQaModel,
+              prompt,
+              reasoning: "none",
+            })
+          ).text,
+      });
       const registry = new RunnerRegistry();
       let queueDispatcher: QueueDispatcher | undefined;
       const chatService = createChatService({
@@ -190,6 +212,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         onAnswerFinish: (event) => {
           void summarizeAnswer(event);
           void wikiThreadTitler.onAnswerFinish(event);
+          void writePageQa(event);
         },
         onWikiChatCreated: (chat) => wikiThreadTitler.track(chat),
         onRunnerFinish: (chatId, outcome) =>

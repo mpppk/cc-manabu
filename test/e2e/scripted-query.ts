@@ -11,6 +11,9 @@ import type { QueryFunction } from "../../src/provider/types.ts";
  * - 「ゆっくり」を含む: 1〜40 を 1 行ずつ、150ms 間隔で流す（リロード・停止の確認用）
  * - 用語抽出（<term-extraction>）: 回答の中の「」で囲まれた語を用語として JSON で返す
  * - 回答の要約（<answer-summary>）: 「要約（<回答の文字数> 文字の回答）」と返す
+ * - Wiki ページの Q&A（<wiki-page-qa>）: 質問を「Q: <質問>」（前のやり取りがあれば
+ *   「（<最初の質問> について）」を補う）、回答を「<回答の文字数> 文字の回答の要約」にした JSON を返す。
+ *   質問に「Q&A失敗」を含むと JSON でない文字列を返す（作成の失敗）
  * - スレッドのタイトル（<thread-title>）: 1 秒待ってから「<質問> の論点」と返す。
  *   質問に「タイトル失敗」を含むと空を返す（生成の失敗）
  * - 選択範囲からのページ生成（<wiki-page-generation>）: 1 秒待ってから「<語句> は…」の本文を返す。
@@ -151,6 +154,22 @@ export const createScriptedQuery = (): QueryFunction => {
             term.includes("失敗")
               ? ""
               : `${term} は回答に出てきた語。\n\n## 補足\n\n生成したページ。`,
+          ],
+          0,
+        );
+      } else if (text.includes("<wiki-page-qa>")) {
+        const question =
+          /<question>\n([\s\S]*?)\n<\/question>/.exec(text)?.[1] ?? "";
+        const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(text)?.[1] ?? "";
+        const previous = /<turn>\n質問: ([^\n]*)/.exec(text)?.[1];
+        yield* textMessage(
+          [
+            question.includes("Q&A失敗")
+              ? "作れませんでした"
+              : JSON.stringify({
+                  question: `Q: ${question}${previous === undefined ? "" : `（${previous} について）`}`,
+                  answer: `${[...answer].length} 文字の回答の要約`,
+                }),
           ],
           0,
         );

@@ -14,6 +14,7 @@ import { searchPages } from "../../wiki/match.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { cn } from "../lib/utils.ts";
 import { SideChat } from "./chat-workspace.tsx";
+import { PageQaList } from "./page-qa-list.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 import { WikiPageContent, WikiPane } from "./wiki-pane.tsx";
@@ -257,6 +258,8 @@ export const WikiView = ({
       if (returnFocus?.isConnected) returnFocus.focus();
     });
   };
+  /** サイドチャットで質問・回答があるたびに増やす（Q&A を読み直す。#159）。 */
+  const [qaRevision, setQaRevision] = useState(0);
   const closeChat = () => {
     setAskingPageId(undefined);
     setQuote(undefined);
@@ -436,6 +439,12 @@ export const WikiView = ({
             onOpenPage: onNavigate,
           }}
         />
+        <PageQaList
+          api={api}
+          taskId={taskId}
+          pageId={page.id}
+          revision={qaRevision}
+        />
         <Dialog
           open={deleting}
           onOpenChange={setDeleting}
@@ -495,6 +504,7 @@ export const WikiView = ({
             hidden={termPane !== undefined}
             onActivity={() => {
               onChatActivity();
+              setQaRevision((revision) => revision + 1);
               // Claude が Wiki のページを編集・作成していれば反映する
               void refresh();
             }}

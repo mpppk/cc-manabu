@@ -1,10 +1,15 @@
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { normalizeTerm, type TermCandidate } from "../wiki/terms.ts";
 import { DatabaseError } from "./chat-repository.ts";
 import type { Db } from "./index.ts";
-import { type WikiPageRow, wikiPages } from "./schema.ts";
+import {
+  type WikiPageQaRow,
+  type WikiPageRow,
+  wikiPageQas,
+  wikiPages,
+} from "./schema.ts";
 
 export class WikiPageNotFoundError extends ErrorFactory({
   name: "WikiPageNotFoundError",
@@ -31,6 +36,46 @@ export type WikiPageInput = {
 
 /** Wiki ページの永続化。ページは Wiki（複数のタスクで共有できる）に属する。 */
 export const createWikiRepository = (db: Db) => ({
+  /** タスクとページの組の Q&A（作った順。#159）。 */
+  listQas: (
+    taskId: string,
+    wikiPageId: string,
+  ): Result.Result<WikiPageQaRow[], DatabaseError> =>
+    run(() =>
+      db
+        .select()
+        .from(wikiPageQas)
+        .where(
+          and(
+            eq(wikiPageQas.taskId, taskId),
+            eq(wikiPageQas.wikiPageId, wikiPageId),
+          ),
+        )
+        .orderBy(asc(wikiPageQas.createdAt))
+        .all(),
+    ),
+
+  /**
+   * 回答から作った Q&A を保存する。同じ回答の Q&A がすでにあれば作らずに undefined を返す
+   * （同じ応対を処理し直しても重ならない）。
+   */
+  saveQa: (input: {
+    taskId: string;
+    wikiPageId: string;
+    chatId: string;
+    messageId: string;
+    question: string;
+    answer: string;
+  }): Result.Result<WikiPageQaRow | undefined, DatabaseError> =>
+    run(() =>
+      db
+        .insert(wikiPageQas)
+        .values({ id: crypto.randomUUID(), ...input, createdAt: new Date() })
+        .onConflictDoNothing({ target: wikiPageQas.messageId })
+        .returning()
+        .get(),
+    ),
+
   /** Wiki のページ（タイトル順）。 */
   listPages: (wikiId: string): Result.Result<WikiPageRow[], DatabaseError> =>
     run(() =>
