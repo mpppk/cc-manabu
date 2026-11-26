@@ -251,6 +251,8 @@ export const createChatService = (deps: {
    * 最初の回答のあとにタイトルを付ける（#161）のに使う。
    */
   onWikiChatCreated?: (chat: ChatRow) => void;
+  /** 会話の生成が始まったとき（ゴールの実行の進捗の更新に使う。#198）。 */
+  onRunnerStart?: (chatId: string) => void;
   /** 会話の生成が終わったとき（予約したメッセージの送信に使う。#102）。 */
   onRunnerFinish?: (
     chatId: string,
@@ -343,15 +345,19 @@ export const createChatService = (deps: {
                 ].filter((server) => server !== undefined);
           const mcpServers =
             servers.length === 0 ? undefined : Object.assign({}, ...servers);
-          // タスクの情報と Wiki の参照資料は、質問とは別のブロックで渡す（DB の発話には保存しない）
-          const context = [
-            params.taskId === null
-              ? undefined
-              : deps.taskContext?.(params.taskId),
-            params.context?.text,
-          ]
-            .filter((text) => text !== undefined && text.trim() !== "")
-            .join("\n\n");
+          // タスクの情報と Wiki の参照資料は、質問とは別のブロックで渡す（DB の発話には保存しない）。
+          // スラッシュコマンド（`/goal …` など）は、Claude Code が解釈できるようにそのまま送る（#198）
+          const slashCommand = params.question.trimStart().startsWith("/");
+          const context = slashCommand
+            ? ""
+            : [
+                params.taskId === null
+                  ? undefined
+                  : deps.taskContext?.(params.taskId),
+                params.context?.text,
+              ]
+                .filter((text) => text !== undefined && text.trim() !== "")
+                .join("\n\n");
           const result = streamText({
             model: deps.languageModel(params.model, {
               canUseTool,
@@ -803,6 +809,11 @@ export const createChatService = (deps: {
 
   const trackStatus = (runner: ChatRunner) => {
     chats.setStatus(runner.chatId, "running");
+    try {
+      deps.onRunnerStart?.(runner.chatId);
+    } catch {
+      // 進捗の更新は生成に影響させない
+    }
     runner.onFinish(() => {
       const chunks = runner.snapshot();
       const failed = chunks.some(

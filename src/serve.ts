@@ -25,6 +25,7 @@ import { resolveClaudePath } from "./claude/detect.ts";
 import { createClaudeStatus } from "./claude/status.ts";
 import { createChatRepository } from "./db/chat-repository.ts";
 import { createEnvironmentRepository } from "./db/environment-repository.ts";
+import { createGoalRunRepository } from "./db/goal-run-repository.ts";
 import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
 import { createPreferencesRepository } from "./db/preferences-repository.ts";
@@ -47,6 +48,8 @@ import {
 } from "./server/open-pwa.ts";
 import { closePwaOnExit, trackPwaWindow } from "./server/pwa-window.ts";
 import { openBrowser, PortInUseError, startServer } from "./server/server.ts";
+import { createGoalRuns, type GoalRuns } from "./task/goal-runs.ts";
+import { readGoalVerdict } from "./task/goal-verdict.ts";
 import { createTaskToolServers } from "./task/tools.ts";
 import index from "./web/index.html";
 import { createTermPageWriter } from "./wiki/auto-terms.ts";
@@ -127,9 +130,13 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           ? claudePath.value
           : undefined,
       };
+      // ゴールの実行（#198）。送信に chatService を使うので、あとで作る
+      let goalRuns: GoalRuns | undefined;
       const approvals = createApprovalBroker({
-        onPendingChange: (chatId, count) =>
-          chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
+        onPendingChange: (chatId, count) => {
+          chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running");
+          goalRuns?.onPendingChange(chatId, count);
+        },
       });
       // 用語抽出は Claude Code の機能を使わない軽い呼び出し（docs/spikes/term-extraction.md）
       const termModel = createClaudeCode({
@@ -242,9 +249,24 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           void writePageQa(event);
         },
         onWikiChatCreated: (chat) => wikiThreadTitler.track(chat),
-        onRunnerFinish: (chatId, outcome) =>
-          queueDispatcher?.onRunnerFinish(chatId, outcome),
+        onRunnerStart: (chatId) => goalRuns?.onRunnerStart(chatId),
+        onRunnerFinish: (chatId, outcome) => {
+          queueDispatcher?.onRunnerFinish(chatId, outcome);
+          void goalRuns?.onRunnerFinish(chatId, outcome);
+        },
       });
+      const preferences = createPreferencesRepository(db);
+      goalRuns = createGoalRuns({
+        tasks,
+        chats,
+        environments,
+        goalRuns: createGoalRunRepository(db),
+        preferences,
+        chatService,
+        readVerdict: readGoalVerdict,
+        cwd: process.cwd(),
+      });
+      const goalRunService = goalRuns;
       queueDispatcher = createQueueDispatcher({
         queue,
         registry,
@@ -266,7 +288,8 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
             queueDispatcher,
             search: createSearchRepository(db),
             rateLimits,
-            preferences: createPreferencesRepository(db),
+            preferences,
+            goalRuns: goalRunService,
             wikiHistory,
             chatService,
             approvals,

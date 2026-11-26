@@ -19,6 +19,8 @@ export type ChatStatus = (typeof CHAT_STATUSES)[number];
 export const TASK_STATUSES = [
   "not_started",
   "in_progress",
+  /** ゴールの実行で、利用者の確認・判断・承認を待っている（#198）。 */
+  "needs_review",
   "on_hold",
   "done",
 ] as const;
@@ -96,9 +98,9 @@ export const tasks = sqliteTable(
       .default("not_started"),
     /** 進捗メモ（任意）。 */
     progressNote: text("progress_note").notNull().default(""),
-    /** 次にやること（任意）。 */
+    /** ゴール（任意）。 */
     nextAction: text("next_action").notNull().default(""),
-    /** 状態・進捗メモ・次にやることを最後に変えた日時。まだ変えていなければ null。 */
+    /** 状態・進捗メモ・ゴールを最後に変えた日時。まだ変えていなければ null。 */
     progressUpdatedAt: integer("progress_updated_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
@@ -456,3 +458,61 @@ export const appState = sqliteTable("app_state", {
   value: text("value", { mode: "json" }).notNull().$type<unknown>(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+/**
+ * ゴールの実行の状態（#198）。
+ * - `running`: Claude がゴールに向けて作業している
+ * - `needs_review`: 利用者の確認・判断・ツールの承認を待っている
+ * - `achieved`: `/goal` の評価で達成を確認した
+ * - `failed`: 達成不能・失敗
+ * - `stopped`: 利用者が止めた
+ */
+export const GOAL_RUN_STATES = [
+  "running",
+  "needs_review",
+  "achieved",
+  "failed",
+  "stopped",
+] as const;
+export type GoalRunState = (typeof GOAL_RUN_STATES)[number];
+
+/**
+ * タスクのゴールの実行（#198）。実行ごとにタスクに属するスレッドを 1 つ作り、
+ * そのスレッドで Claude Code のネイティブの `/goal` を走らせる。
+ * 同じタスクで進行中（running / needs_review）の実行は 1 つだけ（多重起動を防ぐ）。
+ */
+export const goalRuns = sqliteTable(
+  "goal_runs",
+  {
+    id: text("id").primaryKey(),
+    taskId: text("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    /** 実行のために作ったスレッド（元の会話）。 */
+    chatId: text("chat_id")
+      .notNull()
+      .references(() => chats.id, { onDelete: "cascade" }),
+    /** 実行したときのゴール（あとでタスクのゴールを変えても残す）。 */
+    goal: text("goal").notNull(),
+    state: text("state", { enum: GOAL_RUN_STATES })
+      .notNull()
+      .default("running"),
+    /** 状態の理由（評価の理由・停止や失敗の理由・確認してほしいこと）。 */
+    reason: text("reason").notNull().default(""),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+  },
+  (table) => [
+    index("goal_runs_task_id_idx").on(table.taskId),
+    index("goal_runs_chat_id_idx").on(table.chatId),
+    uniqueIndex("goal_runs_active_task_idx")
+      .on(table.taskId)
+      .where(sql`${table.state} in ('running', 'needs_review')`),
+  ],
+);
+
+export type GoalRunRow = typeof goalRuns.$inferSelect;

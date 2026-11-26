@@ -11,7 +11,8 @@ export const taskName = z.string().trim().min(1).max(100);
 export const taskProgressFields = {
   status: z.enum(TASK_STATUSES).optional(),
   progressNote: z.string().max(20_000).optional(),
-  nextAction: z.string().trim().max(500).optional(),
+  /** ゴール（達成の条件）。Claude Code の `/goal` の条件の上限にそろえる（#198）。 */
+  nextAction: z.string().trim().max(4000).optional(),
 };
 
 /** 関連リンクの入力。URL は http / https だけ。表示名は空なら null（URL を表示する）。 */

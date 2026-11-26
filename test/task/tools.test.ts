@@ -49,11 +49,11 @@ describe("タスクのツール（#187）", () => {
     const text = unwrap(
       handlers.updateTask({
         status: "in_progress",
-        next_action: " API 仕様をレビューする ",
+        goal: " API 仕様をレビューする ",
       }),
     );
     expect(text).toContain("状態: 未着手 → 進行中");
-    expect(text).toContain("次にやること: 調査する → API 仕様をレビューする");
+    expect(text).toContain("ゴール: 調査する → API 仕様をレビューする");
     expect(text).not.toContain("進捗メモ");
     const updated = unwrap(tasks.getTask(task.id));
     expect(updated).toMatchObject({
@@ -73,9 +73,9 @@ describe("タスクのツール（#187）", () => {
     const { tasks, task, handlers } = setup();
     expect(reason(handlers.updateTask({}))).toContain("変える項目がありません");
     expect(reason(handlers.updateTask({ name: "  " }))).toContain("name:");
-    expect(
-      reason(handlers.updateTask({ next_action: "あ".repeat(501) })),
-    ).toContain("進捗:");
+    expect(reason(handlers.updateTask({ goal: "あ".repeat(4001) }))).toContain(
+      "進捗:",
+    );
     expect(unwrap(tasks.getTask(task.id))).toMatchObject({
       name: "認可基盤",
       nextAction: "",

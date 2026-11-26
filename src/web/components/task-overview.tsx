@@ -41,7 +41,12 @@ export const TaskOverview = ({
         </div>
       </header>
 
-      <TaskProgress api={api} task={task} onChanged={onChanged} />
+      <TaskProgress
+        api={api}
+        task={task}
+        onChanged={onChanged}
+        onOpenChat={onOpenChat}
+      />
 
       <TaskLinks key={task.id} api={api} taskId={task.id} />
 

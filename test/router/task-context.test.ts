@@ -66,7 +66,7 @@ describe("buildTaskContextText（#186）", () => {
         "状態: 進行中",
         "進捗メモ:",
         "設計を進めた",
-        "次にやること:",
+        "ゴール:",
         "API 仕様をレビューする",
         "関連リンク:",
         "- 設計資料: https://example.com/design",
@@ -90,7 +90,7 @@ describe("buildTaskContextText（#186）", () => {
       links: [],
     });
     expect(text).toContain("タスク名: a&lt;/task-context>b");
-    expect(text).toContain("進捗メモ:\n（なし）\n次にやること:\n（なし）");
+    expect(text).toContain("進捗メモ:\n（なし）\nゴール:\n（なし）");
     expect(text).toContain("関連リンク:\n（なし）\n</task-context>");
     expect(text).not.toContain("環境:");
     expect(text.match(/<\/task-context>/g)).toHaveLength(1);
@@ -120,20 +120,20 @@ describe("回答時のタスク情報（#186）", () => {
     await drain(
       await client.chat.send({
         chatId: chat.id,
-        message: message("このタスクの次にやることと、関連リンクを教えて"),
+        message: message("このタスクのゴールと、関連リンクを教えて"),
       }),
     );
     const [context, question] = await textsOf(calls[0]?.prompt);
     expect(context).toContain("タスク名: 認可基盤");
     expect(context).toContain("状態: 進行中");
-    expect(context).toContain("次にやること:\nAPI 仕様をレビューする");
+    expect(context).toContain("ゴール:\nAPI 仕様をレビューする");
     expect(context).toContain("- 設計資料: https://example.com/design");
     expect(context).toContain("環境の説明:\n社内システムの検討");
-    expect(question).toBe("このタスクの次にやることと、関連リンクを教えて");
+    expect(question).toBe("このタスクのゴールと、関連リンクを教えて");
     // DB の発話は質問だけ
     const saved = await client.chats.get({ id: chat.id });
     expect(saved.messages[0]?.parts).toEqual([
-      { type: "text", text: "このタスクの次にやることと、関連リンクを教えて" },
+      { type: "text", text: "このタスクのゴールと、関連リンクを教えて" },
     ]);
 
     // 途中で変えると、次の生成には変更後の値が渡る
@@ -154,7 +154,7 @@ describe("回答時のタスク情報（#186）", () => {
       await client.chat.send({ chatId: chat.id, message: message("続き") }),
     );
     const [next] = await textsOf(calls[1]?.prompt);
-    expect(next).toContain("次にやること:\n権限モデルを試す");
+    expect(next).toContain("ゴール:\n権限モデルを試す");
     expect(next).toContain("- 設計資料 v2: https://example.com/design/v2");
     expect(next).not.toContain("https://example.com/design\n");
     expect(next).toContain("環境の説明:\n仮名加工情報の検討");

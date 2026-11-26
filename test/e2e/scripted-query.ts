@@ -3,6 +3,7 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryFunction } from "../../src/provider/types.ts";
+import type { GoalVerdict } from "../../src/task/goal-verdict.ts";
 
 /**
  * E2E 用のモック query()。プロンプトの内容で振る舞いを変える（台本）。
@@ -26,6 +27,12 @@ import type { QueryFunction } from "../../src/provider/types.ts";
  *
  * resume / fork を受け取ったセッション ID はそのまま（fork なら新しい ID を）返す。
  */
+/**
+ * `/goal` の評価の結果（#198）。実機ではセッションの記録に残るので、E2E ではここに置いて
+ * サーバの readVerdict から読む（セッション ID → 最後の評価）。
+ */
+export const goalVerdicts = new Map<string, GoalVerdict>();
+
 export const createScriptedQuery = (): QueryFunction => {
   let counter = 0;
   return ({ prompt, options }) => {
@@ -231,13 +238,13 @@ export const createScriptedQuery = (): QueryFunction => {
           : wikiToolCall("update_page", { id: existing, body });
         yield* textMessage([`Wiki の「${title}」に書きました。`], 0);
       } else if (/^タスクを更新: /.test(text)) {
-        // 「タスクを更新: 状態|次にやること」。#187
+        // 「タスクを更新: 状態|ゴール」。#187
         const [status = "", nextAction = ""] = text
           .replace(/^タスクを更新: /, "")
           .split("|");
         yield* toolCall("task", "update_task", {
           status,
-          next_action: nextAction,
+          goal: nextAction,
         });
         yield* textMessage(["進捗を反映しました。"], 0);
       } else if (/^リンクを追加: /.test(text)) {
@@ -299,6 +306,49 @@ export const createScriptedQuery = (): QueryFunction => {
           [taskContext === "" ? "タスクの情報はありません" : taskContext],
           0,
         );
+      } else if (text.startsWith("/goal ")) {
+        // 「/goal <ゴール>」（#198）。ゴールの文言で評価の結果を変える
+        const goal = text.slice("/goal ".length);
+        yield* textMessage([`Goal set: ${goal}\n\n`], 0);
+        if (goal.includes("要確認")) {
+          yield* textMessage(["どちらの方針で進めますか？"], 0);
+          goalVerdicts.set(sessionId, {
+            kind: "none",
+            reason: "利用者の判断を待っています",
+          });
+        } else if (goal.includes("不可能")) {
+          yield* textMessage(["このゴールは達成できません。"], 0);
+          goalVerdicts.set(sessionId, {
+            kind: "failed",
+            reason: "条件が矛盾しているため達成できません",
+          });
+        } else {
+          if (goal.includes("承認")) {
+            await options?.canUseTool?.(
+              "Bash",
+              { command: "touch goal.txt", description: "Create goal.txt" },
+              {
+                signal: signal ?? new AbortController().signal,
+                suggestions: [],
+                toolUseID: "toolu_goal",
+                displayName: "Bash",
+                description: "Create goal.txt",
+              } as never,
+            );
+          }
+          yield* textMessage(["ゴールに向けた作業が終わりました。"], 0);
+          goalVerdicts.set(sessionId, {
+            kind: "met",
+            reason: "条件を満たしました",
+          });
+        }
+      } else if (
+        goalVerdicts.get(sessionId)?.kind === "none" &&
+        text.includes("方針A")
+      ) {
+        // 要確認のあと、利用者が答えて再開した
+        yield* textMessage(["方針A で進めて、ゴールを達成しました。"], 0);
+        goalVerdicts.set(sessionId, { kind: "met", reason: "方針A で達成" });
       } else if (text.includes("承認")) {
         const decision = await options?.canUseTool?.(
           "Bash",

@@ -68,7 +68,7 @@ export const TaskList = ({
           </p>
         )}
         <div className="overflow-x-auto pb-2">
-          <div className="grid min-w-[48rem] grid-cols-4 gap-3">
+          <div className="grid min-w-[60rem] grid-cols-5 gap-3">
             {TASK_STATUS_ORDER.map((status) => {
               const column = tasks.filter((task) => statusOf(task) === status);
               const headingId = `task-column-${status}`;
@@ -159,12 +159,12 @@ export const TaskList = ({
                           <p className="whitespace-pre-wrap break-words text-xs">
                             {task.nextAction === "" ? (
                               <span className="text-muted-foreground">
-                                次にやること: —
+                                ゴール: —
                               </span>
                             ) : (
                               <>
                                 <span className="text-muted-foreground">
-                                  次にやること:{" "}
+                                  ゴール:{" "}
                                 </span>
                                 {task.nextAction}
                               </>

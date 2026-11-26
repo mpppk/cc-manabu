@@ -12,6 +12,9 @@ DB・API の名前（`chats`, `groupId`, `branchTitle` など）は、用語を�
 | --- | --- | --- |
 | 環境 | Claude Code に渡すディレクトリと、参照する Wiki のまとまり | `environments` |
 | タスク | 複数のスレッドをまとめる単位。1 つの環境に属する | `tasks` |
+| ゴール | タスクの達成の条件。「実行」で Claude Code の `/goal` に渡す。以前の「次にやること」 | `tasks.nextAction` |
+| ゴールの実行 | ゴールに向けて Claude が作業する 1 回分。実行ごとにタスクのスレッドを 1 つ作る | `goalRuns`, `api.tasks.runGoal` |
+| 要確認 | タスクの状態の 1 つ。ゴールの実行が、利用者の確認・判断・ツールの承認を待っている | `needs_review` |
 | スレッド | サイドバーの 1 行。会話のまとまりで、タイトル・タスク・作業ディレクトリを共有する | `chats.groupId`, `ChatGroup` |
 | 会話 | スレッド内の 1 本の流れ。1 つの Claude Code セッションに対応する | `chats` の 1 行, `ChatDto` |
 | 元の会話 | スレッドの最初の会話 | `parentId === null` |

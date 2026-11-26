@@ -27,7 +27,7 @@ describe("タスクの進捗", () => {
     });
   });
 
-  test("状態・進捗メモ・次にやることを保存でき、別のタスクには反映されない", async () => {
+  test("状態・進捗メモ・ゴールを保存でき、別のタスクには反映されない", async () => {
     const client = setup();
     const a = await client.tasks.create({ name: "a" });
     const b = await client.tasks.create({ name: "b" });

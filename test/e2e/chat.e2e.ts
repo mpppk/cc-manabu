@@ -1111,7 +1111,7 @@ test("タスク内のスレッドでは、保存したタスクの情報が Clau
     label: "進行中",
   });
   await page
-    .getByRole("textbox", { name: "次にやること" })
+    .getByRole("textbox", { name: "ゴール" })
     .fill("API 仕様をレビューする");
   await page.getByRole("button", { name: "進捗を保存" }).click();
   await expect(page.getByRole("status")).toHaveText("保存しました");
@@ -1131,7 +1131,7 @@ test("タスク内のスレッドでは、保存したタスクの情報が Clau
   await newChat(page);
   await send(
     page,
-    "このタスクの次にやることと、関連リンクを教えて。タスクの情報を教えて",
+    "このタスクのゴールと、関連リンクを教えて。タスクの情報を教えて",
   );
   const answer = page.locator("[data-assistant-message]").last();
   await expect(answer).toContainText("タスク名: タスク情報の検証");
@@ -1155,7 +1155,7 @@ test("チャットからタスクの進捗と関連リンクを更新し、タ�
   await open(page);
   await createTask(page, "ツール更新の検証");
   const status = page.getByRole("combobox", { name: "状態" });
-  const nextAction = page.getByRole("textbox", { name: "次にやること" });
+  const nextAction = page.getByRole("textbox", { name: "ゴール" });
   const links = page.getByRole("list", { name: "関連リンク" });
   await page.getByRole("textbox", { name: "進捗メモ" }).fill("設計を進めた");
   await page.getByRole("button", { name: "進捗を保存" }).click();
@@ -1247,11 +1247,11 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   await expect(status).toHaveValue("not_started");
   await expect(progress).toContainText("最終更新: —");
 
-  // 状態はすぐ保存、次にやること・進捗メモは「進捗を保存」で保存
+  // 状態はすぐ保存、ゴール・進捗メモは「進捗を保存」で保存
   await status.selectOption({ label: "進行中" });
   await expect(progress).not.toContainText("最終更新: —");
   await page
-    .getByRole("textbox", { name: "次にやること" })
+    .getByRole("textbox", { name: "ゴール" })
     .fill("検証環境で権限モデルを試す");
   await page
     .getByRole("textbox", { name: "進捗メモ" })
@@ -1263,9 +1263,7 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   // 別のタスクには反映されない
   await createTask(page, "進捗B");
   await expect(status).toHaveValue("not_started");
-  await expect(page.getByRole("textbox", { name: "次にやること" })).toHaveValue(
-    "",
-  );
+  await expect(page.getByRole("textbox", { name: "ゴール" })).toHaveValue("");
 
   // スレッドで会話を続けても、状態と最終更新は変わらない
   await openTask(page, "進捗A");
@@ -1276,7 +1274,7 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   await expect(status).toHaveValue("in_progress");
   await expect(progress.getByText(/最終更新:/)).toHaveText(updatedText ?? "");
 
-  // カンバンで状態ごとの列に並び、カードに次にやることを出す（#195）
+  // カンバンで状態ごとの列に並び、カードにゴールを出す（#195）
   await page.getByRole("button", { name: "タスク一覧" }).click();
   await expect(page).toHaveURL(/\/tasks$/);
   await expect(card(page, "進捗A")).toContainText("検証環境で権限モデルを試す");
@@ -1369,6 +1367,96 @@ test("カンバンの保存に失敗したら元の列に戻し、左パネル�
   await filter.getByRole("button", { name: "保留" }).click();
   await expect(taskRow(page, "カンバンC")).toBeVisible();
   await page.getByRole("button", { name: "環境ごとにまとめる" }).click();
+});
+
+test("ゴールを実行すると /goal のスレッドを作って開き、実行状況でタスクの進捗を自動で更新する（#198）", async ({
+  page,
+}) => {
+  const status = page.getByRole("combobox", { name: "状態" });
+  const panel = page.getByRole("region", { name: "ゴールの実行" });
+  const runState = panel.getByTestId("goal-run-state");
+  /** ゴールを保存して実行し、作られたスレッドに移る。 */
+  const runGoal = async (task: string, goal: string) => {
+    await createTask(page, task);
+    await expect(panel.getByRole("button", { name: "実行" })).toBeDisabled();
+    await page.getByRole("textbox", { name: "ゴール" }).fill(goal);
+    // 保存するまでは実行できない
+    await expect(panel.getByRole("button", { name: "実行" })).toBeDisabled();
+    await page.getByRole("button", { name: "進捗を保存" }).click();
+    await expect(page.getByRole("status")).toHaveText("保存しました");
+    await panel.getByRole("button", { name: "実行" }).click();
+    await expect(page).toHaveURL(/\/c\/.+/);
+    await expect(page.getByText(`Goal set: ${goal}`)).toBeVisible();
+  };
+
+  await open(page);
+  // 達成を確認すると完了
+  await runGoal("ゴール達成の検証", "テストがすべて通る");
+  await expect(
+    page.getByText("ゴールに向けた作業が終わりました。"),
+  ).toBeVisible();
+  await idle(page);
+  await openTask(page, "ゴール達成の検証");
+  await expect(runState).toHaveText("達成");
+  await expect(status).toHaveValue("done");
+  await expect(panel.getByTestId("goal-run-reason")).toHaveText(
+    "条件を満たしました",
+  );
+  // 実行のスレッドはタスクに属し、タスクから開ける
+  await panel
+    .getByRole("button", { name: "直近の実行のスレッドを開く" })
+    .click();
+  await expect(page.getByText("Goal set: テストがすべて通る")).toBeVisible();
+
+  // 判定できないまま止まると要確認。スレッドで答えて再開すると進行中に戻り、達成で完了
+  await runGoal("ゴール要確認の検証", "要確認が必要な作業を終える");
+  await expect(page.getByText("どちらの方針で進めますか？")).toBeVisible();
+  await idle(page);
+  await openTask(page, "ゴール要確認の検証");
+  await expect(runState).toHaveText("要確認");
+  await expect(status).toHaveValue("needs_review");
+  await expect(panel.getByTestId("goal-run-reason")).toContainText(
+    "判定できないまま止まりました",
+  );
+  // 要確認の間も多重に起動しない
+  await expect(panel.getByRole("button", { name: "停止" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: /実行$/ })).toHaveCount(0);
+  await panel.getByRole("button", { name: "実行中のスレッドを開く" }).click();
+  await send(page, "方針A で進めて");
+  await expect(
+    page.getByText("方針A で進めて、ゴールを達成しました。"),
+  ).toBeVisible();
+  await idle(page);
+  await openTask(page, "ゴール要確認の検証");
+  await expect(runState).toHaveText("達成");
+  await expect(status).toHaveValue("done");
+
+  // 達成不能なら保留にして理由を出し、再実行できる
+  await runGoal("ゴール不能の検証", "不可能な条件を満たす");
+  await idle(page);
+  await openTask(page, "ゴール不能の検証");
+  await expect(runState).toHaveText("達成できず");
+  await expect(status).toHaveValue("on_hold");
+  await expect(panel.getByTestId("goal-run-reason")).toHaveText(
+    "条件が矛盾しているため達成できません",
+  );
+  await expect(panel.getByRole("button", { name: "再実行" })).toBeEnabled();
+
+  // ツールの承認待ちは要確認。カンバンの要確認の列にも出る。承認すると進み、達成で完了
+  await runGoal("ゴール承認の検証", "承認が必要な作業を終える");
+  const approval = page.getByRole("region", { name: "ツール実行の承認" });
+  await expect(approval).toBeVisible();
+  await page.getByRole("button", { name: "タスク一覧" }).click();
+  await expect(column(page, "要確認")).toContainText("ゴール承認の検証");
+  await page.goBack();
+  await approval.getByRole("button", { name: "許可" }).click();
+  await expect(
+    page.getByText("ゴールに向けた作業が終わりました。"),
+  ).toBeVisible();
+  await idle(page);
+  await openTask(page, "ゴール承認の検証");
+  await expect(runState).toHaveText("達成");
+  await expect(status).toHaveValue("done");
 });
 
 test("回答から分岐し、同じスレッドの中で会話を切り替えて続けられる", async ({

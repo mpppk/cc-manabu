@@ -13,6 +13,7 @@ import { createTaskContextBuilder } from "../../src/chat/task-context.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { createEnvironmentRepository } from "../../src/db/environment-repository.ts";
+import { createGoalRunRepository } from "../../src/db/goal-run-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createPreferencesRepository } from "../../src/db/preferences-repository.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
@@ -26,6 +27,8 @@ import {
   type QueryFunction,
 } from "../../src/provider/index.ts";
 import type { RouterContext } from "../../src/router.ts";
+import { createGoalRuns, type GoalRuns } from "../../src/task/goal-runs.ts";
+import type { GoalVerdictReader } from "../../src/task/goal-verdict.ts";
 import { createTaskToolServers } from "../../src/task/tools.ts";
 import { createTermPageWriter } from "../../src/wiki/auto-terms.ts";
 import {
@@ -56,6 +59,8 @@ export const createTestContext = (
      * （ほかのテストが送ったプロンプトをそのまま比べられるように）。
      */
     taskContext?: boolean;
+    /** `/goal` の評価の読み取り（#198）。省略すると判定なし。 */
+    readVerdict?: GoalVerdictReader;
   } = {},
 ) => {
   const opened = openDatabase(":memory:");
@@ -73,12 +78,15 @@ export const createTestContext = (
     rateLimits.save(normalizeRateLimit(info, Date.now()));
   };
   let queueDispatcher: QueueDispatcher | undefined;
+  let goalRuns: GoalRuns | undefined;
   const registry = new RunnerRegistry({
     maxConcurrent: options.maxConcurrent,
   });
   const approvals = createApprovalBroker({
-    onPendingChange: (chatId, count) =>
-      chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
+    onPendingChange: (chatId, count) => {
+      chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running");
+      goalRuns?.onPendingChange(chatId, count);
+    },
   });
   const query: QueryFunction =
     options.query ??
@@ -132,8 +140,11 @@ export const createTestContext = (
       const directories = environments.directoriesOfTask(taskId);
       return Result.isSuccess(directories) ? directories.value : undefined;
     },
-    onRunnerFinish: (chatId, outcome) =>
-      queueDispatcher?.onRunnerFinish(chatId, outcome),
+    onRunnerStart: (chatId) => goalRuns?.onRunnerStart(chatId),
+    onRunnerFinish: (chatId, outcome) => {
+      queueDispatcher?.onRunnerFinish(chatId, outcome);
+      void goalRuns?.onRunnerFinish(chatId, outcome);
+    },
     ...(writeTermPages === undefined
       ? {}
       : {
@@ -150,6 +161,19 @@ export const createTestContext = (
         }),
   });
   queueDispatcher = createQueueDispatcher({ queue, registry, chatService });
+  const preferences = createPreferencesRepository(opened.value.db);
+  goalRuns = createGoalRuns({
+    tasks,
+    chats,
+    environments,
+    goalRuns: createGoalRunRepository(opened.value.db),
+    preferences,
+    chatService,
+    readVerdict:
+      options.readVerdict ?? (async () => ({ kind: "none", reason: "" })),
+    cwd: "/work",
+  });
+  const goalRunService = goalRuns;
   const claude = createClaudeStatus(
     { found: true, path: "/usr/local/bin/claude" },
     {
@@ -178,7 +202,8 @@ export const createTestContext = (
     queueDispatcher,
     search: createSearchRepository(opened.value.db),
     rateLimits,
-    preferences: createPreferencesRepository(opened.value.db),
+    preferences,
+    goalRuns: goalRunService,
     wikiHistory,
     chatService,
     approvals,
