@@ -1114,7 +1114,7 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   // 右側のペインは 1 つだけ: サイドチャットを開いていても、用語を押すと入れ替わる
   const side = page.getByRole("complementary", { name: "サイドチャット" });
   await selectLastAnswerParagraph(page);
-  await main.getByRole("button", { name: "質問", exact: true }).click();
+  await askSelectionIn(main);
   await expect(side).toBeVisible();
   await model.click();
   await expect(pane.getByRole("heading", { name: "認可モデル" })).toBeVisible();
@@ -1793,7 +1793,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの会�
 
   // 開くと、そのまま質問を書けるよう入力欄にフォーカスが移る（#220）。
   // 初回送信前に閉じると新しい会話はできない。メインの入力も残る。
-  await ask.click();
+  await askSelectionIn(main);
   await expect(popup).toHaveCount(0);
   await expect(side.locator("blockquote")).toContainText(
     "方式A と 方式B の比較",
@@ -1807,7 +1807,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの会�
   // 閉じて開き直しても入力欄にフォーカスが移り、クリックせずに書き始められる。
   // 送ると、引用付きの会話ができ、モデルには引用と質問が区別して届く
   await selectLastAnswerParagraph(page);
-  await ask.click();
+  await askSelectionIn(main);
   await expect(sideInput).toBeFocused();
   await page.keyboard.type("失敗時はどう復旧する？");
   await expect(sideInput).toHaveValue("失敗時はどう復旧する？");
@@ -1862,6 +1862,141 @@ test("回答の選択範囲を引用して質問すると、引用付きの会�
   await expect(main.locator("blockquote")).toHaveCount(0);
 });
 
+test("回答を引用して質問するとき、メイン・サイドチャットのどちらでも続ける会話を選べる（#222）", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const sideInput = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  const branches = page.getByRole("combobox", { name: "会話" });
+  const sideIdle = () =>
+    expect(side.getByRole("button", { name: "送信", exact: true })).toBeVisible(
+      { timeout: 15_000 },
+    );
+  const menuOf = (scope: Locator) =>
+    scope
+      .getByRole("toolbar", { name: "選択範囲の操作" })
+      .getByRole("menu", { name: "引用して続ける先" });
+
+  await send(page, "最初の質問");
+  await idle(page);
+
+  // メイン: 「質問」から、表示中の会話で続けるか、新しいサイドチャットかを選べる
+  await selectLastAnswerParagraph(page);
+  await main
+    .getByRole("toolbar", { name: "選択範囲の操作" })
+    .getByRole("button", { name: "質問", exact: true })
+    .click();
+  await expect(menuOf(main).getByRole("menuitem")).toHaveText([
+    "この会話で続ける",
+    "サイドチャットで質問",
+  ]);
+  await expect(menuOf(main).getByRole("menuitem").first()).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menuOf(main)).toHaveCount(0);
+
+  // 表示中の会話で続ける: 入力欄に引用が付き、送信前に外せる
+  await selectLastAnswerParagraph(page);
+  await askSelectionIn(main, "この会話で続ける");
+  await expect(side).toHaveCount(0);
+  const mainQuote = main.locator("blockquote");
+  await expect(mainQuote).toHaveText("了解: 最初の質問");
+  await expect(mainInput).toBeFocused();
+  await main.getByRole("button", { name: "引用を外す" }).click();
+  await expect(mainQuote).toHaveCount(0);
+  await selectLastAnswerParagraph(page);
+  await askSelectionIn(main, "この会話で続ける");
+  await page.keyboard.type("引用の続き");
+  await mainInput.press("Enter");
+  await expect(
+    main.getByText(/了解: 以下は、直前までの回答から利用者が選んだ引用です/),
+  ).toBeVisible();
+  await idle(page);
+  // 新しい会話はできず、引用は送ったメッセージに残る
+  await expect(branches).toHaveCount(0);
+  await expect(mainQuote).toHaveText("了解: 最初の質問");
+
+  // 新しいサイドチャットで質問する
+  await selectLastAnswerParagraph(page);
+  await askSelectionIn(main);
+  await expect(sideInput).toBeFocused();
+  await page.keyboard.type("サイドの質問");
+  await sideInput.press("Enter");
+  await expect(
+    side.getByText("サイドの質問", { exact: true }).first(),
+  ).toBeVisible();
+  await sideIdle();
+  await expect(branches.locator("option")).toHaveCount(2);
+
+  // サイドチャット: 表示中のサイドチャットで続けるか、別の会話に分岐するかを選べる
+  const sideAnswer = () =>
+    selectAnswerParagraph(side.locator("[data-assistant-message]").last());
+  await sideAnswer();
+  await side
+    .getByRole("toolbar", { name: "選択範囲の操作" })
+    .getByRole("button", { name: "質問", exact: true })
+    .click();
+  await expect(menuOf(side).getByRole("menuitem")).toHaveText([
+    "このサイドチャットで続ける",
+    "別の会話に分岐して質問",
+  ]);
+  await page.keyboard.press("Escape");
+
+  // 表示中のサイドチャットで続ける
+  await sideAnswer();
+  await askSelectionIn(side, "このサイドチャットで続ける");
+  await expect(side.getByRole("button", { name: "引用を外す" })).toBeVisible();
+  await expect(sideInput).toBeFocused();
+  await page.keyboard.type("サイドの続き");
+  await sideInput.press("Enter");
+  await expect(
+    side.getByText("サイドの続き", { exact: true }).first(),
+  ).toBeVisible();
+  await sideIdle();
+  await expect(branches.locator("option")).toHaveCount(2);
+
+  // 別の会話に分岐して質問する: 送信前なら取り消せて、会話は増えない
+  const branchNotice = side.getByText(
+    "この回答の続きとして分岐します。入力欄から送信すると、同じスレッドに新しい会話ができます。",
+  );
+  await sideAnswer();
+  await askSelectionIn(side, "別の会話に分岐して質問");
+  await expect(branchNotice).toBeVisible();
+  await expect(sideInput).toBeFocused();
+  await side.getByRole("button", { name: "引用を外す" }).click();
+  await expect(branchNotice).toHaveCount(0);
+  await expect(
+    side.getByText("サイドの続き", { exact: true }).first(),
+  ).toBeVisible();
+
+  // 送ると、初めて新しい会話ができ、サイドチャットはその会話を開く
+  await sideAnswer();
+  await askSelectionIn(side, "別の会話に分岐して質問");
+  await expect(branchNotice).toBeVisible();
+  await page.keyboard.type("分岐した質問");
+  await sideInput.press("Enter");
+  await expect(
+    side.getByText("分岐した質問", { exact: true }).first(),
+  ).toBeVisible();
+  await sideIdle();
+  await expect(side.getByText("サイドの続き", { exact: true })).toHaveCount(0);
+  await expect(branches.locator("option")).toHaveCount(3);
+
+  // 分岐元の会話は、会話の切り替えから再び開ける
+  await branches.selectOption({ label: "サイドの質問（元の会話 から分岐）" });
+  await expect(
+    main.getByText("サイドの続き", { exact: true }).first(),
+  ).toBeVisible();
+});
+
 test("保存済みの会話をサイドで開き直し、メインの HEAD を保って続けられる", async ({
   page,
 }, testInfo) => {
@@ -1903,7 +2038,7 @@ test("保存済みの会話をサイドで開き直し、メインの HEAD を�
   await idle(page);
   const rootUrl = page.url();
   await selectLastAnswerParagraph(page);
-  await main.getByRole("button", { name: "質問", exact: true }).click();
+  await askSelectionIn(main);
   await sideInput.fill("あとで再開する質問");
   await sideInput.press("Enter");
   await expect(
@@ -1977,7 +2112,7 @@ test("過去の回答をサイドで質問し、狭い画面でもメインの H
 
   await main.getByRole("button", { name: "回答を開く" }).click();
   await selectAnswerParagraph(main.locator("[data-assistant-message]").first());
-  await main.getByRole("button", { name: "質問", exact: true }).click();
+  await askSelectionIn(main);
   await expect(side.locator("blockquote")).toContainText("回答の起点 A");
   await expect(main.getByText("了解: メインの続き B")).toBeVisible();
   await page.setViewportSize({ width: 700, height: 740 });
@@ -2009,7 +2144,7 @@ test("過去の回答をサイドで質問し、狭い画面でもメインの H
   const rootUrl = page.url();
   await main.getByRole("button", { name: "ここから分岐" }).first().click();
   await selectAnswerParagraph(main.locator("[data-assistant-message]").first());
-  await main.getByRole("button", { name: "質問", exact: true }).click();
+  await askSelectionIn(main);
   await input.fill("A の別の脇道");
   await input.press("Enter");
   const sideAnswer = sideAnswers.getByText("A の別の脇道", { exact: true });
@@ -2399,10 +2534,7 @@ test("サイドチャットの用語もサイドパネルで開き、閉じる�
   await idle(page);
   const chatUrl = page.url();
   await selectLastAnswerParagraph(page);
-  await main
-    .getByRole("toolbar", { name: "選択範囲の操作" })
-    .getByRole("button", { name: "質問", exact: true })
-    .click();
+  await askSelectionIn(main);
   await sideInput.fill("方式B の弱点は？");
   await sideInput.press("Enter");
   await expect(sideTerm.last()).toBeVisible({ timeout: 15_000 });
@@ -2865,6 +2997,22 @@ test("左上の「設定」→「一般」で Claude Code の情報とテーマ�
   await general.getByRole("radio", { name: "ライト" }).check();
   await expect(page.locator("html")).not.toHaveClass(/dark/);
 });
+
+/**
+ * 回答の選択ポップアップの「質問」から、続ける先を選ぶ（#222）。
+ * 既定は、選んだ回答を起点に新しいサイドチャットで質問する。
+ */
+const askSelectionIn = async (
+  scope: Page | Locator,
+  choice = "サイドチャットで質問",
+) => {
+  const popup = scope.getByRole("toolbar", { name: "選択範囲の操作" });
+  await popup.getByRole("button", { name: "質問", exact: true }).click();
+  await popup
+    .getByRole("menu", { name: "引用して続ける先" })
+    .getByRole("menuitem", { name: choice })
+    .click();
+};
 
 /** 回答の中の text と一致する文字だけを選ぶ。用語の下線などで要素が分かれていても選べる。 */
 const selectAnswerText = (answer: Locator, text: string) =>
