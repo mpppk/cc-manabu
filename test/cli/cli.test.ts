@@ -56,6 +56,7 @@ describe("loadRuntimeConfig", () => {
       port: 0,
       openBrowser: true,
       requireToken: true,
+      chrome: { profile: undefined, appId: undefined },
     });
   });
 
@@ -67,6 +68,19 @@ describe("loadRuntimeConfig", () => {
       port: 4123,
       openBrowser: false,
       requireToken: true,
+      chrome: { profile: undefined, appId: undefined },
+    });
+  });
+
+  test("--pwa が無くても Chrome の指定を読む（インストール済みの PWA を探すのに使う。#163）", () => {
+    const config = loadRuntimeConfig({
+      CC_MANABU_CHROME_PROFILE: " Profile 2 ",
+      CC_MANABU_CHROME_APP_ID: "jceoalhlcmiheiojpbghilhgglnodbme",
+    });
+    expect(config.pwa).toBeUndefined();
+    expect(config.chrome).toEqual({
+      profile: "Profile 2",
+      appId: "jceoalhlcmiheiojpbghilhgglnodbme",
     });
   });
 

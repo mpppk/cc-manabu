@@ -18,7 +18,7 @@ const sha256 = (value: string | Buffer) =>
   createHash("sha256").update(value).digest();
 
 /** Chromium の App ID は、マニフェスト ID を二重にハッシュして先頭 16 バイトを a–p で表す。 */
-const chromeAppId = (manifestId: string) =>
+export const chromeAppId = (manifestId: string) =>
   Array.from(
     sha256(sha256(manifestId)).subarray(0, 16).toString("hex"),
     (hex) => String.fromCharCode("a".charCodeAt(0) + Number.parseInt(hex, 16)),
@@ -147,4 +147,89 @@ export const openPwa = async (
   return exitCode === undefined || exitCode === 0
     ? Result.succeed()
     : failure(`Google Chrome の起動に失敗しました（終了コード ${exitCode}）。`);
+};
+
+/** cc-manabu をそのポートで起動したときの PWA のマニフェスト ID。 */
+const manifestIdForPort = (port: number) => `http://127.0.0.1:${port}/`;
+
+/** 自動で見つけた、インストール済みの PWA。 */
+export type InstalledPwa = { port: number; profile: string; appId: string };
+
+/**
+ * 通常の起動（--pwa なし）で、Chrome にインストール済みの cc-manabu の PWA を探す（#163）。
+ *
+ * - port（CC_MANABU_PORT）があれば、そのポートの URL の PWA だけを照合する
+ * - 無ければ、すべてのポートの URL のアプリ ID を求めて、インストール済みのアプリと照合する。
+ *   1 つに決まればそのポート、複数あれば失敗（ポートの指定を案内する）
+ * - profile・appId（CC_MANABU_CHROME_PROFILE・CC_MANABU_CHROME_APP_ID）があれば、それに絞る
+ *
+ * 対応していない環境（macOS の Google Chrome 以外）や、見つからなければ undefined。
+ */
+export const findInstalledPwa = (
+  options: { port: number } & PwaOptions,
+  system: Pick<
+    typeof systemDefaults,
+    "platform" | "home" | "exists" | "list"
+  > = systemDefaults,
+): Result.Result<InstalledPwa | undefined, PwaLaunchError> => {
+  if (system.platform !== "darwin") return Result.succeed(undefined);
+  const home = system.home();
+  const hasChrome = [
+    join("/Applications", chromeExecutable),
+    join(home, "Applications", chromeExecutable),
+  ].some(system.exists);
+  if (!hasChrome) return Result.succeed(undefined);
+
+  const userData = join(
+    home,
+    "Library",
+    "Application Support",
+    "Google",
+    "Chrome",
+  );
+  const { profile: requested } = options;
+  if (requested !== undefined && !isProfileDirectory(requested)) {
+    return failure(
+      "CC_MANABU_CHROME_PROFILE に Chrome のプロファイルのディレクトリ名を指定してください。",
+    );
+  }
+  const installed = (
+    requested === undefined
+      ? chromeProfiles(system.list(userData))
+      : [requested]
+  )
+    .map((profile) => ({
+      profile,
+      appIds: new Set(
+        system.list(
+          join(userData, profile, "Web Applications", "Manifest Resources"),
+        ),
+      ),
+    }))
+    .filter(({ appIds }) => appIds.size > 0);
+  if (installed.length === 0) return Result.succeed(undefined);
+
+  const ports =
+    options.port !== 0
+      ? [options.port]
+      : Array.from({ length: 65535 }, (_, index) => index + 1);
+  const found: InstalledPwa[] = [];
+  for (const port of ports) {
+    const appId = chromeAppId(manifestIdForPort(port));
+    if (options.appId !== undefined && appId !== options.appId) continue;
+    const match = installed.find(({ appIds }) => appIds.has(appId));
+    if (match !== undefined) {
+      found.push({ port, profile: match.profile, appId });
+    }
+  }
+  if (found.length > 1) {
+    return failure(
+      `cc-manabu の PWA が複数のポート（${found
+        .map((pwa) => pwa.port)
+        .join(
+          "、",
+        )}）でインストールされています。使うポートを CC_MANABU_PORT に指定してください（例: CC_MANABU_PORT=${found[0]?.port} cc-manabu）。`,
+    );
+  }
+  return Result.succeed(found[0]);
 };

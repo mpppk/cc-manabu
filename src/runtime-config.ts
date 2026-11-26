@@ -19,6 +19,11 @@ export type RuntimeConfig = {
   readonly requireToken: boolean;
   /** インストール済みの Chrome PWA を開く設定（--pwa）。 */
   readonly pwa?: PwaOptions;
+  /**
+   * Chrome のプロファイルとアプリ ID の指定。--pwa が無くても、
+   * インストール済みの PWA を自動で探すときに使う（#163）。
+   */
+  readonly chrome: PwaOptions;
 };
 
 const DEFAULT_PORT = 0;
@@ -36,17 +41,17 @@ const parsePort = (value: string | undefined): number => {
 export const loadRuntimeConfig = (
   env: Record<string, string | undefined> = process.env,
   pwa = false,
-): RuntimeConfig => ({
-  hostname: "127.0.0.1",
-  port: parsePort(env.CC_MANABU_PORT),
-  openBrowser: env.CC_MANABU_NO_OPEN !== "1",
-  requireToken: pwa || env.CC_MANABU_NO_AUTH !== "1",
-  ...(pwa
-    ? {
-        pwa: {
-          profile: env.CC_MANABU_CHROME_PROFILE?.trim() || undefined,
-          appId: env.CC_MANABU_CHROME_APP_ID?.trim() || undefined,
-        },
-      }
-    : {}),
-});
+): RuntimeConfig => {
+  const chrome: PwaOptions = {
+    profile: env.CC_MANABU_CHROME_PROFILE?.trim() || undefined,
+    appId: env.CC_MANABU_CHROME_APP_ID?.trim() || undefined,
+  };
+  return {
+    hostname: "127.0.0.1",
+    port: parsePort(env.CC_MANABU_PORT),
+    openBrowser: env.CC_MANABU_NO_OPEN !== "1",
+    requireToken: pwa || env.CC_MANABU_NO_AUTH !== "1",
+    ...(pwa ? { pwa: chrome } : {}),
+    chrome,
+  };
+};
