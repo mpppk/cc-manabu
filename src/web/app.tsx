@@ -5,9 +5,9 @@ import type { ChatUIMessage } from "../chat/chat-service.ts";
 import type { ChatDto, EnvironmentDto, TaskDto, WikiDto } from "../router.ts";
 import { ChatWorkspace } from "./components/chat-workspace.tsx";
 import type { EnvironmentInput } from "./components/environment-dialogs.tsx";
+import { PaneResizer } from "./components/pane-resizer.tsx";
 import { GeneralSettingsDialog } from "./components/settings-dialog.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
-import { SidebarResizer } from "./components/sidebar-resizer.tsx";
 import { TaskList } from "./components/task-list.tsx";
 import { TaskOverview } from "./components/task-overview.tsx";
 import { Button } from "./components/ui/button.tsx";
@@ -34,10 +34,15 @@ import {
   wikiFromPath,
 } from "./lib/route.ts";
 import {
+  SIDE_BY_SIDE_MIN_VIEWPORT,
+  useReservedMainWidth,
+} from "./lib/side-panel-width.ts";
+import {
   clampSidebarWidth,
   DEFAULT_SIDEBAR_WIDTH,
   loadSidebarWidth,
   saveSidebarWidth,
+  sidebarWidthRange,
 } from "./lib/sidebar-width.ts";
 import { applyTheme, loadTheme, type Theme } from "./lib/theme.ts";
 import { useWikiPages } from "./lib/use-wiki-pages.ts";
@@ -111,9 +116,14 @@ export const App = ({ api }: { api: ApiClient }) => {
   // 左サイドバーの幅（#185）。保存していなければ既定の幅で開き、画面の幅に収めて表示する
   const [savedSidebarWidth, setSavedSidebarWidth] = useState(loadSidebarWidth);
   const viewportWidth = useViewportWidth();
+  // 右側のペインを開いている間は、メインと右側のペインの操作に必要な幅を残す（#209）
+  const reservedMainWidth = useReservedMainWidth();
+  const sidebarReserved =
+    viewportWidth >= SIDE_BY_SIDE_MIN_VIEWPORT ? reservedMainWidth : 0;
   const sidebarWidth = clampSidebarWidth(
     savedSidebarWidth ?? DEFAULT_SIDEBAR_WIDTH,
     viewportWidth,
+    sidebarReserved,
   );
   useEffect(() => {
     try {
@@ -492,10 +502,13 @@ export const App = ({ api }: { api: ApiClient }) => {
           onOpenSearchHit={openSearchHit}
         />
         {sidebarOpen && (
-          <SidebarResizer
+          <PaneResizer
+            side="left"
+            label="サイドバーの幅"
+            title="ドラッグしてサイドバーの幅を変える（←→ キーでも変えられます）"
             controls="sidebar"
             width={sidebarWidth}
-            viewportWidth={viewportWidth}
+            {...sidebarWidthRange(viewportWidth, sidebarReserved)}
             onResize={setSavedSidebarWidth}
             onCommit={saveSidebarWidth}
           />

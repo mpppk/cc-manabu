@@ -14,8 +14,14 @@ import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto, WikiVersionDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import {
+  MIN_SIDE_PANEL_WIDTH,
+  useElementWidth,
+  useReserveMainWidth,
+  useSidePanelWidth,
+} from "../lib/side-panel-width.ts";
 import { cn } from "../lib/utils.ts";
-import { SideChat } from "./chat-workspace.tsx";
+import { SideChat, SidePanelResizer } from "./chat-workspace.tsx";
 import { PageQaList } from "./page-qa-list.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
@@ -180,6 +186,9 @@ const WikiPageList = ({
 };
 
 /** タスクの Wiki（ページの一覧・検索・閲覧・作成・編集・削除）。 */
+/** ノートの一覧の幅（w-60）。 */
+const WIKI_PAGE_LIST_WIDTH = 240;
+
 export const WikiView = ({
   api,
   pages,
@@ -303,6 +312,11 @@ export const WikiView = ({
 
   const page = pages?.find((p) => p.id === pageId);
   const asking = pageId !== undefined && askingPageId === pageId;
+  // 右側のペインの幅（#209）。ノート本文と並べる領域の幅に収める
+  const row = useRef<HTMLDivElement>(null);
+  const sidePanel = useSidePanelWidth(useElementWidth(row));
+  // 左サイドバーを広げても、ノートの一覧・本文・右側のペインが並ぶ幅を残す
+  useReserveMainWidth(asking ? WIKI_PAGE_LIST_WIDTH + MIN_SIDE_PANEL_WIDTH : 0);
   const openChatButton = (label: string) => (
     <Button
       ref={askButton}
@@ -551,7 +565,10 @@ export const WikiView = ({
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1">
-      <aside className="flex w-60 shrink-0 flex-col border-r pt-3">
+      <aside
+        className="flex shrink-0 flex-col border-r pt-3"
+        style={{ width: WIKI_PAGE_LIST_WIDTH }}
+      >
         <WikiPageList
           pages={pages}
           loadError={loadError}
@@ -585,7 +602,10 @@ export const WikiView = ({
           </details>
         )}
       </aside>
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
+      <div
+        ref={row}
+        className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row"
+      >
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
             {header}
@@ -593,8 +613,18 @@ export const WikiView = ({
           </div>
         </div>
         {asking && (
+          <SidePanelResizer
+            width={sidePanel.width}
+            min={sidePanel.min}
+            max={sidePanel.max}
+            onResize={sidePanel.resize}
+            onCommit={sidePanel.commit}
+          />
+        )}
+        {asking && (
           <SideChat
             key={pageId}
+            width={sidePanel.width}
             request={{
               kind: "wiki",
               taskId,
@@ -621,6 +651,7 @@ export const WikiView = ({
           <WikiPane
             key={termPane.id}
             api={api}
+            width={sidePanel.width}
             taskId={taskId}
             pageId={termPane.pageId}
             onClose={closeTermPane}
