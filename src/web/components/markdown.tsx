@@ -53,7 +53,7 @@ const TermSpan = ({
       <span
         data-wiki-term-pending=""
         className="wiki-term-generating"
-        title="Wiki のページを作成しています…"
+        title="ノートを作成しています…"
       >
         {props.children}
       </span>

@@ -289,7 +289,7 @@ const EnvironmentFormDialog = ({
             onChange={(event) => setDescription(event.target.value)}
           />
           <span className="text-muted-foreground text-xs">
-            環境の目的や扱うテーマ。回答から用語ページを自動作成するとき、このテーマに沿った語を選びます。
+            環境の目的や扱うテーマ。回答から用語ノートを自動作成するとき、このテーマに沿った語を選びます。
           </span>
         </label>
         <fieldset className="grid min-w-0 grid-cols-1 gap-2 text-sm">
@@ -357,7 +357,7 @@ const EnvironmentFormDialog = ({
           )}
           <span className="text-muted-foreground text-xs">
             環境のタスクのスレッドは、この Wiki
-            のページを回答の参照資料に使い、用語ページもこの Wiki
+            のノートを回答の参照資料に使い、用語ノートもこの Wiki
             に作ります。同じ Wiki をほかの環境と共有することもできます。
           </span>
         </fieldset>
@@ -456,7 +456,7 @@ export const EnvironmentDialogs = ({
               : `「${current.name}」を削除します。ディレクトリの中身は消えません。${
                   wikiShared
                     ? `Wiki「${current.wikiName}」はほかの環境でも使っているので残ります。`
-                    : `Wiki「${current.wikiName}」とそのページも削除されます。`
+                    : `Wiki「${current.wikiName}」とそのノートも削除されます。`
                 }`
         }
       >

@@ -26,15 +26,15 @@ export const WIKI_READ_TOOL_NAMES: readonly string[] = [
 export const wikiToolLabel = (name: string): string | undefined => {
   switch (name) {
     case WIKI_TOOL_NAMES.listPages:
-      return "Wiki: ページの一覧";
+      return "Wiki: ノートの一覧";
     case WIKI_TOOL_NAMES.readPage:
-      return "Wiki: ページを読む";
+      return "Wiki: ノートを読む";
     case WIKI_TOOL_NAMES.createPage:
-      return "Wiki: ページを作成";
+      return "Wiki: ノートを作成";
     case WIKI_TOOL_NAMES.updatePage:
-      return "Wiki: ページを更新";
+      return "Wiki: ノートを更新";
     case WIKI_TOOL_NAMES.editPage:
-      return "Wiki: ページを編集";
+      return "Wiki: ノートを編集";
     default:
       return undefined;
   }

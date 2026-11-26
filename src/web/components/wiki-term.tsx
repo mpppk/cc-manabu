@@ -174,7 +174,7 @@ export const WikiTerm = ({
           )}
           {state.status === "missing" && (
             <span className="text-muted-foreground text-xs">
-              この用語のページは削除されました。
+              この用語のノートは削除されました。
             </span>
           )}
           {state.status === "ready" && (

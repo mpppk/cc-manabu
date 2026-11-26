@@ -244,13 +244,13 @@ export const TaskDialogs = ({
           />
           <span className="flex flex-col gap-1">
             <span className="font-medium text-sm">
-              回答から用語ページを自動で作る
+              回答から用語ノートを自動で作る
             </span>
             <span className="text-muted-foreground text-xs">
               このタスクのスレッドで回答が終わるたびに、Claude（haiku）を追加で
               1 回呼び出して重要な用語を取り出し、Wiki
-              に用語ページを作ります。その分、サブスクリプションの利用枠（API
-              キーの場合は料金）を少し消費します。既存のページは書き換えません。
+              に用語ノートを作ります。その分、サブスクリプションの利用枠（API
+              キーの場合は料金）を少し消費します。既存のノートは書き換えません。
             </span>
           </span>
         </label>
@@ -302,7 +302,7 @@ export const TaskDialogs = ({
           if (!open) onClose();
         }}
         title="タスクを削除しますか？"
-        description={`「${current?.name ?? ""}」を削除します。所属しているスレッドは削除されず、未所属に戻ります。Wiki のページは環境に残ります。`}
+        description={`「${current?.name ?? ""}」を削除します。所属しているスレッドは削除されず、未所属に戻ります。Wiki のノートは環境に残ります。`}
       >
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>

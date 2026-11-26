@@ -373,7 +373,7 @@ const MessageView = ({
       )}
       {wiki?.excerpted === true && (
         <p className="text-muted-foreground text-xs">
-          Wiki ページの抜粋を参照しました。
+          ノートの抜粋を参照しました。
         </p>
       )}
       <div className="flex items-center gap-2">
@@ -941,14 +941,14 @@ export const ChatView = ({
         setTermNotice({
           messageId,
           tone: "info",
-          text: `「${page.title}」のページはすでにあります。`,
+          text: `「${page.title}」のノートはすでにあります。`,
         });
       }
     } catch {
       setTermNotice({
         messageId,
         tone: "error",
-        text: `「${term}」のページを作成できませんでした。もう一度お試しください。`,
+        text: `「${term}」のノートを作成できませんでした。もう一度お試しください。`,
       });
     } finally {
       setGeneratingTerms((current) => current.filter((t) => t !== term));
@@ -957,13 +957,13 @@ export const ChatView = ({
   const selectedTerm = selection?.text.trim();
   const createPageBlocker =
     taskId === null || onWikiPageCreated === undefined
-      ? "タスクの会話でだけ、Wiki のページを作れます"
+      ? "タスクの会話でだけ、ノートを作れます"
       : selectedTerm === undefined || !isPageTerm(selectedTerm)
-        ? "1 行・2〜40 文字の語句を選ぶと、Wiki のページを作れます"
+        ? "1 行・2〜40 文字の語句を選ぶと、ノートを作れます"
         : generatingTerms.some(
               (term) => normalizeTerm(term) === normalizeTerm(selectedTerm),
             )
-          ? "この語句のページを作成しています"
+          ? "この語句のノートを作成しています"
           : undefined;
   const createPageFromSelection =
     selection !== undefined &&
@@ -1200,7 +1200,7 @@ export const ChatView = ({
             onClick: createPageFromSelection,
             title:
               createPageBlocker ??
-              "選んだ語句の Wiki のページを AI で作ります（画面は移りません）",
+              "選んだ語句のノートを AI で作ります（画面は移りません）",
           }}
         />
       )}
