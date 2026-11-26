@@ -1366,10 +1366,26 @@ test("カンバンの保存に失敗したら元の列に戻し、左パネル�
     .selectOption({ label: "進行中" });
   await expect(column(page, "進行中")).toContainText("カンバンC");
 
-  // 左パネルで「進行中」と「保留」を選ぶと、そのどちらかのタスクだけを出す
-  const filter = page.getByRole("group", { name: "進捗で絞り込む" });
-  await filter.getByRole("button", { name: "進行中" }).click();
-  await filter.getByRole("button", { name: "保留" }).click();
+  // 左パネルの「フィルタ」ボタンからメニューを開き、「進行中」と「保留」を
+  // 続けて選ぶと、そのどちらかのタスクだけを出す（#208）
+  const filterButton = page.getByRole("button", { name: /^フィルタ/ });
+  const filter = page.getByRole("menu", { name: "進捗で絞り込む" });
+  await expect(filter).toHaveCount(0);
+  await filterButton.click();
+  await filter.getByRole("menuitemcheckbox", { name: "進行中" }).click();
+  // 選んでもメニューは閉じない
+  await filter.getByRole("menuitemcheckbox", { name: "保留" }).click();
+  await expect(
+    filter.getByRole("menuitemcheckbox", { name: "進行中" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await expect(
+    filter.getByRole("menuitemcheckbox", { name: "未着手" }),
+  ).toHaveAttribute("aria-checked", "false");
+  await expect(filterButton).toHaveAccessibleName("フィルタ（進行中・保留）");
+  // Escape で閉じる
+  await page.keyboard.press("Escape");
+  await expect(filter).toHaveCount(0);
+  await expect(filterButton).toBeFocused();
   await expect(taskRow(page, "カンバンA")).toBeVisible();
   await expect(taskRow(page, "カンバンB")).toBeVisible();
   await expect(taskRow(page, "カンバンC")).toBeVisible();
@@ -1385,10 +1401,24 @@ test("カンバンの保存に失敗したら元の列に戻し、左パネル�
   await page.reload();
   await expect(taskRow(page, "カンバンA")).toBeVisible();
   await expect(taskRow(page, "カンバンC")).toHaveCount(0);
-  // 選択をすべて外すと全件に戻る
-  await filter.getByRole("button", { name: "進行中" }).click();
-  await filter.getByRole("button", { name: "保留" }).click();
+  // 選択をすべて外すと全件に戻る。キーボードでも選べる
+  await filterButton.focus();
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    filter.getByRole("menuitemcheckbox", { name: "未着手" }),
+  ).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await expect(
+    filter.getByRole("menuitemcheckbox", { name: "進行中" }),
+  ).toHaveAttribute("aria-checked", "false");
+  await filter.getByRole("menuitemcheckbox", { name: "保留" }).click();
+  await expect(filterButton).toHaveAccessibleName("フィルタ");
   await expect(taskRow(page, "カンバンC")).toBeVisible();
+  // メニューの外を押すと閉じる
+  await expect(filter).toBeVisible();
+  await column(page, "未着手").click({ position: { x: 4, y: 4 } });
+  await expect(filter).toHaveCount(0);
   await page.getByRole("button", { name: "環境ごとにまとめる" }).click();
 });
 
