@@ -103,6 +103,7 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   WikiChatTaskError: "BAD_REQUEST",
   ChatWithoutTaskError: "BAD_REQUEST",
   AnswerNotFoundError: "NOT_FOUND",
+  WikiPageQaNotFoundError: "NOT_FOUND",
   InvalidPageTermError: "BAD_REQUEST",
   ChatAlreadyRunningError: "CONFLICT",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
@@ -1115,6 +1116,8 @@ export const router = {
       .input(
         wikiChatTarget.extend({
           term: z.string().trim().min(1).max(MAX_PAGE_TERM_LENGTH),
+          /** ページの Q&A の中で選んだときの Q&A（#205）。その Q&A を資料にする。 */
+          qaId: z.string().min(1).optional(),
         }),
       )
       .handler(async ({ context, input }) => {

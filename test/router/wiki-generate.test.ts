@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createRouterClient, ORPCError } from "@orpc/server";
+import { Result } from "@praha/byethrow";
 import { router } from "../../src/router.ts";
 import { createScriptedQuery } from "../e2e/scripted-query.ts";
 import { createTestContext } from "../helpers/context.ts";
@@ -287,6 +288,60 @@ describe("Wiki ページの選択範囲からのページ生成", () => {
     });
     expect(prompts[0]?.match(/<\/source-page>/g)).toHaveLength(1);
     expect(prompts[0]?.match(/<\/wiki-page-generation>/g)).toHaveLength(1);
+  });
+
+  test("Q&A の中で選んだ語句は、その Q&A を資料にして作り、元の回答を残す（#205）", async () => {
+    const { client, prompts, wiki } = setup();
+    const { task, page } = await pageOf(client);
+    const chat = await client.chats.create({ taskId: task.id });
+    const messageId = await ask(client, chat.id, "再送は大丈夫？");
+    const saved = wiki.saveQa({
+      taskId: task.id,
+      wikiPageId: page.id,
+      chatId: chat.id,
+      messageId,
+      question: "決済 API に再送しても大丈夫ですか？",
+      answer: "冪等性キーがあるので二重に課金されません。",
+    });
+    if (Result.isFailure(saved)) throw saved.error;
+    const qaId = saved.value?.id ?? "";
+
+    const result = await client.wiki.generateFromPage({
+      taskId: task.id,
+      pageId: page.id,
+      term: "冪等性キー",
+      qaId,
+    });
+
+    expect(result.page).toMatchObject({
+      title: "冪等性キー",
+      sourceChatId: chat.id,
+      sourceMessageId: messageId,
+    });
+    expect(prompts[0]).toContain(
+      "<question>\n決済 API に再送しても大丈夫ですか？\n</question>",
+    );
+    expect(prompts[0]).toContain("二重に課金されません");
+    expect(prompts[0]).not.toContain("<source-page");
+
+    // ほかのページの Q&A・無い Q&A は使えない
+    const other = await client.wiki.create({
+      taskId: task.id,
+      title: "返金",
+      aliases: [],
+      body: "",
+    });
+    expect(
+      await codeOf(
+        client.wiki.generateFromPage({
+          taskId: task.id,
+          pageId: other.id,
+          term: "冪等性",
+          qaId,
+        }),
+      ),
+    ).toBe("NOT_FOUND");
+    expect(prompts).toHaveLength(1);
   });
 
   test("タスクの Wiki に無いページ・使えない語句は生成しない", async () => {

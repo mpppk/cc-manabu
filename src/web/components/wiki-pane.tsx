@@ -1,5 +1,12 @@
 import { BookOpen, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto } from "../../router.ts";
 import { isPageTerm, normalizeTerm } from "../../wiki/terms.ts";
@@ -45,23 +52,18 @@ type Notice = {
 };
 
 /**
- * Wiki ページの本文。actions があれば、選択範囲から質問・ページの作成ができる。
- * ページの作成は画面を移らずに行い、結果を本文の下に少しのあいだ出す。
+ * 用語の照合と、用語の説明・ノートを開くための context（#210）。
+ * pageId（閲覧中のノート）自身は照合しない。terms が無ければどちらも undefined。
  */
-const WikiPageBody = ({
-  page,
-  actions,
-  terms,
-}: {
-  page: WikiPageDto;
-  actions: WikiSelectionActions | undefined;
-  terms: WikiNoteTerms | undefined;
-}) => {
-  const termMatcher = useNoteTermMatcher(terms?.pages, page.id);
+export const useNoteTerms = (
+  terms: WikiNoteTerms | undefined,
+  pageId: string,
+) => {
+  const matcher = useNoteTermMatcher(terms?.pages, pageId);
   const load = terms?.load;
   const openTerm = terms?.open;
   const openLabel = terms?.openLabel;
-  const termsContext = useMemo<WikiTermsContextValue | undefined>(
+  const context = useMemo<WikiTermsContextValue | undefined>(
     () =>
       load === undefined || openTerm === undefined
         ? undefined
@@ -73,10 +75,35 @@ const WikiPageBody = ({
           },
     [load, openTerm, openLabel],
   );
+  return {
+    termMatcher: context === undefined ? undefined : matcher,
+    termsContext: context,
+  };
+};
+
+/**
+ * 選択範囲から質問・ノートの作成ができる範囲。ノートの本文と、その Q&A（#205）で使う。
+ * attribute を持つ要素の中の選択だけを対象にする。qa なら attribute の値は Q&A の id で、
+ * ノートの作成ではその Q&A を資料にする（無ければノートの本文を資料にする）。
+ * ノートの作成は画面を移らずに行い、結果を範囲の下に少しのあいだ出す。
+ */
+export const WikiSelectionArea = ({
+  page,
+  actions,
+  attribute,
+  qa = false,
+  children,
+}: {
+  page: Pick<WikiPageDto, "id" | "title">;
+  actions: WikiSelectionActions | undefined;
+  attribute: string;
+  qa?: boolean;
+  children: ReactNode;
+}) => {
   const container = useRef<HTMLDivElement>(null);
   const selection = useTextSelection(
     container,
-    "data-wiki-page-body",
+    attribute,
     actions !== undefined,
   );
   /** AI で作っている最中のページの語句。 */
@@ -88,7 +115,7 @@ const WikiPageBody = ({
     return () => clearTimeout(timer);
   }, [notice]);
 
-  const generatePage = async (term: string) => {
+  const generatePage = async (term: string, qaId: string | undefined) => {
     if (actions === undefined) return;
     setNotice(undefined);
     setGenerating((current) => [...current, term]);
@@ -97,6 +124,7 @@ const WikiPageBody = ({
         taskId: actions.taskId,
         pageId: page.id,
         term,
+        ...(qaId === undefined ? {} : { qaId }),
       });
       actions.onPageCreated?.();
       setNotice({
@@ -151,25 +179,21 @@ const WikiPageBody = ({
               term === undefined || createBlocker !== undefined
                 ? undefined
                 : () => {
-                    void generatePage(term);
+                    void generatePage(
+                      term,
+                      qa ? selection.sourceId : undefined,
+                    );
                     window.getSelection()?.removeAllRanges();
                   },
             title:
               createBlocker ??
-              "選んだ語句のノートを AI で作ります（画面は移りません）",
+              (qa
+                ? "選んだ語句のノートを、この Q&A を資料にして AI で作ります（画面は移りません）"
+                : "選んだ語句のノートを AI で作ります（画面は移りません）"),
           }}
         />
       )}
-      <div ref={container} data-wiki-page-body={page.id}>
-        <WikiTermsContext.Provider value={termsContext}>
-          <Markdown
-            text={page.body}
-            {...(termsContext === undefined || termMatcher === undefined
-              ? {}
-              : { termMatcher })}
-          />
-        </WikiTermsContext.Provider>
-      </div>
+      <div ref={container}>{children}</div>
       {generating.length > 0 && (
         <p role="status" className="text-muted-foreground text-xs">
           {generating.map((t) => `「${t}」`).join("")}
@@ -205,6 +229,35 @@ const WikiPageBody = ({
         </p>
       )}
     </>
+  );
+};
+
+/** Wiki ページの本文。actions があれば、選択範囲から質問・ページの作成ができる。 */
+const WikiPageBody = ({
+  page,
+  actions,
+  terms,
+}: {
+  page: WikiPageDto;
+  actions: WikiSelectionActions | undefined;
+  terms: WikiNoteTerms | undefined;
+}) => {
+  const { termMatcher, termsContext } = useNoteTerms(terms, page.id);
+  return (
+    <WikiSelectionArea
+      page={page}
+      actions={actions}
+      attribute="data-wiki-page-body"
+    >
+      <div data-wiki-page-body={page.id}>
+        <WikiTermsContext.Provider value={termsContext}>
+          <Markdown
+            text={page.body}
+            {...(termMatcher === undefined ? {} : { termMatcher })}
+          />
+        </WikiTermsContext.Provider>
+      </div>
+    </WikiSelectionArea>
   );
 };
 
