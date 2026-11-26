@@ -51,6 +51,7 @@ import { imagePartsOf, MessageImages } from "./message-images.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { PromptCacheTimer } from "./prompt-cache-timer.tsx";
 import { QueuePanel, type QueueState } from "./queue-panel.tsx";
+import { RateLimitBadge } from "./rate-limit-badge.tsx";
 import { Reasoning } from "./reasoning.tsx";
 import { SelectionPopup, useTextSelection } from "./selection-popup.tsx";
 import { StepGroup } from "./step-group.tsx";
@@ -716,6 +717,8 @@ export type ChatViewProps = {
   cwd?: string;
   /** 作業フォルダのほかに Claude Code が扱えるディレクトリ（環境の設定）。 */
   extraDirectories?: string[];
+  /** 入力欄の下にサブスクリプションの利用枠を出す（メインのチャットだけ。#170）。 */
+  showRateLimit?: boolean;
 };
 
 /** 1 つの会話を表示し、その会話の ID で送信・再接続する。 */
@@ -738,6 +741,7 @@ export const ChatView = ({
   onClearQuote,
   cwd,
   extraDirectories = [],
+  showRateLimit = false,
 }: ChatViewProps) => {
   const chatDefaults = useContext(ChatDefaultsContext);
   /**
@@ -1427,6 +1431,12 @@ export const ChatView = ({
               </span>
             )}
             <span className="flex min-w-0 items-center gap-3">
+              {showRateLimit && (
+                <RateLimitBadge
+                  api={api}
+                  activity={`${messages.length}:${status}`}
+                />
+              )}
               <PromptCacheTimer
                 messages={messages}
                 model={settings.model}

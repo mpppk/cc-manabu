@@ -5,7 +5,7 @@ const TOKEN = "e2e-token";
 
 const open = async (page: Page) => {
   await page.goto(`/#token=${TOKEN}`);
-  await expect(page.getByText("Claude Code 0.0.0-e2e")).toBeVisible();
+  await expect(page.locator('main[data-claude-state="ready"]')).toBeVisible();
 };
 
 /**
@@ -76,7 +76,7 @@ test("開いているページに起動トークンが渡されたら認証す�
   await page.evaluate((token) => {
     window.location.hash = `token=${token}`;
   }, TOKEN);
-  await expect(page.getByText("Claude Code 0.0.0-e2e")).toBeVisible();
+  await expect(page.locator('main[data-claude-state="ready"]')).toBeVisible();
   await expect(page).not.toHaveURL(/token=/);
   await newChat(page);
   await send(page, "PWA で再起動");
@@ -2022,16 +2022,70 @@ test("スレッドをタイトルと本文で検索し、一致した発言へ�
   ).toBeFocused();
 });
 
-test("回答のあとに、サブスクリプションの利用枠とリセット時刻をヘッダーに出す", async ({
+test("回答のあとに、週間の利用枠とリセット時刻をメインの入力欄の下に出す（#170）", async ({
   page,
 }) => {
   await open(page);
   await newChat(page);
   await send(page, "利用枠");
   await idle(page);
-  const badge = page.getByTestId("rate-limit");
+  // ヘッダーではなく、メインのチャットの入力欄の下に出す
+  const mainChat = page.getByRole("region", { name: "メインのチャット" });
+  const badge = mainChat.getByTestId("rate-limit");
   await expect(badge).toHaveText(/7 日間枠 67%・\d+\/\d+ \d+:\d\d にリセット/);
-  await expect(badge).toHaveAttribute("title", /5 時間枠: 62%/);
+  await expect(
+    page.locator("main header").getByTestId("rate-limit"),
+  ).toHaveCount(0);
+  // 押すと、5 時間枠などを含む詳細を開く
+  await badge.click();
+  const details = page.getByRole("dialog", { name: "利用枠の詳細" });
+  await expect(details).toContainText("5 時間枠: 62%");
+  await expect(details).toContainText("7 日間枠: 67%");
+  await page.keyboard.press("Escape");
+  await expect(details).toHaveCount(0);
+});
+
+test("左上の「設定」→「一般」で Claude Code の情報とテーマを確かめて変えられる（#170）", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const chatUrl = page.url();
+  const input = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  await input.fill("書きかけ");
+  // ヘッダーにはバージョンもテーマの切り替えも出さない
+  await expect(page.locator("main header")).not.toContainText("0.0.0-e2e");
+  await expect(
+    page.getByRole("button", { name: "テーマを切り替える" }),
+  ).toHaveCount(0);
+
+  await page
+    .getByRole("complementary", { name: "サイドバー" })
+    .getByRole("button", { name: "設定" })
+    .click();
+  await page.getByRole("menuitem", { name: "一般" }).click();
+  const general = page.getByRole("dialog", { name: "一般" });
+  await expect(general).toContainText("バージョン0.0.0-e2e");
+  await expect(general).toContainText("契約プランE2E");
+  await general.getByRole("radio", { name: "ダーク" }).check();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await general.getByRole("button", { name: "閉じる" }).click();
+  await expect(general).toHaveCount(0);
+  // 元の会話を開いたまま、入力を続けられる
+  expect(page.url()).toBe(chatUrl);
+  await expect(input).toHaveValue("書きかけ");
+
+  // テーマは再起動（再読み込み）後も使う
+  await page.reload();
+  await expect(page.locator("html")).toHaveClass(/dark/);
+  await page
+    .getByRole("complementary", { name: "サイドバー" })
+    .getByRole("button", { name: "設定" })
+    .click();
+  await page.getByRole("menuitem", { name: "一般" }).click();
+  await expect(general.getByRole("radio", { name: "ダーク" })).toBeChecked();
+  await general.getByRole("radio", { name: "ライト" }).check();
+  await expect(page.locator("html")).not.toHaveClass(/dark/);
 });
 
 /** 回答の中の text と一致する文字だけを選ぶ。 */

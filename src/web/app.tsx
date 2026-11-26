@@ -1,11 +1,11 @@
-import { Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { resolveChatDefaults } from "../chat/chat-defaults.ts";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
 import type { ChatDto, EnvironmentDto, TaskDto, WikiDto } from "../router.ts";
 import { ChatWorkspace } from "./components/chat-workspace.tsx";
 import type { EnvironmentInput } from "./components/environment-dialogs.tsx";
-import { RateLimitBadge } from "./components/rate-limit-badge.tsx";
+import { GeneralSettingsDialog } from "./components/settings-dialog.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
 import { TaskList } from "./components/task-list.tsx";
 import { TaskOverview } from "./components/task-overview.tsx";
@@ -40,6 +40,10 @@ type Status = Awaited<ReturnType<ApiClient["system"]["status"]>>;
 /** スレッド一覧の状態（生成中・承認待ち）を拾うための問い合わせ間隔。 */
 const LIST_POLL_MS = 2000;
 
+/**
+ * Claude Code を使えないときだけ、ヘッダーで知らせる。
+ * 使えるときのバージョン・契約プランは「設定 → 一般」に出す（#170）。
+ */
 const ClaudeStatusBadge = ({ status }: { status: Status | undefined }) => {
   if (status === undefined) {
     return <span className="text-muted-foreground text-xs">接続中…</span>;
@@ -53,17 +57,7 @@ const ClaudeStatusBadge = ({ status }: { status: Status | undefined }) => {
         </span>
       );
     case "ready":
-      return (
-        <span
-          className="hidden text-muted-foreground text-xs lg:inline"
-          title={`Claude Code ${claude.version ?? ""}${claude.account.subscriptionType ? `・${claude.account.subscriptionType}` : ""}`}
-        >
-          Claude Code {claude.version ?? ""}
-          {claude.account.subscriptionType
-            ? `・${claude.account.subscriptionType}`
-            : ""}
-        </span>
-      );
+      return null;
     case "not_installed":
     case "error":
       return (
@@ -94,6 +88,7 @@ export const App = ({ api }: { api: ApiClient }) => {
   const [status, setStatus] = useState<Status>();
   const chatDefaults = useChatDefaultsState(api);
   const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(loadSidebarOpen);
   const toggleSidebar = useCallback(() => setSidebarOpen((open) => !open), []);
   useEffect(() => {
@@ -458,10 +453,14 @@ export const App = ({ api }: { api: ApiClient }) => {
           onSetTask={setTask}
           onSetAutoTerms={setAutoTerms}
           onOpenTaskList={() => navigate(TASK_LIST_PATH)}
+          onOpenGeneralSettings={() => setSettingsOpen(true)}
           onSearch={searchChats}
           onOpenSearchHit={openSearchHit}
         />
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main
+          className="flex min-w-0 flex-1 flex-col"
+          data-claude-state={status?.claude.state ?? "connecting"}
+        >
           <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
             <Button
               variant="ghost"
@@ -481,31 +480,7 @@ export const App = ({ api }: { api: ApiClient }) => {
               {headerTitle}
             </span>
             <div className="flex shrink-0 items-center gap-2">
-              <RateLimitBadge
-                api={api}
-                activity={chats
-                  .map(
-                    (chat) =>
-                      `${chat.id}:${chat.status}:${String(chat.updatedAt)}`,
-                  )
-                  .join(",")}
-              />
               <ClaudeStatusBadge status={status} />
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label="テーマを切り替える"
-                onClick={() =>
-                  setTheme(
-                    document.documentElement.classList.contains("dark")
-                      ? "light"
-                      : "dark",
-                  )
-                }
-              >
-                <Sun className="dark:hidden" />
-                <Moon className="hidden dark:block" />
-              </Button>
             </div>
           </header>
           {workspace !== undefined && (
@@ -593,6 +568,13 @@ export const App = ({ api }: { api: ApiClient }) => {
           )}
         </main>
       </div>
+      <GeneralSettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        claude={status?.claude}
+        theme={theme}
+        onThemeChange={setTheme}
+      />
     </ChatDefaultsContext.Provider>
   );
 };
