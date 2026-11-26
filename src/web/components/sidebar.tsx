@@ -363,6 +363,7 @@ const TreeRow = ({
 export const Sidebar = ({
   id,
   hidden = false,
+  width,
   chats,
   tasks,
   environments,
@@ -397,6 +398,8 @@ export const Sidebar = ({
   id?: string;
   /** 畳んでいるか（⌘B）。畳んでも状態（検索・開閉）は保つ。 */
   hidden?: boolean;
+  /** 幅（px、#185）。省略すると既定の幅。 */
+  width?: number;
   /** すべての会話。 */
   chats: ChatDto[];
   tasks: TaskDto[];
@@ -633,6 +636,7 @@ export const Sidebar = ({
       hidden={hidden}
       aria-label="サイドバー"
       className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground [&[hidden]]:hidden"
+      style={width === undefined ? undefined : { width }}
     >
       <div className="flex items-center p-2">
         <div className="flex items-center">

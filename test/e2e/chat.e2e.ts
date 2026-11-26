@@ -2802,6 +2802,62 @@ test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロ
   await expect(sidebar).toBeVisible();
 });
 
+test("左サイドバーの幅をドラッグとキーボードで変え、開き直しや再読み込みでも保つ（#185）", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await open(page);
+  const sidebar = page.getByRole("complementary", { name: "サイドバー" });
+  const main = page.locator("main");
+  const handle = page.getByRole("separator", { name: "サイドバーの幅" });
+  const widthOf = async (locator: Locator) =>
+    Math.round((await locator.boundingBox())?.width ?? 0);
+
+  // 保存していなければ既定の幅
+  await expect.poll(() => widthOf(sidebar)).toBe(256);
+
+  // ドラッグの間、サイドバーとメインパネルが追従する
+  const box = await handle.boundingBox();
+  if (box === null) throw new Error("ハンドルが見えない");
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 60, y, { steps: 4 });
+  await expect.poll(() => widthOf(sidebar)).toBe(316);
+  await expect.poll(() => widthOf(main)).toBe(1280 - 316);
+  await page.mouse.move(x + 100, y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => widthOf(sidebar)).toBe(356);
+  await expect(handle).toHaveAttribute("aria-valuenow", "356");
+
+  // キーボードでも変えられる
+  await handle.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(handle).toHaveAttribute("aria-valuenow", "340");
+  await expect.poll(() => widthOf(sidebar)).toBe(340);
+
+  // 閉じて開き直しても、再読み込みしても戻る
+  await page.keyboard.press("ControlOrMeta+B");
+  await expect(sidebar).toBeHidden();
+  await expect(handle).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+B");
+  await expect.poll(() => widthOf(sidebar)).toBe(340);
+  await page.reload();
+  await expect(sidebar).toBeVisible();
+  await expect.poll(() => widthOf(sidebar)).toBe(340);
+
+  // 広げすぎてもメインパネルの幅は残し、画面を狭くしても収める
+  await handle.focus();
+  await page.keyboard.press("End");
+  await expect.poll(() => widthOf(main)).toBe(360);
+  await page.setViewportSize({ width: 800, height: 800 });
+  await expect.poll(() => widthOf(main)).toBe(360);
+  await expect.poll(() => widthOf(sidebar)).toBe(440);
+  await page.keyboard.press("Home");
+  await expect.poll(() => widthOf(sidebar)).toBe(232);
+});
+
 test("macOS では Ctrl+B を入力欄に渡し、⌘B でサイドバーを開閉する", async ({
   page,
 }) => {
