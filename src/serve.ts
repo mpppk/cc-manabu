@@ -15,6 +15,7 @@ import {
 } from "./chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "./chat/rate-limit.ts";
 import { RunnerRegistry } from "./chat/runner-registry.ts";
+import { createTaskContextBuilder } from "./chat/task-context.ts";
 import {
   createWikiThreadTitler,
   THREAD_TITLE_MODEL,
@@ -225,6 +226,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         onWikiBatchFinish: (batchId, messageId) =>
           wikiHistory.attachAnswer(batchId, messageId),
         wikiContext: createWikiContextBuilder(wiki, tasks),
+        taskContext: createTaskContextBuilder(tasks, environments),
         readWikiPage: createWikiPageReader(wiki, tasks),
         directoriesOf: (taskId) => {
           const directories = environments.directoriesOfTask(taskId);

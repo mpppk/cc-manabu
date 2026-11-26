@@ -9,6 +9,7 @@ import {
 } from "../../src/chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
+import { createTaskContextBuilder } from "../../src/chat/task-context.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { createEnvironmentRepository } from "../../src/db/environment-repository.ts";
@@ -49,6 +50,11 @@ export const createTestContext = (
     pickDirectory?: RouterContext["pickDirectory"];
     /** 選択範囲からのページ生成のモデル呼び出し。省略すると、呼ばれたら失敗する。 */
     generatePage?: (prompt: string) => Promise<string>;
+    /**
+     * タスクと環境の情報を参照情報として渡す（#186）。既定では渡さない
+     * （ほかのテストが送ったプロンプトをそのまま比べられるように）。
+     */
+    taskContext?: boolean;
   } = {},
 ) => {
   const opened = openDatabase(":memory:");
@@ -116,6 +122,9 @@ export const createTestContext = (
     onWikiBatchFinish: (batchId, messageId) =>
       wikiHistory.attachAnswer(batchId, messageId),
     wikiContext: createWikiContextBuilder(wiki, tasks),
+    ...(options.taskContext === true
+      ? { taskContext: createTaskContextBuilder(tasks, environments) }
+      : {}),
     readWikiPage: createWikiPageReader(wiki, tasks),
     directoriesOf: (taskId) => {
       const directories = environments.directoriesOfTask(taskId);
