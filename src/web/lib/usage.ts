@@ -43,12 +43,9 @@ export const totalUsage = (messages: readonly ChatUIMessage[]): UsageSummary =>
     { inputTokens: 0, outputTokens: 0, costUsd: 0, durationMs: 0 },
   );
 
-const number = new Intl.NumberFormat("ja-JP");
-
-/** 例: 「入力 1,234・出力 56 トークン・$0.0012・2.1 秒」 */
+/** 例: 「$0.0012・2.1 秒」。入出力トークン数は表示しない（#184）。 */
 export const formatUsage = (usage: UsageSummary): string =>
   [
-    `入力 ${number.format(usage.inputTokens)}・出力 ${number.format(usage.outputTokens)} トークン`,
     `$${usage.costUsd.toFixed(4)}`,
     ...(usage.durationMs > 0
       ? [`${(usage.durationMs / 1000).toFixed(1)} 秒`]

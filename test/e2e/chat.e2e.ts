@@ -53,10 +53,9 @@ test("トークンを URL から消し、送信した発話に回答がストリ
   await send(page, "こんにちは");
   await expect(page.getByText("了解: こんにちは")).toBeVisible();
   await idle(page);
-  // 使用量とタイトル
-  await expect(
-    page.getByText(/入力 10・出力 5 トークン/).first(),
-  ).toBeVisible();
+  // 使用量とタイトル。入出力トークン数は出さない（#184）
+  await expect(page.getByText(/\$0\.0010・/).first()).toBeVisible();
+  await expect(page.getByText(/トークン/)).toHaveCount(0);
   await expect(
     page
       .getByRole("navigation", { name: "スレッド一覧" })
@@ -158,7 +157,7 @@ test("回答を質問ごとに開閉でき、生成中の開閉状態を保つ",
     main
       .locator("[data-assistant-message]")
       .first()
-      .getByText(/入力 10・出力 5 トークン/),
+      .getByText(/\$0\.0010・/),
   ).toBeVisible();
   await toggles.last().click();
   await expect(streaming).toBeHidden();
@@ -1637,17 +1636,18 @@ test("プロンプトキャッシュの推定残り時間を表示し、モデ�
   await expect(cache).toHaveCount(0);
   await send(page, "キャッシュ");
   await idle(page);
-  await expect(cache).toHaveText(/キャッシュ 残り約 (59|60):\d\d/);
+  await expect(cache).toHaveText(/^(59|60):\d\d$/);
   const first = await cache.textContent();
   await expect(cache).not.toHaveText(first ?? "", { timeout: 3_000 });
 
   // 期限は時刻で持つので、リロードしても数え直す
   await page.reload();
-  await expect(cache).toHaveText(/キャッシュ 残り約 (59|60):\d\d/);
+  await expect(cache).toHaveText(/^(59|60):\d\d$/);
 
   const model = page.getByRole("combobox", { name: "モデル" });
   await model.selectOption("haiku");
-  await expect(cache).toHaveText("キャッシュ 不明");
+  await expect(cache).toHaveText("不明");
+  await expect(cache).toHaveAccessibleName(/プロンプトキャッシュ/);
   // 選んだモデルは新規スレッドの初期値になるので、ほかのテストのために戻す
   await model.selectOption("default");
 });

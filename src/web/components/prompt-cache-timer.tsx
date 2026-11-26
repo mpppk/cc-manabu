@@ -30,26 +30,36 @@ export const PromptCacheTimer = ({
   }, [counting]);
 
   if (busy || estimate.state === "none") return null;
+  // 画面には時計アイコンと残り時間（または状態）だけを出し、
+  // 何のタイマーかはツールチップと読み上げで伝える（#184）
   const label =
     estimate.state === "unknown"
-      ? "キャッシュ 不明"
+      ? "不明"
       : estimate.expiresAt > now
-        ? `キャッシュ 残り約 ${formatRemaining(estimate.expiresAt - now)}`
-        : "キャッシュ 期限切れ";
+        ? formatRemaining(estimate.expiresAt - now)
+        : "期限切れ";
+  const spoken =
+    estimate.state === "unknown"
+      ? "プロンプトキャッシュの残り時間: 不明"
+      : estimate.expiresAt > now
+        ? `プロンプトキャッシュの残り時間: 約 ${label}`
+        : "プロンプトキャッシュ: 期限切れ";
   const title =
     estimate.state === "unknown"
-      ? `${estimate.reason}\n${NOTE}`
-      : `TTL ${estimate.ttlSeconds >= 3600 ? "1 時間" : "5 分"}（${new Date(
+      ? `${spoken}\n${estimate.reason}\n${NOTE}`
+      : `${spoken}\nTTL ${estimate.ttlSeconds >= 3600 ? "1 時間" : "5 分"}（${new Date(
           estimate.expiresAt,
         ).toLocaleTimeString()} まで）\n${NOTE}`;
   return (
     <span
       className="flex shrink-0 items-center gap-1 text-muted-foreground text-xs"
       title={title}
+      role="img"
+      aria-label={spoken}
       data-testid="prompt-cache"
     >
-      <Timer className="size-3.5" />
-      {label}
+      <Timer className="size-3.5" aria-hidden="true" />
+      <span aria-hidden="true">{label}</span>
     </span>
   );
 };
