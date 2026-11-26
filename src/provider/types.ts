@@ -1,5 +1,6 @@
 import type {
   CanUseTool,
+  McpServerConfig,
   Options,
   PermissionMode,
   Query,
@@ -38,6 +39,8 @@ export type ClaudeCodeProviderSettings = {
   maxTurns?: number;
   /** ツール実行の承認。承認フロー（#29）から渡す。 */
   canUseTool?: CanUseTool;
+  /** Claude に渡す MCP サーバ（in-process のサーバを含む）。 */
+  mcpServers?: Record<string, McpServerConfig>;
   /** 既定の permission mode。 */
   permissionMode?: PermissionMode;
   /** Claude Code に渡す環境変数。省略時は process.env。 */

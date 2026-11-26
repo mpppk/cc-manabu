@@ -201,6 +201,9 @@ export const buildQueryOptions = (params: {
     ...(settings.canUseTool === undefined
       ? {}
       : { canUseTool: settings.canUseTool }),
+    ...(settings.mcpServers === undefined
+      ? {}
+      : { mcpServers: settings.mcpServers }),
     ...(settings.permissionMode === undefined
       ? {}
       : { permissionMode: settings.permissionMode }),

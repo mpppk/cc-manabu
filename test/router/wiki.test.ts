@@ -384,3 +384,105 @@ describe("createWikiContextBuilder", () => {
     expect(errors).toHaveLength(2);
   });
 });
+
+describe("タスクのスレッドで、Claude が Wiki を読み書きする", () => {
+  const message = (
+    text: string,
+    quote?: { text: string; sourcePage: { id: string; title: string } },
+  ) => ({
+    id: crypto.randomUUID(),
+    role: "user" as const,
+    parts: [
+      ...(quote === undefined ? [] : [{ type: "data-quote", data: quote }]),
+      { type: "text", text },
+    ],
+  });
+
+  test("タスクの会話には wiki の MCP サーバを渡し、タスクに属さない会話には渡さない", async () => {
+    const { client, calls } = await setup();
+    const task = await client.tasks.create({ name: "運用" });
+    const page = await client.wiki.create({
+      taskId: task.id,
+      title: "認可",
+      aliases: [],
+      body: "認可の本文",
+    });
+    const { chatId } = await client.wiki.ask({
+      taskId: task.id,
+      pageId: page.id,
+      message: message("このページに例を追記して"),
+    });
+    await drain(await client.chat.reconnect({ chatId }));
+    expect(Object.keys(calls[0]?.options?.mcpServers ?? {})).toEqual(["wiki"]);
+    // 追加の質問（resume）でも渡す
+    await send(client, chatId, "もう少し短く");
+    expect(Object.keys(calls[1]?.options?.mcpServers ?? {})).toEqual(["wiki"]);
+
+    // Wiki ページにひも付かない、ふつうのスレッドでも渡す
+    const chat = await client.chats.create({ taskId: task.id });
+    await send(client, chat.id, "認可のページを更新して");
+    expect(Object.keys(calls[2]?.options?.mcpServers ?? {})).toEqual(["wiki"]);
+
+    // タスクに属さないスレッドには Wiki が無いので渡さない
+    const loose = await client.chats.create({});
+    await send(client, loose.id, "ふつうの質問");
+    expect(calls[3]?.options?.mcpServers).toBeUndefined();
+  });
+
+  test("本文から選んだ引用を質問に添えて渡し、発話に残す", async () => {
+    const { client, calls } = await setup();
+    const task = await client.tasks.create({ name: "運用" });
+    const page = await client.wiki.create({
+      taskId: task.id,
+      title: "認可",
+      aliases: [],
+      body: "委譲では管理者が承認する。",
+    });
+    const quote = {
+      text: "管理者が承認する",
+      sourcePage: { id: page.id, title: page.title },
+    };
+    const { chatId } = await client.wiki.ask({
+      taskId: task.id,
+      pageId: page.id,
+      message: message("誰が管理者？", quote),
+    });
+    await drain(await client.chat.reconnect({ chatId }));
+    // 引用は質問の前に、質問と区別して渡す
+    const [reference, prompt] = await textsOf(calls[0]?.prompt);
+    expect(reference).toContain(`<wiki-page id="${page.id}"`);
+    expect(prompt).toContain(`Wiki ページ「認可」（id: ${page.id}）`);
+    expect(prompt).toContain("<quote>\n管理者が承認する\n</quote>");
+    expect(prompt).toEndWith("誰が管理者？");
+    const saved = await client.wiki.chat({ taskId: task.id, pageId: page.id });
+    expect(saved?.messages[0]?.parts[0]).toEqual({
+      type: "data-quote",
+      data: quote,
+    });
+  });
+
+  test("引用元の無い引用は受け付けない", async () => {
+    const { client } = await setup();
+    const task = await client.tasks.create({ name: "運用" });
+    const page = await client.wiki.create({
+      taskId: task.id,
+      title: "認可",
+      aliases: [],
+      body: "本文",
+    });
+    await expect(
+      client.wiki.ask({
+        taskId: task.id,
+        pageId: page.id,
+        message: {
+          id: crypto.randomUUID(),
+          role: "user",
+          parts: [
+            { type: "data-quote", data: { text: "本文" } },
+            { type: "text", text: "質問" },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+});

@@ -54,7 +54,7 @@ export type RouterContext = {
   chatService: ChatService;
   approvals: ApprovalBroker;
   claude: ClaudeStatusHolder;
-  /** 回答の中の語句から Wiki のページを Claude に書かせる。 */
+  /** 回答や Wiki ページの中の語句から Wiki のページを Claude に書かせる。 */
   generateWikiPage: WikiPageGenerator;
   /**
    * 起動時のカレントディレクトリ。タスクに属さない会話の作業ディレクトリと、
@@ -358,12 +358,19 @@ const userMessage = z.object({
         const data = quote.data as {
           text?: unknown;
           sourceMessageId?: unknown;
+          sourcePage?: { id?: unknown; title?: unknown };
         };
+        // 回答からの引用は sourceMessageId、Wiki ページからの引用は sourcePage を持つ
+        const hasSource =
+          typeof data?.sourceMessageId === "string" ||
+          (typeof data?.sourcePage?.id === "string" &&
+            typeof data.sourcePage.title === "string" &&
+            data.sourcePage.title.length <= 200);
         if (
           typeof data?.text !== "string" ||
           data.text.trim() === "" ||
           data.text.length > 20_000 ||
-          typeof data.sourceMessageId !== "string"
+          !hasSource
         ) {
           ctx.addIssue({
             code: "custom",
@@ -747,6 +754,23 @@ export const router = {
         z.object({
           chatId: z.string().min(1),
           messageId: z.string().min(1),
+          term: z.string().trim().min(1).max(MAX_PAGE_TERM_LENGTH),
+        }),
+      )
+      .handler(async ({ context, input }) => {
+        const { page, created } = await unwrapForOrpc(
+          context.generateWikiPage(input),
+          ERROR_CODES,
+        );
+        return { page: toWikiPageDto(page), created };
+      }),
+    /**
+     * Wiki ページの本文で選んだ語句のページを Claude に書かせて保存する。
+     * 同じ名前のページがすでにあれば作らずに返す（created: false）。
+     */
+    generateFromPage: base
+      .input(
+        wikiChatTarget.extend({
           term: z.string().trim().min(1).max(MAX_PAGE_TERM_LENGTH),
         }),
       )

@@ -1,5 +1,6 @@
 import type { DynamicToolUIPart } from "ai";
 import {
+  BookOpen,
   Check,
   ChevronRight,
   FileText,
@@ -13,10 +14,12 @@ import {
   X,
 } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { WIKI_TOOL_NAMES } from "../../wiki/tool-names.ts";
 import {
   outputToText,
   simpleDiff,
   summarizeToolInput,
+  toolLabel,
   truncate,
 } from "../lib/tool-display.ts";
 import { cn } from "../lib/utils.ts";
@@ -39,6 +42,13 @@ const iconFor = (toolName: string): ReactNode => {
       return <Search className="size-3.5" />;
     case "WebFetch":
       return <Globe className="size-3.5" />;
+    case WIKI_TOOL_NAMES.listPages:
+    case WIKI_TOOL_NAMES.readPage:
+      return <BookOpen className="size-3.5" />;
+    case WIKI_TOOL_NAMES.createPage:
+    case WIKI_TOOL_NAMES.updatePage:
+    case WIKI_TOOL_NAMES.editPage:
+      return <Pencil className="size-3.5" />;
     default:
       return <Wrench className="size-3.5" />;
   }
@@ -151,6 +161,38 @@ export const InputView = ({
   if (toolName === "Bash" && typeof record.command === "string") {
     return <Pre>$ {record.command}</Pre>;
   }
+  if (
+    toolName === WIKI_TOOL_NAMES.editPage &&
+    typeof record.old_string === "string" &&
+    typeof record.new_string === "string"
+  ) {
+    return <Diff before={record.old_string} after={record.new_string} />;
+  }
+  if (
+    toolName === WIKI_TOOL_NAMES.createPage ||
+    toolName === WIKI_TOOL_NAMES.updatePage
+  ) {
+    const aliases = Array.isArray(record.aliases)
+      ? record.aliases.filter((a): a is string => typeof a === "string")
+      : undefined;
+    return (
+      <div className="flex flex-col gap-1 text-xs">
+        {typeof record.title === "string" && (
+          <p>
+            <span className="text-muted-foreground">タイトル: </span>
+            {record.title}
+          </p>
+        )}
+        {aliases !== undefined && (
+          <p>
+            <span className="text-muted-foreground">別名: </span>
+            {aliases.length === 0 ? "（なし）" : aliases.join("、")}
+          </p>
+        )}
+        {typeof record.body === "string" && <Output text={record.body} />}
+      </div>
+    );
+  }
   return <Pre>{JSON.stringify(input, null, 2)}</Pre>;
 };
 
@@ -169,7 +211,7 @@ export const ToolCard = ({ part }: { part: DynamicToolUIPart }) => {
         <ChevronRight className="size-3.5 shrink-0 transition-transform group-open/tool:rotate-90" />
         <span className="shrink-0">{iconFor(part.toolName)}</span>
         <span className="shrink-0 font-medium text-foreground/80 text-xs">
-          {part.toolName}
+          {toolLabel(part.toolName)}
         </span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs">
           {summary}

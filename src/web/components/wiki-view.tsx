@@ -8,6 +8,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
 import type { ApiClient } from "../lib/orpc.ts";
@@ -226,9 +227,12 @@ export const WikiView = ({
   const [mode, setMode] = useState<"view" | "new" | "edit">("view");
   const [deleting, setDeleting] = useState(false);
   const [askingPageId, setAskingPageId] = useState<string>();
+  /** 本文から選んで、次の質問に添える引用。 */
+  const [quote, setQuote] = useState<WikiPageQuote>();
   const askButton = useRef<HTMLButtonElement>(null);
   const closeChat = () => {
     setAskingPageId(undefined);
+    setQuote(undefined);
     requestAnimationFrame(() => askButton.current?.focus());
   };
 
@@ -239,6 +243,7 @@ export const WikiView = ({
     openedPageId.current = pageId;
     setMode("view");
     setAskingPageId(undefined);
+    setQuote(undefined);
   }, [pageId]);
 
   const page = pages?.find((p) => p.id === pageId);
@@ -388,7 +393,20 @@ export const WikiView = ({
             <Trash2 className="size-3.5" />
           </Button>
         </div>
-        <WikiPageContent page={page} onOpenChat={onOpenChat} />
+        <WikiPageContent
+          page={page}
+          onOpenChat={onOpenChat}
+          selectionActions={{
+            api,
+            taskId,
+            onAsk: (selected) => {
+              setQuote(selected);
+              setAskingPageId(page.id);
+            },
+            onPageCreated: () => void refresh(),
+            onOpenPage: onNavigate,
+          }}
+        />
         <Dialog
           open={deleting}
           onOpenChange={setDeleting}
@@ -436,12 +454,23 @@ export const WikiView = ({
         {asking && (
           <SideChat
             key={pageId}
-            request={{ kind: "wiki", taskId, pageId, title: page?.title }}
+            request={{
+              kind: "wiki",
+              taskId,
+              pageId,
+              title: page?.title,
+              quote,
+            }}
             api={api}
             models={models}
-            onActivity={onChatActivity}
+            onActivity={() => {
+              onChatActivity();
+              // Claude が Wiki のページを編集・作成していれば反映する
+              void refresh();
+            }}
             onClose={closeChat}
             onOpenWikiPage={(_, id) => onNavigate(id)}
+            onWikiPageCreated={() => void refresh()}
           />
         )}
       </div>

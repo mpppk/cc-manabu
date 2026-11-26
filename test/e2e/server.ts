@@ -50,6 +50,7 @@ import {
   TERM_EXTRACTION_MODEL,
   TERM_EXTRACTION_SETTINGS,
 } from "../../src/wiki/terms.ts";
+import { createWikiToolServers } from "../../src/wiki/tools.ts";
 import { createScriptedQuery } from "./scripted-query.ts";
 
 export const E2E_PORT = Number(process.env.E2E_PORT ?? 45200);
@@ -104,6 +105,7 @@ const generateWikiPage = createWikiPageGenerator({
   tasks,
   chats,
   wiki,
+  readWikiPage: createWikiPageReader(wiki, tasks),
   generate: async (prompt) =>
     (await generateText({ model: pageModel, prompt })).text,
 });
@@ -112,8 +114,9 @@ const chatService = createChatService({
   chats,
   registry,
   approvals,
-  languageModel: (modelId, { canUseTool }) =>
-    createClaudeCode({ cwd: "/e2e", query, canUseTool, onRateLimit })(modelId),
+  languageModel: (modelId, options) =>
+    createClaudeCode({ cwd: "/e2e", query, onRateLimit, ...options })(modelId),
+  wikiTools: createWikiToolServers({ wiki, tasks }),
   wikiContext: createWikiContextBuilder(wiki, tasks),
   readWikiPage: createWikiPageReader(wiki, tasks),
   directoriesOf: (taskId) => {
