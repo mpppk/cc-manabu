@@ -2417,7 +2417,7 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
     .getByRole("button", { name: "削除", exact: true })
     .click();
   await expect(
-    page.getByText("このノートは削除されたか、存在しません。"),
+    page.getByRole("button", { name: "削除前に復元" }),
   ).toBeVisible();
   await close.click();
   await page.reload();
