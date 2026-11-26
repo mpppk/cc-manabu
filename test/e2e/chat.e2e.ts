@@ -2741,26 +2741,39 @@ test("左上の「設定」→「一般」で Claude Code の情報とテーマ�
   await expect(page.locator("html")).not.toHaveClass(/dark/);
 });
 
-/** 回答の中の text と一致する文字だけを選ぶ。 */
+/** 回答の中の text と一致する文字だけを選ぶ。用語の下線などで要素が分かれていても選べる。 */
 const selectAnswerText = (answer: Locator, text: string) =>
   answer.evaluate((root, target) => {
     const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes: { node: Node; start: number }[] = [];
+    let all = "";
     for (
       let node = walker.nextNode();
       node !== null;
       node = walker.nextNode()
     ) {
-      const at = node.textContent?.indexOf(target) ?? -1;
-      if (at < 0) continue;
-      const range = document.createRange();
-      range.setStart(node, at);
-      range.setEnd(node, at + target.length);
-      const selection = window.getSelection();
-      selection?.removeAllRanges();
-      selection?.addRange(range);
-      return;
+      nodes.push({ node, start: all.length });
+      all += node.textContent ?? "";
     }
-    throw new Error(`text not found: ${target}`);
+    const at = all.indexOf(target);
+    if (at < 0) throw new Error(`text not found: ${target}`);
+    const locate = (offset: number, end: boolean) => {
+      const found = nodes.findLast(({ node, start }) =>
+        end
+          ? start < offset && offset <= start + (node.textContent?.length ?? 0)
+          : start <= offset,
+      );
+      if (found === undefined) throw new Error(`text not found: ${target}`);
+      return { node: found.node, offset: offset - found.start };
+    };
+    const from = locate(at, false);
+    const to = locate(at + target.length, true);
+    const range = document.createRange();
+    range.setStart(from.node, from.offset);
+    range.setEnd(to.node, to.offset);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
   }, text);
 
 test("回答の選択範囲から AI で Wiki のページを作り、チャットに留まったまま用語として表示する", async ({
