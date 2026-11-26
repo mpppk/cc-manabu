@@ -485,6 +485,16 @@ const createTask = async (page: Page, name: string) => {
   await expect(taskRow(page, name)).toBeVisible();
 };
 
+/** タスク一覧のカンバンの列（#195）。 */
+const column = (page: Page, label: string) =>
+  page.getByRole("region", { name: new RegExp(`^${label}`) });
+
+/** タスク一覧のカンバンのカード（#195）。 */
+const card = (page: Page, name: string) =>
+  page
+    .locator("[data-task-card]")
+    .filter({ has: page.getByRole("button", { name, exact: true }) });
+
 test("何も送っていないスレッドは開いている間だけ出て、＋で使い回す", async ({
   page,
 }) => {
@@ -1223,31 +1233,22 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   await expect(status).toHaveValue("in_progress");
   await expect(progress.getByText(/最終更新:/)).toHaveText(updatedText ?? "");
 
-  // 一覧で状態と次にやることを確認し、絞り込める（リロードしても保たれる）
+  // カンバンで状態ごとの列に並び、カードに次にやることを出す（#195）
   await page.getByRole("button", { name: "タスク一覧" }).click();
   await expect(page).toHaveURL(/\/tasks$/);
-  const rows = page.getByRole("row");
-  await expect(rows.filter({ hasText: "進捗A" })).toContainText("進行中");
-  await expect(rows.filter({ hasText: "進捗A" })).toContainText(
-    "検証環境で権限モデルを試す",
-  );
-  await expect(rows.filter({ hasText: "進捗B" })).toContainText("未着手");
-  const filters = page.getByRole("navigation", { name: "状態で絞り込む" });
-  await filters.getByRole("button", { name: /^進行中/ }).click();
-  await expect(page).toHaveURL(/status=in_progress/);
-  await expect(rows.filter({ hasText: "進捗A" })).toBeVisible();
-  await expect(rows.filter({ hasText: "進捗B" })).toHaveCount(0);
+  await expect(card(page, "進捗A")).toContainText("検証環境で権限モデルを試す");
+  await expect(column(page, "進行中")).toContainText("進捗A");
+  await expect(column(page, "未着手")).toContainText("進捗B");
+
+  // カードを別の列にドロップすると保存し、リロードしても移動先に出る
+  await card(page, "進捗B").dragTo(column(page, "保留"));
+  await expect(column(page, "保留")).toContainText("進捗B");
+  await expect(column(page, "未着手")).not.toContainText("進捗B");
   await page.reload();
-  await expect(
-    filters.getByRole("button", { name: /^進行中/ }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(rows.filter({ hasText: "進捗A" })).toContainText(
-    "検証環境で権限モデルを試す",
-  );
-  await expect(rows.filter({ hasText: "進捗B" })).toHaveCount(0);
+  await expect(column(page, "保留")).toContainText("進捗B");
 
   // 完了してもスレッド・Wiki・関連リンクを開け、進行中に戻せる
-  await rows.filter({ hasText: "進捗A" }).getByRole("button").click();
+  await card(page, "進捗A").getByRole("button", { name: "進捗A" }).click();
   await status.selectOption({ label: "完了" });
   await expect(taskRow(page, "進捗A")).toContainText("完了");
   await expect(page.getByRole("heading", { name: "関連リンク" })).toBeVisible();
@@ -1260,6 +1261,71 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   await openTask(page, "進捗A");
   await status.selectOption({ label: "進行中" });
   await expect(taskRow(page, "進捗A")).not.toContainText("完了");
+});
+
+test("カンバンの保存に失敗したら元の列に戻し、左パネルは進捗で絞り込める（#195）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "カンバンA");
+  await page.getByRole("combobox", { name: "状態" }).selectOption({
+    label: "進行中",
+  });
+  await expect(page.getByRole("region", { name: "進捗" })).not.toContainText(
+    "最終更新: —",
+  );
+  await createTask(page, "カンバンB");
+  await page.getByRole("combobox", { name: "状態" }).selectOption({
+    label: "保留",
+  });
+  await expect(page.getByRole("region", { name: "進捗" })).not.toContainText(
+    "最終更新: —",
+  );
+  await createTask(page, "カンバンC");
+
+  // 保存に失敗すると元の列に戻り、失敗が分かる
+  await page.getByRole("button", { name: "タスク一覧" }).click();
+  await page.route("**/tasks/updateProgress**", (route) =>
+    route.fulfill({ status: 500, body: "{}" }),
+  );
+  await card(page, "カンバンC").dragTo(column(page, "完了"));
+  await expect(page.getByRole("alert")).toContainText(
+    "「カンバンC」を「完了」にできませんでした",
+  );
+  await expect(column(page, "未着手")).toContainText("カンバンC");
+  await expect(column(page, "完了")).not.toContainText("カンバンC");
+  await page.unroute("**/tasks/updateProgress**");
+
+  // キーボードでもカードの「状態」から移せる。左パネルにも反映する
+  await page
+    .getByRole("combobox", { name: "「カンバンC」の状態" })
+    .selectOption({ label: "進行中" });
+  await expect(column(page, "進行中")).toContainText("カンバンC");
+
+  // 左パネルで「進行中」と「保留」を選ぶと、そのどちらかのタスクだけを出す
+  const filter = page.getByRole("group", { name: "進捗で絞り込む" });
+  await filter.getByRole("button", { name: "進行中" }).click();
+  await filter.getByRole("button", { name: "保留" }).click();
+  await expect(taskRow(page, "カンバンA")).toBeVisible();
+  await expect(taskRow(page, "カンバンB")).toBeVisible();
+  await expect(taskRow(page, "カンバンC")).toBeVisible();
+  // 状態を変えると、表示対象も変わる
+  await page
+    .getByRole("combobox", { name: "「カンバンC」の状態" })
+    .selectOption({ label: "完了" });
+  await expect(taskRow(page, "カンバンC")).toHaveCount(0);
+  // カンバンは全状態の列を出す
+  await expect(column(page, "完了")).toContainText("カンバンC");
+  // フラット表示でも効く。リロードしても保つ
+  await page.getByRole("button", { name: "環境ごとにまとめる" }).click();
+  await page.reload();
+  await expect(taskRow(page, "カンバンA")).toBeVisible();
+  await expect(taskRow(page, "カンバンC")).toHaveCount(0);
+  // 選択をすべて外すと全件に戻る
+  await filter.getByRole("button", { name: "進行中" }).click();
+  await filter.getByRole("button", { name: "保留" }).click();
+  await expect(taskRow(page, "カンバンC")).toBeVisible();
+  await page.getByRole("button", { name: "環境ごとにまとめる" }).click();
 });
 
 test("回答から分岐し、同じスレッドの中で会話を切り替えて続けられる", async ({

@@ -4,107 +4,202 @@ import type { TaskDto } from "../../router.ts";
 import {
   formatDateTime,
   isTaskStatus,
+  TASK_STATUS_CLASSES,
   TASK_STATUS_LABELS,
   TASK_STATUS_ORDER,
 } from "../lib/task-status.ts";
-import { TaskStatusBadge } from "./task-progress.tsx";
-import { Button } from "./ui/button.tsx";
+import { cn } from "../lib/utils.ts";
 
-/** URL の ?status= から絞り込みを読む（リロードしても保つ）。 */
-const statusFromUrl = (): TaskStatus | undefined => {
-  const value = new URLSearchParams(window.location.search).get("status");
-  return value !== null && isTaskStatus(value) ? value : undefined;
-};
+const DRAG_TYPE = "application/x-cc-manabu-task";
 
-/** タスク一覧（`/tasks`）。状態・次にやること・進捗の最終更新を並べ、状態で絞り込む。 */
+/**
+ * タスク一覧（`/tasks`）。進捗の状態ごとの列に並べるカンバン（#195）。
+ * カードを別の列へドラッグ＆ドロップするか、カードの「状態」で選ぶと、その状態を保存する。
+ * 保存に失敗したら元の列に戻し、理由を出す。
+ */
 export const TaskList = ({
   tasks,
   onOpen,
+  onMove,
 }: {
   tasks: TaskDto[];
   onOpen: (taskId: string) => void;
+  /** 状態を保存する（保存後の一覧の取り直しまで）。失敗したら reject する。 */
+  onMove: (taskId: string, status: TaskStatus) => Promise<void>;
 }) => {
-  const [filter, setFilter] = useState<TaskStatus | undefined>(statusFromUrl);
-  const choose = (next: TaskStatus | undefined) => {
-    setFilter(next);
-    const url = new URL(window.location.href);
-    if (next === undefined) url.searchParams.delete("status");
-    else url.searchParams.set("status", next);
-    window.history.replaceState(window.history.state, "", url);
+  /** 保存中の移動。保存が終わるまで、移動先の列に出しておく。 */
+  const [moving, setMoving] = useState<Record<string, TaskStatus>>({});
+  const [error, setError] = useState<string>();
+  const [dragging, setDragging] = useState<string>();
+  const [dropTarget, setDropTarget] = useState<TaskStatus>();
+
+  const statusOf = (task: TaskDto): TaskStatus =>
+    moving[task.id] ?? task.status;
+
+  const move = (task: TaskDto, status: TaskStatus) => {
+    if (statusOf(task) === status) return;
+    setError(undefined);
+    setMoving((prev) => ({ ...prev, [task.id]: status }));
+    onMove(task.id, status)
+      .catch((cause: unknown) => {
+        setError(
+          `「${task.name}」を「${TASK_STATUS_LABELS[status]}」にできませんでした: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        );
+      })
+      .finally(() => {
+        setMoving(({ [task.id]: _, ...rest }) => rest);
+      });
   };
-  const visible =
-    filter === undefined
-      ? tasks
-      : tasks.filter((task) => task.status === filter);
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4 px-4 py-6">
+      <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-6">
         <h1 className="font-bold text-2xl">タスク一覧</h1>
-        <nav aria-label="状態で絞り込む" className="flex flex-wrap gap-1">
-          {[undefined, ...TASK_STATUS_ORDER].map((status) => (
-            <Button
-              key={status ?? "all"}
-              size="sm"
-              variant={filter === status ? "secondary" : "ghost"}
-              aria-pressed={filter === status}
-              onClick={() => choose(status)}
-            >
-              {status === undefined ? "すべて" : TASK_STATUS_LABELS[status]}
-              <span className="text-muted-foreground text-xs">
-                {status === undefined
-                  ? tasks.length
-                  : tasks.filter((p) => p.status === status).length}
-              </span>
-            </Button>
-          ))}
-        </nav>
-        {visible.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            {tasks.length === 0
-              ? "まだタスクがありません。サイドバーから作成できます。"
-              : "この状態のタスクはありません。"}
+        {error !== undefined && (
+          <p role="alert" className="text-destructive text-sm">
+            {error}
           </p>
-        ) : (
-          <table className="w-full text-sm">
-            <thead className="text-left text-muted-foreground text-xs">
-              <tr className="border-b">
-                <th className="py-2 pr-3 font-normal">名前</th>
-                <th className="py-2 pr-3 font-normal">状態</th>
-                <th className="py-2 pr-3 font-normal">次にやること</th>
-                <th className="py-2 font-normal">進捗の最終更新</th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((task) => (
-                <tr key={task.id} className="border-b align-top">
-                  <td className="py-2 pr-3">
-                    <button
-                      type="button"
-                      className="text-left font-medium text-primary hover:underline"
-                      onClick={() => onOpen(task.id)}
-                    >
-                      {task.name}
-                    </button>
-                  </td>
-                  <td className="py-2 pr-3">
-                    <TaskStatusBadge status={task.status} />
-                  </td>
-                  <td className="py-2 pr-3">
-                    {task.nextAction === "" ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      task.nextAction
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap py-2 text-muted-foreground">
-                    {formatDateTime(task.progressUpdatedAt)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         )}
+        {tasks.length === 0 && (
+          <p className="text-muted-foreground text-sm">
+            まだタスクがありません。サイドバーから作成できます。
+          </p>
+        )}
+        <div className="overflow-x-auto pb-2">
+          <div className="grid min-w-[48rem] grid-cols-4 gap-3">
+            {TASK_STATUS_ORDER.map((status) => {
+              const column = tasks.filter((task) => statusOf(task) === status);
+              const headingId = `task-column-${status}`;
+              return (
+                <section
+                  key={status}
+                  aria-labelledby={headingId}
+                  data-status={status}
+                  className={cn(
+                    "flex min-h-48 flex-col gap-2 rounded-lg border bg-muted/30 p-2 transition-colors",
+                    dropTarget === status && "border-ring bg-accent/60",
+                  )}
+                  onDragOver={(event) => {
+                    if (!event.dataTransfer.types.includes(DRAG_TYPE)) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = "move";
+                    setDropTarget(status);
+                  }}
+                  onDragLeave={(event) => {
+                    if (
+                      !event.currentTarget.contains(
+                        event.relatedTarget as Node | null,
+                      )
+                    ) {
+                      setDropTarget(undefined);
+                    }
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    setDropTarget(undefined);
+                    const id = event.dataTransfer.getData(DRAG_TYPE);
+                    const task = tasks.find((t) => t.id === id);
+                    if (task !== undefined) move(task, status);
+                  }}
+                >
+                  <h2
+                    id={headingId}
+                    className="flex items-center gap-2 px-1 font-medium text-sm"
+                  >
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs",
+                        TASK_STATUS_CLASSES[status],
+                      )}
+                    >
+                      {TASK_STATUS_LABELS[status]}
+                    </span>
+                    <span className="text-muted-foreground text-xs">
+                      {column.length}
+                    </span>
+                  </h2>
+                  {column.length === 0 ? (
+                    <p className="px-1 py-4 text-center text-muted-foreground text-xs">
+                      タスクはありません
+                    </p>
+                  ) : (
+                    <ul
+                      aria-label={`${TASK_STATUS_LABELS[status]}のタスク`}
+                      className="flex flex-col gap-2"
+                    >
+                      {column.map((task) => (
+                        <li
+                          key={task.id}
+                          data-task-card={task.id}
+                          draggable
+                          onDragStart={(event) => {
+                            event.dataTransfer.setData(DRAG_TYPE, task.id);
+                            event.dataTransfer.effectAllowed = "move";
+                            setDragging(task.id);
+                          }}
+                          onDragEnd={() => {
+                            setDragging(undefined);
+                            setDropTarget(undefined);
+                          }}
+                          className={cn(
+                            "flex cursor-grab flex-col gap-1.5 rounded-md border bg-background p-2 text-sm shadow-xs active:cursor-grabbing",
+                            dragging === task.id && "opacity-50",
+                            moving[task.id] !== undefined && "opacity-70",
+                          )}
+                        >
+                          <button
+                            type="button"
+                            className="text-left font-medium text-primary hover:underline"
+                            onClick={() => onOpen(task.id)}
+                          >
+                            {task.name}
+                          </button>
+                          <p className="whitespace-pre-wrap break-words text-xs">
+                            {task.nextAction === "" ? (
+                              <span className="text-muted-foreground">
+                                次にやること: —
+                              </span>
+                            ) : (
+                              <>
+                                <span className="text-muted-foreground">
+                                  次にやること:{" "}
+                                </span>
+                                {task.nextAction}
+                              </>
+                            )}
+                          </p>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground text-xs">
+                              最終更新: {formatDateTime(task.progressUpdatedAt)}
+                            </span>
+                            {/* ドラッグできない環境（キーボード・タッチ）でも状態を変えられるようにする */}
+                            <select
+                              className="h-6 rounded-sm border bg-background px-1 text-xs"
+                              aria-label={`「${task.name}」の状態`}
+                              value={statusOf(task)}
+                              onChange={(event) => {
+                                const next = event.target.value;
+                                if (isTaskStatus(next)) move(task, next);
+                              }}
+                            >
+                              {TASK_STATUS_ORDER.map((option) => (
+                                <option key={option} value={option}>
+                                  {TASK_STATUS_LABELS[option]}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
