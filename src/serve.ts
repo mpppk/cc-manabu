@@ -21,6 +21,7 @@ import { createChatRepository } from "./db/chat-repository.ts";
 import { createEnvironmentRepository } from "./db/environment-repository.ts";
 import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
+import { createPreferencesRepository } from "./db/preferences-repository.ts";
 import { createQueueRepository } from "./db/queue-repository.ts";
 import { createRateLimitRepository } from "./db/rate-limit-repository.ts";
 import { createSearchRepository } from "./db/search-repository.ts";
@@ -185,6 +186,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           queueDispatcher,
           search: createSearchRepository(db),
           rateLimits,
+          preferences: createPreferencesRepository(db),
           chatService,
           approvals,
           claude,

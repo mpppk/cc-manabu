@@ -1638,8 +1638,88 @@ test("プロンプトキャッシュの推定残り時間を表示し、モデ�
   await page.reload();
   await expect(cache).toHaveText(/キャッシュ 残り約 (59|60):\d\d/);
 
-  await page.getByRole("combobox", { name: "モデル" }).selectOption("haiku");
+  const model = page.getByRole("combobox", { name: "モデル" });
+  await model.selectOption("haiku");
   await expect(cache).toHaveText("キャッシュ 不明");
+  // 選んだモデルは新規スレッドの初期値になるので、ほかのテストのために戻す
+  await model.selectOption("default");
+});
+
+test("最後に選んだモデルと effort を、新規スレッドの初期値にする（#164）", async ({
+  page,
+}) => {
+  const model = page.getByRole("combobox", { name: "モデル" });
+  const effort = page.getByRole("combobox", { name: "effort" });
+  /** 次の送信で、サーバに送ったモデルと effort。 */
+  const sentSettings = async (text: string) => {
+    const request = page.waitForRequest((r) => r.url().includes("/chat/send"));
+    await send(page, text);
+    const body = (await request).postData() ?? "";
+    await idle(page);
+    return {
+      model: /"model":"([^"]+)"/.exec(body)?.[1],
+      effort: /"effort":(null|"[^"]+")/.exec(body)?.[1],
+    };
+  };
+  await open(page);
+  await createTask(page, "初期値の検証");
+  await newChat(page);
+  await expect(model).toHaveValue("default");
+  await expect(effort).toHaveValue("");
+
+  // 選んだ組み合わせが、次の新規スレッドの初期値になる
+  await effort.selectOption("high");
+  await send(page, "既定モデルで高");
+  await idle(page);
+  const first = new URL(page.url()).pathname;
+  await newChat(page);
+  await expect(model).toHaveValue("default");
+  await expect(effort).toHaveValue("high");
+  // 送らずに選ぶだけでも保存し、再起動（再読み込み）後も引き継ぐ
+  await model.selectOption("haiku");
+  await expect(effort).toHaveCount(0);
+
+  await page.reload();
+  await expect(model).toHaveValue("haiku");
+  // 送るとその設定で回答を作る
+  expect(await sentSettings("Haiku で")).toEqual({
+    model: "haiku",
+    effort: "null",
+  });
+
+  // 既存のスレッドは、そのスレッドの設定を表示する。開いただけでは初期値を変えない
+  await page.goto(first);
+  await expect(model).toHaveValue("default");
+  await expect(effort).toHaveValue("high");
+  await newChat(page);
+  await expect(model).toHaveValue("haiku");
+
+  // Wiki ページから始める質問にも同じ初期値を使う
+  await openWiki(page, "初期値の検証");
+  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page.getByRole("textbox", { name: "ページのタイトル" }).fill("初期値");
+  await page.getByRole("textbox", { name: "本文（Markdown）" }).fill("本文。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.getByRole("button", { name: "このページについて質問" }).click();
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  await expect(side.getByRole("combobox", { name: "モデル" })).toHaveValue(
+    "haiku",
+  );
+  const request = page.waitForRequest((r) => r.url().includes("/wiki/ask"));
+  const composer = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  await composer.fill("要約して");
+  await composer.press("Enter");
+  expect((await request).postData()).toContain('"model":"haiku"');
+  await expect(side.getByRole("combobox", { name: "モデル" })).toHaveValue(
+    "haiku",
+  );
+
+  // ほかのテストのために既定に戻す
+  await page.goto(first);
+  await effort.selectOption("");
+  await expect(effort).toHaveValue("");
 });
 
 test("スレッドをタイトルと本文で検索し、一致した発言へ移動できる", async ({
