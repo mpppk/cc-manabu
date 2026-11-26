@@ -94,7 +94,7 @@ const ChatItem = ({
   branchCount = 1,
 }: {
   chat: ChatDto;
-  /** 会話の分岐の数（2 以上なら表示する）。 */
+  /** スレッド内の会話の数（2 以上なら表示する）。 */
   branchCount?: number;
   selected: boolean;
   onSelect: () => void;
@@ -105,7 +105,7 @@ const ChatItem = ({
 }) => {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(chat.title);
-  const label = chat.title === "" ? "新しい会話" : chat.title;
+  const label = chat.title === "" ? "新しいスレッド" : chat.title;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -120,7 +120,7 @@ const ChatItem = ({
       <form className="flex items-center gap-1 px-1 py-0.5" onSubmit={submit}>
         <input
           className="min-w-0 flex-1 rounded border bg-background px-2 py-1 text-sm"
-          aria-label="会話の名前"
+          aria-label="スレッドの名前"
           value={title}
           // biome-ignore lint/a11y/noAutofocus: 名前の編集を始めた直後に入力できるようにする
           autoFocus
@@ -169,7 +169,7 @@ const ChatItem = ({
         {branchCount > 1 && (
           <span
             className="shrink-0 text-muted-foreground text-xs"
-            title={`${branchCount} 個の分岐`}
+            title={`${branchCount} 個の会話`}
           >
             <GitBranch className="inline size-3" />
             {branchCount}
@@ -412,7 +412,7 @@ export const Sidebar = ({
   openTaskId: string | undefined;
   /** メインに Wiki を出しているタスク（その環境の行を強調する）。 */
   openWikiTaskId: string | undefined;
-  /** タスク（null は未所属）に新しい会話を作る。 */
+  /** タスク（null は未所属）に新しいスレッドを作る。 */
   onNewInTask: (taskId: string | null) => void;
   onSelect: (id: string) => void;
   onRename: (id: string, title: string) => Promise<void>;
@@ -434,7 +434,7 @@ export const Sidebar = ({
   onRenameWiki: (wikiId: string, name: string) => Promise<void>;
   onRenameTask: (taskId: string, name: string) => Promise<void>;
   onDeleteTask: (taskId: string) => Promise<void>;
-  /** 会話の所属を変える（null で未所属に戻す）。 */
+  /** スレッドの所属を変える（null で未所属に戻す）。 */
   onSetTask: (chatId: string, taskId: string | null) => Promise<void>;
   onSetAutoTerms: (taskId: string, enabled: boolean) => Promise<void>;
   onSetTaskEnvironment: (
@@ -442,7 +442,7 @@ export const Sidebar = ({
     environmentId: string,
   ) => Promise<void>;
   onOpenTaskList: () => void;
-  /** 会話を検索する（#115）。 */
+  /** スレッドを検索する（#115）。 */
   onSearch: (q: string) => Promise<SearchResult>;
   /** 検索結果を開く。messageId があればその発言へ移動する。 */
   onOpenSearchHit: (chatId: string, messageId?: string) => void;
@@ -467,7 +467,7 @@ export const Sidebar = ({
   const [taskDialog, setTaskDialog] = useState<TaskDialog>();
   const [environmentDialog, setEnvironmentDialog] =
     useState<EnvironmentDialog>();
-  // 分岐は会話ごとに 1 行にまとめる（#76）
+  // 会話はスレッドごとに 1 行にまとめる（#76）
   const groups = groupChats(chats);
   const task = tasks.find((p) => p.id === taskId);
 
@@ -515,7 +515,7 @@ export const Sidebar = ({
         style={{ paddingLeft: threadIndent(level, 0.5) }}
       >
         {owner === undefined
-          ? "未所属の会話はありません。"
+          ? "未所属のスレッドはありません。"
           : "まだスレッドがありません。"}
       </p>
     ) : (
@@ -681,8 +681,8 @@ export const Sidebar = ({
             ref={searchButton}
             variant={searchOpen ? "secondary" : "ghost"}
             size="icon"
-            aria-label="会話を検索"
-            title="会話を検索"
+            aria-label="スレッドを検索"
+            title="スレッドを検索"
             aria-expanded={searchOpen}
             aria-controls={searchOpen ? searchId : undefined}
             // 開いているときは、押しても検索欄からフォーカスを外さない（外れると先に閉じてしまう）
@@ -708,7 +708,7 @@ export const Sidebar = ({
       {searching ? (
         <nav
           className="flex-1 overflow-y-auto px-2 pb-2"
-          aria-label="会話の検索結果"
+          aria-label="スレッドの検索結果"
         >
           <SearchResults
             chats={chats}
@@ -719,7 +719,10 @@ export const Sidebar = ({
           />
         </nav>
       ) : (
-        <nav className="flex-1 overflow-y-auto px-2 pb-2" aria-label="会話一覧">
+        <nav
+          className="flex-1 overflow-y-auto px-2 pb-2"
+          aria-label="スレッド一覧"
+        >
           <ul className="flex flex-col gap-0.5">
             {!groupByEnvironment && tasks.map((item) => renderTask(item, 0))}
             {groupByEnvironment &&
@@ -871,8 +874,8 @@ export const Sidebar = ({
         onOpenChange={(open) => {
           if (!open) setDeleting(undefined);
         }}
-        title="会話を削除しますか？"
-        description={`「${deleting?.title || "新しい会話"}」を、すべての分岐ごと削除します。この操作は取り消せません。${deleting?.status === "running" ? "生成中の応答は止まります。" : ""}`}
+        title="スレッドを削除しますか？"
+        description={`「${deleting?.title || "新しいスレッド"}」を、すべての会話ごと削除します。この操作は取り消せません。${deleting?.status === "running" ? "生成中の回答は止まります。" : ""}`}
       >
         <DialogFooter>
           <Button variant="outline" onClick={() => setDeleting(undefined)}>

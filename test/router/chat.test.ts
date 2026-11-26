@@ -47,7 +47,7 @@ const sessionIdOf = (lines: Awaited<ReturnType<typeof loadFixture>>) =>
   ).session_id;
 
 describe("chat.send", () => {
-  test("応答を流し、ユーザー発話と応答を保存し、セッション ID を記録する", async () => {
+  test("回答を流し、ユーザー発話と回答を保存し、セッション ID を記録する", async () => {
     const { client, chat, calls, chats, lines } = await setup("text-partial");
     const chunks = await collect(
       await client.chat.send({
@@ -244,7 +244,7 @@ describe("chat.reconnect / chat.stop", () => {
     });
     const saved = ctx.chats.getChat(chat.id);
     if (saved.type === "Failure") throw saved.error;
-    // 中断した応答も保存され、aborted が付く
+    // 中断した回答も保存され、aborted が付く
     expect(saved.value.messages.at(-1)?.metadata).toMatchObject({
       aborted: true,
     });

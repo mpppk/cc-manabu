@@ -30,6 +30,6 @@ describe("makeTitle", () => {
   });
 
   test("空なら既定のタイトル", () => {
-    expect(makeTitle("   ")).toBe("新しい会話");
+    expect(makeTitle("   ")).toBe("新しいスレッド");
   });
 });

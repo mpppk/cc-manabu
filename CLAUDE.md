@@ -2,6 +2,8 @@
 
 Claude Code のログイン（サブスクリプション）を使うローカルチャットアプリ。設計は [docs/development-plan.md](docs/development-plan.md) を参照。
 
+@AGENTS.md
+
 ## 開発コマンド
 
 - ランタイム / パッケージマネージャは **Bun** のみを使う（npm / yarn / pnpm / node は使わない）
@@ -25,7 +27,8 @@ PR を出す前に `bun run check && bun run typecheck && bun test` を通す。
   - oRPC ハンドラ: `ORPCError`
   - CLI: `handleCliError`
 - community provider（`ai-sdk-provider-claude-code` など）には依存しない。Agent SDK との接続は `src/provider/` に自前で実装する
-- UI の文言は日本語
+- UI の文言は日本語（例外は AGENTS.md の用語集を参照）
+- 用語は AGENTS.md の用語集に従う
 - import はファイル拡張子付きで書く（`./foo.ts`）
 
 ## 複数セッションでの Issue 並行処理

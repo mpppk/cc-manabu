@@ -171,9 +171,9 @@ export const createChatRepository = (db: Db) => {
       ),
 
     /**
-     * 分岐を作る（#76）。分岐元の seq ≤ upToSeq のメッセージを新しい id でコピーし、
-     * 分岐元が後で編集・再生成されても分岐の履歴が残るようにする。
-     * タイトル・タスク・作業ディレクトリは会話で共有する。
+     * 分岐した会話を作る（#76）。分岐元の seq ≤ upToSeq のメッセージを新しい id でコピーし、
+     * 分岐元が後で編集・再生成されても新しい会話の履歴が残るようにする。
+     * タイトル・タスク・作業ディレクトリはスレッドで共有する。
      */
     createBranch: (input: {
       id: string;
@@ -242,7 +242,7 @@ export const createChatRepository = (db: Db) => {
         }),
       ),
 
-    /** 会話（分岐のまとまり）の分岐。作った順。 */
+    /** スレッド（会話のまとまり）の会話。作った順。 */
     listGroup: (groupId: string): Result.Result<ChatRow[], DatabaseError> =>
       run(() =>
         db
@@ -253,7 +253,7 @@ export const createChatRepository = (db: Db) => {
           .all(),
       ),
 
-    /** 会話のタイトルを、すべての分岐で変える。 */
+    /** スレッドのタイトルを、すべての会話で変える。 */
     setGroupTitle: (
       groupId: string,
       title: string,
@@ -265,7 +265,7 @@ export const createChatRepository = (db: Db) => {
           .run();
       }),
 
-    /** 会話の所属タスクを、すべての分岐で変える（更新日時は動かさない）。 */
+    /** スレッドの所属タスクを、すべての会話で変える（更新日時は動かさない）。 */
     setGroupTask: (
       groupId: string,
       taskId: string | null,
@@ -277,7 +277,7 @@ export const createChatRepository = (db: Db) => {
           .run();
       }),
 
-    /** 会話をすべての分岐ごと消す。消した分岐の id を返す。 */
+    /** スレッドをすべての会話ごと消す。消した会話の id を返す。 */
     deleteGroup: (groupId: string): Result.Result<string[], DatabaseError> =>
       run(() =>
         db
@@ -288,7 +288,7 @@ export const createChatRepository = (db: Db) => {
           .map((row) => row.id),
       ),
 
-    /** この分岐を開いたことを記録する（会話を開き直したときに表示する分岐）。 */
+    /** この会話を開いたことを記録する（スレッドを開き直したときに表示する会話）。 */
     markSelected: (chatId: string): Result.Result<void, DatabaseError> =>
       run(() => {
         db.update(chats)

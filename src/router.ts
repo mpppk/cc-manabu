@@ -676,7 +676,7 @@ export const router = {
       );
       return { chat: toChatDto(chat), messages: messages.map(toMessageDto) };
     }),
-    /** 初回送信で会話を作る。応答は通常どおり chat.reconnect で受け取る。 */
+    /** 初回送信で会話を作る。回答は通常どおり chat.reconnect で受け取る。 */
     ask: base
       .input(wikiChatTarget.extend({ message: userMessage, ...sendSettings }))
       .handler(async ({ context, input }) => {
@@ -837,7 +837,7 @@ export const router = {
             Result.pipe(
               requireTask(context, input.taskId),
               Result.andThen(() => context.chats.getChat(input.id)),
-              // 分岐元と分岐先は同じタスクに属する（会話ごと移す）
+              // 分岐元と分岐先は同じタスクに属する（スレッドごと移す）
               Result.andThen(({ chat }) =>
                 chat.wikiPageId !== null && chat.taskId !== input.taskId
                   ? Result.fail(new WikiChatTaskError())
@@ -852,7 +852,7 @@ export const router = {
           ),
         ),
       ),
-    /** 会話の名前を変える（すべての分岐で共有する）。 */
+    /** スレッドの名前を変える（すべての会話で共有する）。 */
     rename: base
       .input(chatId.extend({ title: z.string().trim().min(1).max(200) }))
       .handler(async ({ context, input }) =>
@@ -870,7 +870,7 @@ export const router = {
           ),
         ),
       ),
-    /** 会話をすべての分岐ごと消す。生成中の分岐は止めてから消す。 */
+    /** スレッドをすべての会話ごと消す。生成中の会話は止めてから消す。 */
     delete: base.input(chatId).handler(async ({ context, input }) => {
       const { chat } = await unwrapForOrpc(
         context.chats.getChat(input.id),
@@ -886,7 +886,7 @@ export const router = {
       await unwrapForOrpc(context.chats.deleteGroup(chat.groupId), ERROR_CODES);
       return { id: input.id };
     }),
-    /** この分岐を開いたことを記録する（会話を開き直したときにこの分岐を表示する）。 */
+    /** この会話を開いたことを記録する（スレッドを開き直したときにこの会話を表示する）。 */
     select: base.input(chatId).handler(async ({ context, input }) => {
       await unwrapForOrpc(context.chats.getChat(input.id), ERROR_CODES);
       await unwrapForOrpc(context.chats.markSelected(input.id), ERROR_CODES);
@@ -900,7 +900,7 @@ export const router = {
     ),
   },
   search: {
-    /** 会話タイトルと発言の本文を部分一致で探す（#115）。 */
+    /** スレッドのタイトルと発言の本文を部分一致で探す（#115）。 */
     query: base
       .input(z.object({ q: z.string().trim().min(1).max(200) }))
       .handler(async ({ context, input }) =>
@@ -908,7 +908,7 @@ export const router = {
       ),
   },
   queue: {
-    /** 分岐の予約（送る順）と、送信を止めているか。 */
+    /** 会話の予約（送る順）と、送信を止めているか。 */
     list: base
       .input(z.object({ chatId: z.string().min(1) }))
       .handler(async ({ context, input }) => {
@@ -937,7 +937,7 @@ export const router = {
         };
       }),
     /**
-     * 生成中の分岐にメッセージを予約する。今の回答が終わってから、予約した順に送る。
+     * 生成中の会話にメッセージを予約する。今の回答が終わってから、予約した順に送る。
      * 生成中でなければすぐ送る（一時停止中なら再開を待つ）。
      */
     add: base
@@ -1034,8 +1034,8 @@ export const router = {
         return subscribe(runner, signal);
       }),
     /**
-     * 完了した応答から分岐を作り、最初の発話の生成を始める（#76）。
-     * 生成の続きは、新しい分岐の id で chat.reconnect から受け取る。
+     * 完了した回答から分岐して新しい会話を作り、最初の発話の生成を始める（#76）。
+     * 生成の続きは、新しい会話の id で chat.reconnect から受け取る。
      */
     branch: base
       .input(
@@ -1065,7 +1065,7 @@ export const router = {
         );
         return { chatId: input.branchId };
       }),
-    /** 最後の応答を作り直す（直前のターンから fork する）。 */
+    /** 最後の回答を作り直す（直前のターンから fork する）。 */
     regenerate: base
       .input(z.object({ chatId: z.string().min(1) }))
       .output(chunkIterator)

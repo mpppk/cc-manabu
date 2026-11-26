@@ -67,7 +67,7 @@ export const TaskOverview = ({
                   onClick={() => onOpenChat(chat.id)}
                 >
                   <span className="truncate">
-                    {chat.title === "" ? "新しい会話" : chat.title}
+                    {chat.title === "" ? "新しいスレッド" : chat.title}
                   </span>
                   <span className="shrink-0 text-muted-foreground text-xs">
                     {new Date(chat.updatedAt).toLocaleString("ja-JP")}

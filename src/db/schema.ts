@@ -66,7 +66,7 @@ export const environments = sqliteTable("environments", {
     .default(sql`(unixepoch('subsec') * 1000)`),
 });
 
-/** 複数の会話をまとめる単位。1 つの環境に属する。 */
+/** 複数のスレッドをまとめる単位。1 つの環境に属する。 */
 export const tasks = sqliteTable(
   "tasks",
   {
@@ -123,25 +123,25 @@ export const chats = sqliteTable(
     cwd: text("cwd").notNull(),
     status: text("status", { enum: CHAT_STATUSES }).notNull().default("idle"),
     /**
-     * 会話（分岐のまとまり）の ID（#76）。最初の分岐（元の会話）では自分の id。
-     * サイドバーには会話ごとに 1 行を出し、タイトル・タスク・作業ディレクトリは会話で共有する。
+     * スレッド（会話のまとまり）の ID（#76）。元の会話では自分の id。
+     * サイドバーにはスレッドごとに 1 行を出し、タイトル・タスク・作業ディレクトリはスレッドで共有する。
      */
     groupId: text("group_id").notNull().default(""),
-    /** 分岐元の分岐。元の会話では null。 */
+    /** 分岐元の会話。元の会話では null。 */
     parentId: text("parent_id"),
     /** 分岐元で分岐点にした assistant メッセージの id。 */
     forkMessageId: text("fork_message_id"),
-    /** 分岐元から引き継いだメッセージの数（これより後ろが分岐で書いたメッセージ）。 */
+    /** 分岐元から引き継いだメッセージの数（これより後ろがこの会話で書いたメッセージ）。 */
     inheritedCount: integer("inherited_count").notNull().default(0),
-    /** 分岐の名前（最初の発言から作る）。元の会話では空。 */
+    /** 分岐した会話の名前（最初の発言から作る）。元の会話では空。 */
     branchTitle: text("branch_title").notNull().default(""),
     /**
-     * 分岐の最初の送信で resume する分岐元のセッションと、巻き戻す地点（assistant uuid）。
+     * 分岐した会話の最初の送信で resume する分岐元のセッションと、巻き戻す地点（assistant uuid）。
      * 送信して自分のセッション（sessionId）ができるまで使う。
      */
     forkSessionId: text("fork_session_id"),
     forkFromUuid: text("fork_from_uuid"),
-    /** 最後にこの分岐を開いた日時（会話を開き直したときに表示する分岐）。 */
+    /** 最後にこの会話を開いた日時（スレッドを開き直したときに表示する会話）。 */
     lastSelectedAt: integer("last_selected_at", { mode: "timestamp_ms" }),
     /** 予約したメッセージの送信を止めているか（停止・エラーのあと。#102）。 */
     queuePaused: integer("queue_paused", { mode: "boolean" })
@@ -255,7 +255,7 @@ export const QUEUE_STATUSES = ["pending", "sending", "held"] as const;
 export type QueueStatus = (typeof QUEUE_STATUSES)[number];
 
 /**
- * 生成中に予約したメッセージ（#102）。分岐（chats の行）ごとに、追加した順に 1 件ずつ送る。
+ * 生成中に予約したメッセージ（#102）。会話（chats の行）ごとに、追加した順に 1 件ずつ送る。
  * 送るときは id をそのまま発話の id にするので、送信済みかどうかを発話の有無で確かめられる。
  */
 export const queuedMessages = sqliteTable(

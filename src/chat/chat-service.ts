@@ -126,7 +126,7 @@ const textOf = (parts: ChatUIMessage["parts"]): string =>
     .join("\n\n");
 
 /**
- * 送信で resume するセッション。自分のセッションがあればそれを、分岐でまだ無ければ
+ * 送信で resume するセッション。自分のセッションがあればそれを、分岐した会話でまだ無ければ
  * 分岐元のセッションを分岐点まで巻き戻して fork する（#76）。
  */
 const resumeOf = (
@@ -184,7 +184,7 @@ const isInitMessage = (
 
 /**
  * 送信・再接続・停止をまとめる。生成は ChatRunner で HTTP 接続と切り離して進め、
- * 終わったら（成功・中断・エラーとも）応答を DB に保存する。
+ * 終わったら（成功・中断・エラーとも）回答を DB に保存する。
  */
 export const createChatService = (deps: {
   chats: ChatRepository;
@@ -210,7 +210,7 @@ export const createChatService = (deps: {
    * 回答の要約に使う。回答の保存のあとに呼び、結果は待たない。
    */
   onAnswerFinish?: (event: AnswerFinished) => void;
-  /** 分岐の生成が終わったとき（予約したメッセージの送信に使う。#102）。 */
+  /** 会話の生成が終わったとき（予約したメッセージの送信に使う。#102）。 */
   onRunnerFinish?: (
     chatId: string,
     outcome: "success" | "aborted" | "error",
@@ -439,7 +439,7 @@ export const createChatService = (deps: {
         ),
       ),
       Result.inspect((chat) => {
-        // 最初の発話で付けたタイトルは、会話（分岐のまとまり）で共有する
+        // 最初の発話で付けたタイトルは、スレッド（会話のまとまり）で共有する
         if (titled && chat.groupId !== chat.id) {
           chats.setGroupTitle(chat.groupId, chat.title);
         }
@@ -515,19 +515,19 @@ export const createChatService = (deps: {
   };
 
   /**
-   * 分岐を作り、最初の発話から生成を始める（#76）。分岐元のセッションを分岐点まで巻き戻して
-   * fork し、新しいセッションを分岐に保存する。分岐元の会話はそのまま残る。
+   * 分岐して新しい会話を作り、最初の発話から生成を始める（#76）。分岐元のセッションを分岐点まで巻き戻して
+   * fork し、新しいセッションを新しい会話に保存する。分岐元の会話はそのまま残る。
    */
   const branch = (input: {
     parentId: string;
     /** 分岐点にする、分岐元の完了した assistant メッセージ。 */
     messageId: string;
-    /** 新しい分岐の id（クライアントが決める）。 */
+    /** 新しい会話の id（クライアントが決める）。 */
     branchId: string;
     message: SendInput["message"];
     model?: string;
     effort?: Effort | null;
-    /** サイドチャットはメインで最後に開いた分岐を変更しない。 */
+    /** サイドチャットはメインで最後に開いた会話を変更しない。 */
     selectBranch?: boolean;
   }): Result.Result<
     ChatRunner,
@@ -639,7 +639,7 @@ export const createChatService = (deps: {
           model: chat.model,
           effort: (chat.effort as Effort | null) ?? null,
           // 分岐点が無ければ（最初の発話からやり直すなら）新しいセッションにする。
-          // 分岐でまだ自分のセッションが無ければ、分岐元のセッションから fork する
+          // 分岐した会話でまだ自分のセッションが無ければ、分岐元のセッションから fork する
           sessionId:
             forkPoint === undefined
               ? null
@@ -658,7 +658,7 @@ export const createChatService = (deps: {
     );
   };
 
-  /** 最後の応答を作り直す。 */
+  /** 最後の回答を作り直す。 */
   const regenerate = (
     chatId: string,
   ): Result.Result<ChatRunner, SendError | NothingToRegenerateError> =>

@@ -36,7 +36,7 @@ export const notifyAwaitingApproval = (chatTitle: string): void => {
     return;
   }
   new Notification("cc-manabu: ツールの承認待ち", {
-    body: `「${chatTitle || "新しい会話"}」で Claude がツールの実行を待っています。`,
+    body: `「${chatTitle || "新しいスレッド"}」で Claude がツールの実行を待っています。`,
     tag: "cc-manabu-approval",
   });
 };

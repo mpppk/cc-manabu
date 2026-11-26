@@ -30,7 +30,7 @@ const requireItem = (
 
 /** 予約したメッセージ（#102）の永続化。 */
 export const createQueueRepository = (db: Db) => ({
-  /** 分岐の予約（送る順）。 */
+  /** 会話の予約（送る順）。 */
   list: (chatId: string): Result.Result<QueuedMessageRow[], DatabaseError> =>
     run(() =>
       db
@@ -151,7 +151,7 @@ export const createQueueRepository = (db: Db) => ({
           .get()?.paused ?? false,
     ),
 
-  /** 送信待ちの予約がある分岐。 */
+  /** 送信待ちの予約がある会話。 */
   chatsWithPending: (): Result.Result<string[], DatabaseError> =>
     run(() =>
       db
@@ -176,7 +176,7 @@ export const createQueueRepository = (db: Db) => ({
   /**
    * サーバ起動時の復元。送信中だった予約は、発話が保存されていれば送信済みとして消し、
    * そうでなければ保留にする（送ったか分からないので利用者に確かめてもらう）。
-   * 予約が残っている分岐は、勝手に送らないよう一時停止にする。
+   * 予約が残っている会話は、勝手に送らないよう一時停止にする。
    */
   recover: (): Result.Result<void, DatabaseError> =>
     run(() =>

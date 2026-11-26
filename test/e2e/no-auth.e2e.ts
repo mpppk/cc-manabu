@@ -13,9 +13,9 @@ test("CC_MANABU_NO_AUTH=1 のサーバは、トークン付きの URL でなく�
   await expect(page.getByText("アクセス用のトークンがありません")).toHaveCount(
     0,
   );
-  // 会話一覧などの API もトークンなしで呼べている
+  // スレッド一覧などの API もトークンなしで呼べている
   const unassigned = page
-    .getByRole("navigation", { name: "会話一覧" })
+    .getByRole("navigation", { name: "スレッド一覧" })
     .locator("li[data-unassigned] > div.group");
   await unassigned.hover();
   await unassigned

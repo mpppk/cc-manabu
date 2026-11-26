@@ -218,7 +218,7 @@ const MessageView = ({
   onOpenWikiPage?: (taskId: string, pageId: string) => void;
   /** 本文の用語を Wiki の用語ページに結び付ける（タスクの会話だけ）。 */
   termMatcher?: (text: string) => TermMatch[];
-  /** この応答から分岐する（完了した応答だけ）。 */
+  /** この回答から分岐する（完了した回答だけ）。 */
   onBranch?: () => void;
 }) => {
   if (message.role === "user") {
@@ -579,7 +579,7 @@ const SelectionPopup = ({
   );
 };
 
-/** 同じ会話の分岐を切り替えるメニュー（#76）。 */
+/** 同じスレッドの会話を切り替えるメニュー（#76）。 */
 const BranchSwitcher = ({
   current,
   branches,
@@ -607,10 +607,10 @@ const BranchSwitcher = ({
     <div className="flex flex-col gap-1 rounded-md border bg-muted/40 px-3 py-2 text-sm">
       <label className="flex items-center gap-2">
         <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-        <span className="shrink-0 text-muted-foreground">分岐</span>
+        <span className="shrink-0 text-muted-foreground">会話</span>
         <select
           className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1"
-          aria-label="分岐"
+          aria-label="会話"
           value={current.id}
           disabled={disabled}
           onChange={(event) => onSelect(event.target.value)}
@@ -632,7 +632,7 @@ const BranchSwitcher = ({
             サイドで開く
           </summary>
           <ul
-            aria-label="サイドで開く分岐"
+            aria-label="サイドで開く会話"
             className="max-h-48 overflow-y-auto rounded-md border bg-background p-1"
           >
             {sorted
@@ -660,13 +660,13 @@ const BranchSwitcher = ({
         </details>
       )}
       <span className="text-muted-foreground text-xs">
-        会話の履歴は分岐ごとに分かれますが、ファイルへの変更はすべての分岐で共有されます。
+        履歴は会話ごとに分かれますが、ファイルへの変更はスレッド内のすべての会話で共有されます。
       </span>
     </div>
   );
 };
 
-/** 分岐元から引き継いだ履歴と、分岐で書いた履歴の境目。 */
+/** 分岐元から引き継いだ履歴と、この会話で書いた履歴の境目。 */
 const InheritedDivider = ({ parent }: { parent: ChatDto | undefined }) => (
   <div className="flex items-center gap-2 text-muted-foreground text-xs">
     <span className="h-px flex-1 bg-border" />
@@ -770,7 +770,7 @@ const useAnswerSummaries = (api: ApiClient, chatId: string) => {
 const QUEUE_POLL_MS = 1000;
 
 /**
- * 分岐の予約（#102）。予約はサーバが送るので、送られたら（予約が消えた・サーバで生成中になった）
+ * 会話の予約（#102）。予約はサーバが送るので、送られたら（予約が消えた・サーバで生成中になった）
  * onServerSend で画面に映す。
  */
 const useQueue = (
@@ -825,11 +825,11 @@ export type ChatViewProps = {
   focusMessage?: { messageId: string };
   api: ApiClient;
   chat: ChatDto;
-  /** 同じ会話の分岐（#76）。2 つ以上あれば切り替えメニューを出す。 */
+  /** 同じスレッドの会話（#76）。2 つ以上あれば切り替えメニューを出す。 */
   branches?: ChatDto[];
-  /** 分岐を開く（作った分岐を開くのにも使う）。 */
+  /** 会話を開く（分岐して作った会話を開くのにも使う）。 */
   onSelectBranch?: (chatId: string) => void;
-  /** メインで開いている分岐を保ったまま、別の分岐をサイドで開く。 */
+  /** メインで開いている会話を保ったまま、同じスレッドの別の会話をサイドで開く。 */
   onOpenSideBranch?: (chatId: string) => void;
   initialMessages: ChatUIMessage[];
   /** 選べるモデル（system.status から）。 */
@@ -851,7 +851,7 @@ export type ChatViewProps = {
   extraDirectories?: string[];
 };
 
-/** 1 つの分岐を表示し、その分岐 ID で送信・再接続する。 */
+/** 1 つの会話を表示し、その会話の ID で送信・再接続する。 */
 export const ChatView = ({
   api,
   chat,
@@ -990,7 +990,7 @@ export const ChatView = ({
       !queueState.paused &&
       queueState.items.some((item) => item.status !== "held"));
 
-  /** 「ここから分岐」で選んだ応答。送信すると分岐を作る。取り消すと元に戻る。 */
+  /** 「ここから分岐」で選んだ回答（HEAD）。送信すると新しい会話を作る。取り消すと元に戻る。 */
   const [branchFrom, setBranchFrom] = useState<string>();
   const [creatingBranch, setCreatingBranch] = useState(false);
   const [branchError, setBranchError] = useState<string>();
@@ -1135,7 +1135,7 @@ export const ChatView = ({
       return true;
     } catch (error) {
       setBranchError(
-        error instanceof Error ? error.message : "分岐を作れませんでした。",
+        error instanceof Error ? error.message : "分岐できませんでした。",
       );
       return false;
     } finally {
@@ -1339,9 +1339,9 @@ export const ChatView = ({
                       {current && (
                         <span
                           className="rounded-md bg-muted px-2 py-1 text-muted-foreground text-xs"
-                          title="メインの次のメッセージの起点"
+                          title="HEAD: メインの入力欄から送ると、この回答の続きになります"
                         >
-                          現在地
+                          HEAD
                         </span>
                       )}
                       {question !== undefined && hasAnswer && (
@@ -1408,7 +1408,7 @@ export const ChatView = ({
               >
                 <span className="flex items-center gap-2">
                   <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-                  この応答の続きとして分岐を作ります。メインの入力欄から送信すると分岐ができます。
+                  この回答の続きとして分岐します。メインの入力欄から送信すると、新しい会話ができます。
                 </span>
                 <Button
                   variant="ghost"

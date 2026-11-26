@@ -2,7 +2,7 @@
 export const TITLE_MAX_LENGTH = 40;
 
 /**
- * 最初の発話から会話のタイトルを作る。
+ * 最初の発話からスレッドのタイトルを作る。
  * サブスクの利用枠を使わず即座に決まるよう、モデルで要約せず先頭を切り出す（#31）。
  */
 export const makeTitle = (text: string): string => {
@@ -12,7 +12,7 @@ export const makeTitle = (text: string): string => {
     .trim();
   const chars = [...normalized];
   if (chars.length === 0) {
-    return "新しい会話";
+    return "新しいスレッド";
   }
   return chars.length > TITLE_MAX_LENGTH
     ? `${chars.slice(0, TITLE_MAX_LENGTH - 1).join("")}…`

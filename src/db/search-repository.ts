@@ -44,7 +44,7 @@ export const makeSnippet = (text: string, query: string): Snippet => {
 export const createSearchRepository = (db: Db) => ({
   /**
    * 会話タイトルと、発言のテキストを部分一致で探す（英字の大文字・小文字は区別しない）。
-   * 分岐で引き継いだ発言（分岐元の写し）は除く。発言は新しい順。
+   * 分岐した会話が引き継いだ発言（分岐元の写し）は除く。発言は新しい順。
    */
   search: (
     query: string,
