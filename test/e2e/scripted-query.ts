@@ -11,6 +11,8 @@ import type { QueryFunction } from "../../src/provider/types.ts";
  * - 「ゆっくり」を含む: 1〜40 を 1 行ずつ、150ms 間隔で流す（リロード・停止の確認用）
  * - 用語抽出（<term-extraction>）: 回答の中の「」で囲まれた語を用語として JSON で返す
  * - 回答の要約（<answer-summary>）: 「要約（<回答の文字数> 文字の回答）」と返す
+ * - スレッドのタイトル（<thread-title>）: 1 秒待ってから「<質問> の論点」と返す。
+ *   質問に「タイトル失敗」を含むと空を返す（生成の失敗）
  * - 選択範囲からのページ生成（<wiki-page-generation>）: 1 秒待ってから「<語句> は…」の本文を返す。
  *   語句に「失敗」を含むと空の本文を返す（生成の失敗）
  * - Wiki の参照資料付き: 「参照: [タイトル](wiki:ID)…」と、渡していないページへの偽の引用を返す
@@ -150,6 +152,15 @@ export const createScriptedQuery = (): QueryFunction => {
               ? ""
               : `${term} は回答に出てきた語。\n\n## 補足\n\n生成したページ。`,
           ],
+          0,
+        );
+      } else if (text.includes("<thread-title>")) {
+        const question =
+          /<question>\n([\s\S]*?)\n<\/question>/.exec(text)?.[1] ?? "";
+        // 仮のタイトルを確かめられるように、少し待つ
+        await sleep(1000);
+        yield* textMessage(
+          [question.includes("タイトル失敗") ? "" : `${question} の論点`],
           0,
         );
       } else if (text.includes("<answer-summary>")) {

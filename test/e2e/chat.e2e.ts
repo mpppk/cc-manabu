@@ -1722,6 +1722,71 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
   await expect(effort).toHaveValue("");
 });
 
+test("Wiki ページから始めたスレッドに、最初の回答のあとでタイトルを付ける（#161）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "タイトル生成の検証");
+  await openWiki(page, "タイトル生成の検証");
+  const createPage = async (title: string) => {
+    await page.getByRole("button", { name: "新しいページ" }).click();
+    await page.getByRole("textbox", { name: "ページのタイトル" }).fill(title);
+    await page
+      .getByRole("textbox", { name: "本文（Markdown）" })
+      .fill("本文。");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  };
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const composer = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  const ask = async (text: string) => {
+    await composer.fill(text);
+    await composer.press("Enter");
+    await expect(side.getByText(text, { exact: true })).toBeVisible();
+    await expect(
+      side.getByRole("button", { name: "送信", exact: true }),
+    ).toBeVisible({ timeout: 15_000 });
+  };
+  const threads = taskItem(page, "タイトル生成の検証");
+
+  await createPage("個人情報の取扱い");
+  await page.getByRole("button", { name: "このページについて質問" }).click();
+  await ask("委託先に渡すと第三者提供？");
+  // 生成中はページ名を仮のタイトルにする
+  await expect(threads.getByText("個人情報の取扱い")).toBeVisible();
+  await expect(
+    threads.getByText("委託先に渡すと第三者提供？ の論点"),
+  ).toBeVisible({ timeout: 10_000 });
+  // サイドチャットの見出しは元のページ名のまま
+  await expect(side.locator("header")).toContainText("個人情報の取扱い");
+  await expect(
+    page.getByRole("heading", { name: "個人情報の取扱い" }),
+  ).toBeVisible();
+
+  // 追加の質問では作り直さない。再読み込みしても残る
+  await ask("それはなぜ？");
+  await page.waitForTimeout(1500);
+  await page.reload();
+  await expect(
+    threads.getByText("委託先に渡すと第三者提供？ の論点"),
+  ).toBeVisible();
+  await expect(threads.getByText("それはなぜ？ の論点")).toHaveCount(0);
+
+  // 生成に失敗しても、仮のタイトルのまま開ける
+  await createPage("委託契約");
+  await page.getByRole("button", { name: "このページについて質問" }).click();
+  await ask("タイトル失敗の質問");
+  await page.waitForTimeout(1500);
+  await page.reload();
+  await expect(threads.getByText("委託契約")).toBeVisible();
+  await threads.getByText("委託契約").click();
+  await expect(
+    page.getByText("タイトル失敗の質問", { exact: true }),
+  ).toBeVisible();
+});
+
 test("スレッドをタイトルと本文で検索し、一致した発言へ移動できる", async ({
   page,
 }) => {

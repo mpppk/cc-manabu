@@ -265,6 +265,25 @@ export const createChatRepository = (db: Db) => {
           .run();
       }),
 
+    /**
+     * スレッドのタイトルが expected のままなら title に変える（自動で付けるタイトル用）。
+     * 利用者がその間に名前を変えていれば変えずに false を返す。更新日時は動かさない。
+     */
+    setGroupTitleIf: (
+      groupId: string,
+      expected: string,
+      title: string,
+    ): Result.Result<boolean, DatabaseError> =>
+      run(
+        () =>
+          db
+            .update(chats)
+            .set({ title })
+            .where(and(eq(chats.groupId, groupId), eq(chats.title, expected)))
+            .returning({ id: chats.id })
+            .all().length > 0,
+      ),
+
     /** スレッドの所属タスクを、すべての会話で変える（更新日時は動かさない）。 */
     setGroupTask: (
       groupId: string,
