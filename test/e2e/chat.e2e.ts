@@ -230,7 +230,10 @@ test("停止・再生成・編集", async ({ page }) => {
   await expect(chat).toContainText("2");
   await page.getByRole("button", { name: "停止" }).click();
   await idle(page);
-  await expect(chat).not.toContainText("40");
+  // 入力欄の下の利用枠のリセット時刻（例: 10:40）にも数字が出るので、回答の中だけを見る
+  await expect(
+    chat.locator("[data-assistant-message]").last(),
+  ).not.toContainText("40");
 
   // 再生成
   await send(page, "一回目");
