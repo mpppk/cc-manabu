@@ -224,6 +224,11 @@ export const createChatService = (deps: {
    * 回答の要約に使う。回答の保存のあとに呼び、結果は待たない。
    */
   onAnswerFinish?: (event: AnswerFinished) => void;
+  /**
+   * 「このページについて質問」で Wiki ページの会話を新しく作ったとき（ページ名を仮のタイトルにしている）。
+   * 最初の回答のあとにタイトルを付ける（#161）のに使う。
+   */
+  onWikiChatCreated?: (chat: ChatRow) => void;
   /** 会話の生成が終わったとき（予約したメッセージの送信に使う。#102）。 */
   onRunnerFinish?: (
     chatId: string,
@@ -520,6 +525,14 @@ export const createChatService = (deps: {
             wikiPageId: page.id,
             title: page.title,
             cwd: input.cwd,
+          }),
+          Result.inspect((chat) => {
+            if (chat.id !== id) return;
+            try {
+              deps.onWikiChatCreated?.(chat);
+            } catch {
+              // タイトルの自動生成は送信に影響させない
+            }
           }),
           Result.andThen((chat) =>
             Result.pipe(

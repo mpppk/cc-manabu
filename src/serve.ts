@@ -15,6 +15,11 @@ import {
 } from "./chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "./chat/rate-limit.ts";
 import { RunnerRegistry } from "./chat/runner-registry.ts";
+import {
+  createWikiThreadTitler,
+  THREAD_TITLE_MODEL,
+  THREAD_TITLE_SETTINGS,
+} from "./chat/thread-title.ts";
 import { resolveClaudePath } from "./claude/detect.ts";
 import { createClaudeStatus } from "./claude/status.ts";
 import { createChatRepository } from "./db/chat-repository.ts";
@@ -146,6 +151,22 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
             })
           ).text,
       });
+      // Wiki ページから始めたスレッドのタイトルも同じく軽い呼び出し（#161）
+      const threadTitleModel = createClaudeCode({
+        ...providerSettings,
+        ...THREAD_TITLE_SETTINGS,
+      })(THREAD_TITLE_MODEL);
+      const wikiThreadTitler = createWikiThreadTitler({
+        chats,
+        generate: async (prompt) =>
+          (
+            await generateText({
+              model: threadTitleModel,
+              prompt,
+              reasoning: "none",
+            })
+          ).text,
+      });
       const registry = new RunnerRegistry();
       let queueDispatcher: QueueDispatcher | undefined;
       const chatService = createChatService({
@@ -162,7 +183,11 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           return Result.isSuccess(directories) ? directories.value : undefined;
         },
         onAnswerComplete: (event) => void writeTermPages(event),
-        onAnswerFinish: (event) => void summarizeAnswer(event),
+        onAnswerFinish: (event) => {
+          void summarizeAnswer(event);
+          void wikiThreadTitler.onAnswerFinish(event);
+        },
+        onWikiChatCreated: (chat) => wikiThreadTitler.track(chat),
         onRunnerFinish: (chatId, outcome) =>
           queueDispatcher?.onRunnerFinish(chatId, outcome),
       });

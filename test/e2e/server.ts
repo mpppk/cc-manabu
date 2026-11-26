@@ -23,6 +23,11 @@ import {
 } from "../../src/chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
+import {
+  createWikiThreadTitler,
+  THREAD_TITLE_MODEL,
+  THREAD_TITLE_SETTINGS,
+} from "../../src/chat/thread-title.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { createEnvironmentRepository } from "../../src/db/environment-repository.ts";
@@ -110,6 +115,16 @@ const generateWikiPage = createWikiPageGenerator({
   generate: async (prompt) =>
     (await generateText({ model: pageModel, prompt })).text,
 });
+const threadTitleModel = createClaudeCode({
+  cwd: "/e2e",
+  query,
+  ...THREAD_TITLE_SETTINGS,
+})(THREAD_TITLE_MODEL);
+const wikiThreadTitler = createWikiThreadTitler({
+  chats,
+  generate: async (prompt) =>
+    (await generateText({ model: threadTitleModel, prompt })).text,
+});
 const registry = new RunnerRegistry();
 const chatService = createChatService({
   chats,
@@ -127,7 +142,11 @@ const chatService = createChatService({
   onRunnerFinish: (chatId, outcome) =>
     queueDispatcher?.onRunnerFinish(chatId, outcome),
   onAnswerComplete: (event) => void writeTermPages(event),
-  onAnswerFinish: (event) => void summarizeAnswer(event),
+  onAnswerFinish: (event) => {
+    void summarizeAnswer(event);
+    void wikiThreadTitler.onAnswerFinish(event);
+  },
+  onWikiChatCreated: (chat) => wikiThreadTitler.track(chat),
 });
 queueDispatcher = createQueueDispatcher({ queue, registry, chatService });
 const claude = createClaudeStatus(
