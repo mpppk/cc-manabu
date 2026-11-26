@@ -234,6 +234,117 @@ export const wikiPages = sqliteTable(
   (table) => [index("wiki_pages_wiki_id_idx").on(table.wikiId)],
 );
 
+/** 版を作った操作（#166）。 */
+export const WIKI_VERSION_OPS = [
+  /** 履歴を記録する前からあったページ（マイグレーションで記録）。 */
+  "baseline",
+  /** ページの作成・更新・削除。 */
+  "change",
+  /** 元に戻す。reverts の変更をまとめて戻す。 */
+  "undo",
+  /** やり直す。reverts の変更をもう一度当てる。 */
+  "redo",
+  /** 過去の版・チェックポイントへの復元。 */
+  "restore",
+] as const;
+export type WikiVersionOp = (typeof WIKI_VERSION_OPS)[number];
+
+/** 変更の出どころ（#166）。 */
+export const WIKI_VERSION_ACTORS = [
+  /** 利用者（Wiki 画面の編集・復元・元に戻す）。 */
+  "user",
+  /** Claude（タスクのスレッドから wiki ツールで編集・作成）。 */
+  "claude",
+  /** 回答からの用語ノートの自動作成。 */
+  "auto",
+  /** 回答・ノートの選択範囲からのノート作成。 */
+  "selection",
+  /** 履歴を記録する前の状態。 */
+  "system",
+] as const;
+export type WikiVersionActor = (typeof WIKI_VERSION_ACTORS)[number];
+
+/**
+ * Wiki ページの版（#166）。作成・更新・削除のたびに、変更後の状態を 1 行追加する。
+ * seq は Wiki をまたいで単調に増え、チェックポイントの時点の状態を求めるのに使う。
+ * ページを消しても版は残す（削除したページも復元できる）。Wiki を消すと一緒に消える。
+ */
+export const wikiPageVersions = sqliteTable(
+  "wiki_page_versions",
+  {
+    seq: integer("seq").primaryKey({ autoIncrement: true }),
+    wikiId: text("wiki_id")
+      .notNull()
+      .references(() => wikis.id, { onDelete: "cascade" }),
+    pageId: text("page_id").notNull(),
+    title: text("title").notNull(),
+    aliases: text("aliases", { mode: "json" })
+      .notNull()
+      .$type<string[]>()
+      .default(sql`'[]'`),
+    body: text("body").notNull().default(""),
+    /** この版でページが削除されたか（title などは削除直前の内容）。 */
+    deleted: integer("deleted", { mode: "boolean" }).notNull().default(false),
+    /** ページの属性（復元するときに戻す）。 */
+    origin: text("origin", { enum: ["manual", "auto"] })
+      .notNull()
+      .default("manual"),
+    sourceChatId: text("source_chat_id"),
+    sourceMessageId: text("source_message_id"),
+    op: text("op", { enum: WIKI_VERSION_OPS }).notNull(),
+    actor: text("actor", { enum: WIKI_VERSION_ACTORS }).notNull(),
+    /** 一緒に元に戻す変更のまとまり（1 回の保存・1 回の回答・1 回の復元）。 */
+    batchId: text("batch_id").notNull(),
+    /** undo / redo の対象のまとまり。 */
+    reverts: text("reverts"),
+    /** 変更した会話・回答・ツール（Claude の編集、回答からの作成）。会話を消しても残す。 */
+    chatId: text("chat_id"),
+    messageId: text("message_id"),
+    tool: text("tool"),
+    /** 復元の元（版の seq、またはチェックポイントの id）。 */
+    restoredFrom: text("restored_from"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+  },
+  (table) => [
+    index("wiki_page_versions_page_idx").on(table.pageId, table.seq),
+    index("wiki_page_versions_wiki_idx").on(table.wikiId, table.seq),
+    index("wiki_page_versions_batch_idx").on(table.batchId),
+    index("wiki_page_versions_message_idx").on(table.messageId),
+  ],
+);
+
+export type WikiPageVersionRow = typeof wikiPageVersions.$inferSelect;
+
+/**
+ * Wiki 全体のチェックポイント（#166）。seq までの版で、Wiki 全体の状態を表す。
+ * 名前を付けて作るほか、Claude が Wiki を変更する回答の前に自動で作る。
+ */
+export const wikiCheckpoints = sqliteTable(
+  "wiki_checkpoints",
+  {
+    id: text("id").primaryKey(),
+    wikiId: text("wiki_id")
+      .notNull()
+      .references(() => wikis.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** 自動で作ったか（Claude の変更の前）。 */
+    auto: integer("auto", { mode: "boolean" }).notNull().default(false),
+    /** この時点までの版（これより後の版は含まない）。 */
+    seq: integer("seq").notNull(),
+    /** 自動で作ったときの会話と、その回答の変更のまとまり。 */
+    chatId: text("chat_id"),
+    batchId: text("batch_id"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" })
+      .notNull()
+      .default(sql`(unixepoch('subsec') * 1000)`),
+  },
+  (table) => [index("wiki_checkpoints_wiki_idx").on(table.wikiId)],
+);
+
+export type WikiCheckpointRow = typeof wikiCheckpoints.$inferSelect;
+
 /**
  * Wiki ページへの質問と回答から作った Q&A（#159）。ページの本文の下に出す。
  * 「このページについて質問」の会話の回答ごとに 1 つ作り、タスクとページの組ごとに見せる

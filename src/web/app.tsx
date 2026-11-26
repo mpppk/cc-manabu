@@ -543,6 +543,7 @@ export const App = ({ api }: { api: ApiClient }) => {
               returnTo={wikiState?.returnTo}
               onReturn={(to) => navigate(to)}
               onNavigate={navigateWiki}
+              onOpenAnswer={openSearchHit}
             />
           ) : workspace !== undefined ? null : selectedId === undefined &&
             wikiRoute === undefined &&

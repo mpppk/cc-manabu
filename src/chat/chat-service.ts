@@ -208,7 +208,16 @@ export const createChatService = (deps: {
   wikiTools?: (scope: {
     taskId: string;
     pageId: string | null;
+    /** 変更した会話と、この回答での変更のまとまり（版に残す。#166）。 */
+    chatId: string;
+    batchId: string;
+    question: string;
   }) => Record<string, McpServerConfig> | undefined;
+  /**
+   * 回答が終わったとき（中断・エラーを含む）に、その回答で Claude が Wiki に加えた変更
+   * （batchId）に回答の id を付ける（回答ごとに元に戻すのに使う。#166）。
+   */
+  onWikiBatchFinish?: (batchId: string, messageId: string) => void;
   /** タスクの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
   readWikiPage?: WikiPageReader;
@@ -296,6 +305,8 @@ export const createChatService = (deps: {
   > =>
     registry.start(params.chatId, (signal) => {
       let failed = false;
+      /** この回答で Claude が Wiki に加えた変更のまとまり。 */
+      const wikiBatchId = crypto.randomUUID();
       return createUIMessageStream<ChatUIMessage>({
         generateId,
         execute: ({ writer }) => {
@@ -310,6 +321,9 @@ export const createChatService = (deps: {
               : deps.wikiTools?.({
                   taskId: params.taskId,
                   pageId: params.wikiPageId,
+                  chatId: params.chatId,
+                  batchId: wikiBatchId,
+                  question: params.question,
                 });
           const result = streamText({
             model: deps.languageModel(params.model, {
@@ -397,6 +411,11 @@ export const createChatService = (deps: {
           );
         },
         onFinish: ({ responseMessage, isAborted }) => {
+          try {
+            deps.onWikiBatchFinish?.(wikiBatchId, responseMessage.id);
+          } catch {
+            // 履歴の記録は回答に影響させない
+          }
           const metadata = {
             ...responseMessage.metadata,
             ...(isAborted ? { aborted: true } : {}),

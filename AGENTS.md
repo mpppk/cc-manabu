@@ -48,3 +48,6 @@ DB・API の名前（`chats`, `groupId`, `branchTitle` など）は、用語を�
 | 用語ノート | 本文の語句（タイトル・別名）と照合して、回答中にリンクするノート | `termMatcher` |
 | 自動作成 | 回答から用語ノートを AI で作ること | `origin: "auto"`, `autoTerms` |
 | 参照資料 | 質問時に Claude へ渡したノートの抜粋 | |
+| 版 / 変更履歴 | ノートの作成・更新・削除のたびに残す、変更後の内容と出どころ（利用者・Claude・自動作成など） | `wikiPageVersions` |
+| 元に戻す / やり直す | 変更のまとまり（1 回の保存・1 回の回答・1 回の復元）を戻す・もう一度当てる | `wiki.undo`, `batchId` |
+| チェックポイント | 名前を付けて残した Wiki 全体の状態。Claude が Wiki を変える回答の前にも自動で作る | `wikiCheckpoints` |

@@ -26,7 +26,9 @@ import {
   TASK_STATUSES,
   type TaskLinkRow,
   type TaskRow,
+  type WikiCheckpointRow,
   type WikiPageRow,
+  type WikiPageVersionRow,
 } from "./db/schema.ts";
 import type { SearchRepository } from "./db/search-repository.ts";
 import {
@@ -34,6 +36,12 @@ import {
   type TaskRepository,
   wikiIdOf,
 } from "./db/task-repository.ts";
+import {
+  type WikiBatch,
+  WikiCheckpointNotFoundError,
+  type WikiHistoryRepository,
+  WikiVersionNotFoundError,
+} from "./db/wiki-history-repository.ts";
 import type { WikiRepository } from "./db/wiki-repository.ts";
 import { normalizeDirectories } from "./environment/directories.ts";
 import type { DirectoryPicker } from "./environment/directory-picker.ts";
@@ -52,6 +60,8 @@ export type RouterContext = {
   search: SearchRepository;
   rateLimits: RateLimitRepository;
   preferences: PreferencesRepository;
+  /** Wiki の変更履歴・元に戻す・チェックポイント（#166）。 */
+  wikiHistory: WikiHistoryRepository;
   wiki: WikiRepository;
   chatService: ChatService;
   approvals: ApprovalBroker;
@@ -93,6 +103,10 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   MessageNotFoundError: "NOT_FOUND",
   NothingToRegenerateError: "BAD_REQUEST",
   NotBranchableError: "BAD_REQUEST",
+  WikiVersionNotFoundError: "NOT_FOUND",
+  WikiCheckpointNotFoundError: "NOT_FOUND",
+  NothingToUndoError: "BAD_REQUEST",
+  WikiHistoryConflictError: "CONFLICT",
 };
 
 /** クライアントに流すチャンク（承認要求の data パーツを含む）。 */
@@ -326,6 +340,58 @@ const toWikiPageDto = (row: WikiPageRow): WikiPageDto => ({
   sourceMessageId: row.sourceMessageId,
   updatedAt: row.updatedAt,
 });
+
+/** 版（#166）。本文は含めない（一覧に使う）。 */
+const toWikiVersionDto = (row: WikiPageVersionRow) => ({
+  seq: row.seq,
+  pageId: row.pageId,
+  title: row.title,
+  deleted: row.deleted,
+  op: row.op,
+  actor: row.actor,
+  tool: row.tool,
+  chatId: row.chatId,
+  messageId: row.messageId,
+  restoredFrom: row.restoredFrom,
+  createdAt: row.createdAt,
+});
+export type WikiVersionDto = ReturnType<typeof toWikiVersionDto>;
+
+const toWikiBatchDto = (batch: WikiBatch) => ({
+  batchId: batch.batchId,
+  op: batch.op,
+  actor: batch.actor,
+  pages: batch.pages,
+  createdAt: batch.createdAt,
+});
+export type WikiBatchDto = ReturnType<typeof toWikiBatchDto>;
+
+const toCheckpointDto = (row: WikiCheckpointRow) => ({
+  id: row.id,
+  name: row.name,
+  auto: row.auto,
+  chatId: row.chatId,
+  createdAt: row.createdAt,
+});
+export type WikiCheckpointDto = ReturnType<typeof toCheckpointDto>;
+
+/** タスクが参照する Wiki の ID。 */
+const wikiOfTask = (context: RouterContext, taskId: string) =>
+  Result.pipe(context.tasks.getTask(taskId), Result.map(wikiIdOf));
+
+/** 版・チェックポイントが、タスクの Wiki のものか確かめる（ほかの Wiki のものは見つからない扱い）。 */
+const inWiki = <T extends { wikiId: string }>(
+  context: RouterContext,
+  taskId: string,
+  row: T,
+  notFound: () => Error,
+) =>
+  Result.pipe(
+    wikiOfTask(context, taskId),
+    Result.andThen((wikiId) =>
+      row.wikiId === wikiId ? Result.succeed(row) : Result.fail(notFound()),
+    ),
+  );
 
 const wikiPageInput = z.object({
   title: z.string().trim().min(1).max(200),
@@ -741,6 +807,213 @@ export const router = {
           ERROR_CODES,
         );
         return { chatId: runner.chatId };
+      }),
+    /** ページの版（新しい順。#166）。 */
+    history: base.input(wikiChatTarget).handler(async ({ context, input }) => {
+      const wikiId = await unwrapForOrpc(
+        wikiOfTask(context, input.taskId),
+        ERROR_CODES,
+      );
+      return (
+        await unwrapForOrpc(
+          context.wikiHistory.listPageVersions(input.pageId),
+          ERROR_CODES,
+        )
+      )
+        .filter((row) => row.wikiId === wikiId)
+        .map(toWikiVersionDto);
+    }),
+    /** 版の中身（差分の表示に使う）。 */
+    version: base
+      .input(z.object({ taskId: z.string().min(1), seq: z.number().int() }))
+      .handler(async ({ context, input }) => {
+        const row = await unwrapForOrpc(
+          Result.pipe(
+            context.wikiHistory.getVersion(input.seq),
+            Result.andThen((row) =>
+              inWiki(
+                context,
+                input.taskId,
+                row,
+                () => new WikiVersionNotFoundError(),
+              ),
+            ),
+          ),
+          ERROR_CODES,
+        );
+        return {
+          ...toWikiVersionDto(row),
+          aliases: row.aliases,
+          body: row.body,
+        };
+      }),
+    /** 版の内容でページを復元する（削除したページも戻す）。 */
+    restoreVersion: base
+      .input(z.object({ taskId: z.string().min(1), seq: z.number().int() }))
+      .handler(async ({ context, input }) => {
+        const row = await unwrapForOrpc(
+          Result.pipe(
+            context.wikiHistory.getVersion(input.seq),
+            Result.andThen((row) =>
+              inWiki(
+                context,
+                input.taskId,
+                row,
+                () => new WikiVersionNotFoundError(),
+              ),
+            ),
+            Result.andThen(() => context.wikiHistory.restoreVersion(input.seq)),
+          ),
+          ERROR_CODES,
+        );
+        return { pageId: row.pageId };
+      }),
+    /** 削除したページ（新しく消した順）。 */
+    deletedPages: base
+      .input(z.object({ taskId: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        (
+          await unwrapForOrpc(
+            Result.pipe(
+              wikiOfTask(context, input.taskId),
+              Result.andThen((wikiId) =>
+                context.wikiHistory.listDeletedPages(wikiId),
+              ),
+            ),
+            ERROR_CODES,
+          )
+        ).map(toWikiVersionDto),
+      ),
+    /** 元に戻せる・やり直せる変更。 */
+    undoState: base
+      .input(z.object({ taskId: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        const state = await unwrapForOrpc(
+          Result.pipe(
+            wikiOfTask(context, input.taskId),
+            Result.andThen((wikiId) => context.wikiHistory.undoState(wikiId)),
+          ),
+          ERROR_CODES,
+        );
+        return {
+          undo: state.undo === undefined ? null : toWikiBatchDto(state.undo),
+          redo: state.redo === undefined ? null : toWikiBatchDto(state.redo),
+        };
+      }),
+    /** 直前の変更を元に戻す（redo なら、戻した変更をやり直す）。 */
+    undo: base
+      .input(
+        z.object({
+          taskId: z.string().min(1),
+          redo: z.boolean().default(false),
+        }),
+      )
+      .handler(async ({ context, input }) =>
+        toWikiBatchDto(
+          await unwrapForOrpc(
+            Result.pipe(
+              wikiOfTask(context, input.taskId),
+              Result.andThen((wikiId) =>
+                context.wikiHistory.undo(wikiId, input.redo),
+              ),
+            ),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** 回答で Claude が Wiki に加えた変更と、元に戻したか（無ければ null）。 */
+    answerChanges: base
+      .input(z.object({ messageId: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        const changes = await unwrapForOrpc(
+          context.wikiHistory.answerChanges(input.messageId),
+          ERROR_CODES,
+        );
+        return changes === undefined
+          ? null
+          : { batch: toWikiBatchDto(changes.batch), undone: changes.undone };
+      }),
+    /** 回答で Claude が Wiki に加えた変更をまとめて元に戻す（redo ならやり直す）。 */
+    undoAnswer: base
+      .input(
+        z.object({
+          messageId: z.string().min(1),
+          redo: z.boolean().default(false),
+        }),
+      )
+      .handler(async ({ context, input }) =>
+        toWikiBatchDto(
+          await unwrapForOrpc(
+            context.wikiHistory.undoAnswer(input.messageId, input.redo),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** チェックポイント（新しい順）。 */
+    checkpoints: base
+      .input(z.object({ taskId: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        (
+          await unwrapForOrpc(
+            Result.pipe(
+              wikiOfTask(context, input.taskId),
+              Result.andThen((wikiId) =>
+                context.wikiHistory.listCheckpoints(wikiId),
+              ),
+            ),
+            ERROR_CODES,
+          )
+        ).map(toCheckpointDto),
+      ),
+    /** 今の Wiki 全体の状態に名前を付けて残す。 */
+    createCheckpoint: base
+      .input(
+        z.object({
+          taskId: z.string().min(1),
+          name: z.string().trim().min(1).max(100),
+        }),
+      )
+      .handler(async ({ context, input }) =>
+        toCheckpointDto(
+          await unwrapForOrpc(
+            Result.pipe(
+              wikiOfTask(context, input.taskId),
+              Result.andThen((wikiId) =>
+                context.wikiHistory.createCheckpoint({
+                  wikiId,
+                  name: input.name,
+                }),
+              ),
+            ),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /** Wiki 全体をチェックポイントの時点に戻す。変えたページの数を返す。 */
+    restoreCheckpoint: base
+      .input(z.object({ taskId: z.string().min(1), id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        const checkpoints = await unwrapForOrpc(
+          Result.pipe(
+            wikiOfTask(context, input.taskId),
+            Result.andThen((wikiId) =>
+              context.wikiHistory.listCheckpoints(wikiId),
+            ),
+          ),
+          ERROR_CODES,
+        );
+        if (!checkpoints.some((checkpoint) => checkpoint.id === input.id)) {
+          await unwrapForOrpc(
+            Result.fail(new WikiCheckpointNotFoundError()),
+            ERROR_CODES,
+          );
+        }
+        return {
+          changed: await unwrapForOrpc(
+            context.wikiHistory.restoreCheckpoint(input.id),
+            ERROR_CODES,
+          ),
+        };
       }),
     /** タスクが参照する Wiki のページ（タイトル順）。 */
     list: base

@@ -2,14 +2,16 @@ import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import {
   ArrowLeft,
   FilePlus,
+  History,
   MessageCircle,
   Pencil,
+  RotateCcw,
   Search,
   Trash2,
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import type { WikiPageQuote } from "../../chat/quote.ts";
-import type { WikiPageDto } from "../../router.ts";
+import type { WikiPageDto, WikiVersionDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { cn } from "../lib/utils.ts";
@@ -17,6 +19,7 @@ import { SideChat } from "./chat-workspace.tsx";
 import { PageQaList } from "./page-qa-list.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
+import { WikiHistoryPanel, WikiHistoryToolbar } from "./wiki-history.tsx";
 import { WikiPageContent, WikiPane } from "./wiki-pane.tsx";
 
 type Draft = { title: string; aliases: string; body: string };
@@ -195,6 +198,7 @@ export const WikiView = ({
   onOpenChat,
   returnTo,
   onReturn,
+  onOpenAnswer,
 }: {
   /** ページの一覧（サイドバーと共有する）。undefined は読み込み中。 */
   pages: WikiPageDto[] | undefined;
@@ -221,6 +225,8 @@ export const WikiView = ({
   hasPageChat: boolean;
   onChatActivity: () => void;
   onNavigate: (pageId: string | undefined) => void;
+  /** 変更履歴の Claude の版から、元の会話・回答を開く（#166）。 */
+  onOpenAnswer?: (chatId: string, messageId?: string) => void;
 }) => {
   const [mode, setMode] = useState<"view" | "new" | "edit">("view");
   const [deleting, setDeleting] = useState(false);
@@ -255,6 +261,25 @@ export const WikiView = ({
       if (returnFocus?.isConnected) returnFocus.focus();
     });
   };
+  /** 変更履歴を開いているか（#166）。 */
+  const [historyOpen, setHistoryOpen] = useState(false);
+  /** Wiki が変わるたびに増やす（元に戻せる変更・履歴・削除したノートを読み直す）。 */
+  const [historyRevision, setHistoryRevision] = useState(0);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: ノートの一覧が変わったら読み直す
+  useEffect(() => setHistoryRevision((revision) => revision + 1), [pages]);
+  /** 削除したノート（版から復元できる）。 */
+  const [deletedPages, setDeletedPages] = useState<WikiVersionDto[]>([]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Wiki が変わったら読み直す
+  useEffect(() => {
+    let active = true;
+    api.wiki.deletedPages({ taskId }).then(
+      (loaded) => active && setDeletedPages(loaded),
+      () => {},
+    );
+    return () => {
+      active = false;
+    };
+  }, [api, taskId, historyRevision]);
   /** サイドチャットで質問・回答があるたびに増やす（Q&A を読み直す。#159）。 */
   const [qaRevision, setQaRevision] = useState(0);
   const closeChat = () => {
@@ -273,6 +298,7 @@ export const WikiView = ({
     setAskingPageId(undefined);
     setQuote(undefined);
     setTermPane(undefined);
+    setHistoryOpen(false);
   }, [pageId]);
 
   const page = pages?.find((p) => p.id === pageId);
@@ -311,13 +337,43 @@ export const WikiView = ({
         </span>
       </div>
       {mode === "view" && (
-        <Button size="sm" onClick={() => setMode("new")}>
-          <FilePlus className="size-4" />
-          新しいノート
-        </Button>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <Button size="sm" onClick={() => setMode("new")}>
+            <FilePlus className="size-4" />
+            新しいノート
+          </Button>
+          <WikiHistoryToolbar
+            api={api}
+            taskId={taskId}
+            revision={historyRevision}
+            onChanged={() => void refresh()}
+          />
+        </div>
       )}
     </div>
   );
+  const historyButton = (
+    <Button
+      variant="outline"
+      size="sm"
+      aria-expanded={historyOpen}
+      onClick={() => setHistoryOpen(!historyOpen)}
+    >
+      <History className="size-3.5" />
+      履歴
+    </Button>
+  );
+  const historyPanel = (id: string) =>
+    historyOpen && (
+      <WikiHistoryPanel
+        api={api}
+        taskId={taskId}
+        pageId={id}
+        revision={historyRevision}
+        onRestored={() => void refresh()}
+        onOpenAnswer={onOpenAnswer}
+      />
+    );
 
   const body = (() => {
     if (loadError !== undefined) {
@@ -359,11 +415,33 @@ export const WikiView = ({
       );
     }
     if (page === undefined) {
+      const deleted = deletedPages.find((version) => version.pageId === pageId);
       return (
         <div className="flex flex-col items-start gap-3">
-          <p className="text-muted-foreground">
-            このノートは削除されたか、存在しません。
-          </p>
+          {deleted === undefined ? (
+            <p className="text-muted-foreground">
+              このノートは削除されたか、存在しません。
+            </p>
+          ) : (
+            <>
+              <h2 className="font-bold text-2xl">{deleted.title}</h2>
+              <p className="text-muted-foreground">
+                このノートは削除されています。変更履歴から復元できます。
+              </p>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  await api.wiki.restoreVersion({ taskId, seq: deleted.seq });
+                  await refresh();
+                }}
+              >
+                <RotateCcw className="size-3.5" />
+                削除前に復元
+              </Button>
+            </>
+          )}
+          {deleted !== undefined && historyButton}
+          {deleted !== undefined && historyPanel(deleted.pageId)}
           {hasPageChat && openChatButton("質問の履歴を開く")}
           <Button
             variant="outline"
@@ -409,6 +487,7 @@ export const WikiView = ({
           )}
           <div className="flex-1" />
           {openChatButton("このノートについて質問")}
+          {historyButton}
           <Button variant="outline" size="sm" onClick={() => setMode("edit")}>
             <Pencil className="size-3.5" />
             編集
@@ -436,6 +515,7 @@ export const WikiView = ({
             onOpenPage: onNavigate,
           }}
         />
+        {historyPanel(page.id)}
         <PageQaList
           api={api}
           taskId={taskId}
@@ -478,6 +558,32 @@ export const WikiView = ({
           pageId={pageId}
           onNavigate={onNavigate}
         />
+        {deletedPages.length > 0 && (
+          <details className="border-t px-2 py-2 text-sm">
+            <summary className="cursor-pointer px-2 text-muted-foreground">
+              削除したノート（{deletedPages.length}）
+            </summary>
+            <ul
+              aria-label="削除したノート"
+              className="mt-1 flex flex-col gap-0.5"
+            >
+              {deletedPages.map((version) => (
+                <li key={version.pageId}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "w-full truncate rounded-md px-2 py-1 text-left text-muted-foreground line-through hover:bg-accent",
+                      version.pageId === pageId && "bg-accent",
+                    )}
+                    onClick={() => onNavigate(version.pageId)}
+                  >
+                    {version.title}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
       </aside>
       <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row">
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">

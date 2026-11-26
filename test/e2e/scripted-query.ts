@@ -7,6 +7,8 @@ import type { QueryFunction } from "../../src/provider/types.ts";
 /**
  * E2E 用のモック query()。プロンプトの内容で振る舞いを変える（台本）。
  *
+ * - 「Wiki に書く: <タイトル>|<本文>」を含む: Wiki の MCP ツール（承認なしで直接呼ぶ）で、
+ *   同じタイトルのページがあれば update_page、無ければ create_page で書き、ツールの呼び出しとして流す
  * - 「承認」を含む: Bash の承認を求め、許可なら「許可されました」、拒否なら「拒否されました」と返す
  * - 「ゆっくり」を含む: 1〜40 を 1 行ずつ、150ms 間隔で流す（リロード・停止の確認用）
  * - 用語抽出（<term-extraction>）: 回答の中の「」で囲まれた語を用語として JSON で返す
@@ -110,6 +112,63 @@ export const createScriptedQuery = (): QueryFunction => {
       } as unknown as SDKMessage;
     }
 
+    /** in-process の Wiki の MCP サーバのツールを呼ぶ（承認は通さない）。 */
+    const callWikiTool = async (
+      name: string,
+      args: Record<string, unknown>,
+    ): Promise<{ content: { type: string; text: string }[] } | undefined> => {
+      const server = options?.mcpServers?.wiki as
+        | {
+            instance?: {
+              _registeredTools: Record<
+                string,
+                { handler: (args: unknown, extra: unknown) => unknown }
+              >;
+            };
+          }
+        | undefined;
+      const tool = server?.instance?._registeredTools[name];
+      return tool === undefined
+        ? undefined
+        : ((await tool.handler(args, {})) as {
+            content: { type: string; text: string }[];
+          });
+    };
+
+    async function* wikiToolCall(
+      name: string,
+      args: Record<string, unknown>,
+    ): AsyncGenerator<SDKMessage> {
+      const id = `toolu_${crypto.randomUUID()}`;
+      yield {
+        ...base,
+        type: "assistant",
+        uuid: crypto.randomUUID(),
+        message: {
+          role: "assistant",
+          content: [
+            { type: "tool_use", id, name: `mcp__wiki__${name}`, input: args },
+          ],
+        },
+      } as unknown as SDKMessage;
+      const result = await callWikiTool(name, args);
+      yield {
+        ...base,
+        type: "user",
+        uuid: crypto.randomUUID(),
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: id,
+              content: result?.content ?? [{ type: "text", text: "no tool" }],
+            },
+          ],
+        },
+      } as unknown as SDKMessage;
+    }
+
     return (async function* (): AsyncGenerator<SDKMessage> {
       // 画像付きの発話は、content ブロックを持つユーザーメッセージで届く
       let text = typeof prompt === "string" ? prompt : "";
@@ -139,7 +198,18 @@ export const createScriptedQuery = (): QueryFunction => {
         uuid: crypto.randomUUID(),
       } as unknown as SDKMessage;
 
-      if (text.includes("<term-extraction>")) {
+      const wikiWrite = /Wiki に書く: ([^|\n]+)\|([^\n]+)/.exec(text);
+      if (wikiWrite !== null && !text.includes("<")) {
+        const [, title = "", body = ""] = wikiWrite;
+        const listed = await callWikiTool("list_pages", {});
+        const existing = new RegExp(
+          `- ${title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}（id: ([^、）]+)`,
+        ).exec(listed?.content[0]?.text ?? "")?.[1];
+        yield* existing === undefined
+          ? wikiToolCall("create_page", { title, body })
+          : wikiToolCall("update_page", { id: existing, body });
+        yield* textMessage([`Wiki の「${title}」に書きました。`], 0);
+      } else if (text.includes("<term-extraction>")) {
         const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(text)?.[1] ?? "";
         const terms = [...answer.matchAll(/「([^」]{2,20})」/g)].map(
           ([, term]) => ({ term, aliases: [], summary: `${term} の説明。` }),
