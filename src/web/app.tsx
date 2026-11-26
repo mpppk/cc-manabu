@@ -111,6 +111,10 @@ export const App = ({ api }: { api: ApiClient }) => {
   const chatDefaults = useChatDefaultsState(api);
   const [theme, setTheme] = useState<Theme>(loadTheme);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** ヘッダーの右側の、開いている画面が操作ボタンを出す場所（#213）。 */
+  const [headerActions, setHeaderActions] = useState<HTMLDivElement | null>(
+    null,
+  );
   const [sidebarOpen, setSidebarOpen] = useState(loadSidebarOpen);
   const toggleSidebar = useCallback(() => setSidebarOpen((open) => !open), []);
   // 左サイドバーの幅（#185）。保存していなければ既定の幅で開き、画面の幅に収めて表示する
@@ -536,6 +540,11 @@ export const App = ({ api }: { api: ApiClient }) => {
               {headerTitle}
             </span>
             <div className="flex shrink-0 items-center gap-2">
+              {/* 開いている画面の操作（Wiki の概要と操作ボタンなど。#213） */}
+              <div
+                ref={setHeaderActions}
+                className="flex items-center gap-1 empty:hidden"
+              />
               <ClaudeStatusBadge status={status} />
             </div>
           </header>
@@ -585,10 +594,12 @@ export const App = ({ api }: { api: ApiClient }) => {
               taskId={task.id}
               taskName={task.name}
               wikiName={wikis.find((wiki) => wiki.id === task.wikiId)?.name}
-              sharedWith={(tasks ?? [])
-                .filter((p) => p.wikiId === task.wikiId && p.id !== task.id)
-                .map((p) => p.name)}
+              referencingTasks={(tasks ?? [])
+                .filter((p) => p.wikiId === task.wikiId)
+                .map((p) => ({ id: p.id, name: p.name }))}
               autoTerms={task.autoTerms}
+              headerActions={headerActions}
+              onOpenTask={(id) => navigate(pathForTask(id))}
               pageId={wikiRoute.pageId}
               models={models}
               hasPageChat={chats.some(

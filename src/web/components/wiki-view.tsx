@@ -10,6 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto, WikiVersionDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
@@ -26,6 +27,10 @@ import { PageQaList } from "./page-qa-list.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 import { WikiHistoryPanel, WikiHistoryToolbar } from "./wiki-history.tsx";
+import {
+  WikiOverviewButton,
+  type WikiReferencingTask,
+} from "./wiki-overview.tsx";
 import { type WikiNoteTerms, WikiPageContent, WikiPane } from "./wiki-pane.tsx";
 
 type Draft = { title: string; aliases: string; body: string };
@@ -197,8 +202,10 @@ export const WikiView = ({
   taskId,
   taskName,
   wikiName,
-  sharedWith = [],
+  referencingTasks,
   autoTerms,
+  headerActions,
+  onOpenTask,
   pageId,
   models,
   hasPageChat,
@@ -219,10 +226,14 @@ export const WikiView = ({
   taskName: string;
   /** Wiki の名前（無ければタスク名を使う）。 */
   wikiName?: string | undefined;
-  /** 同じ Wiki を使っている、ほかのタスクの名前。 */
-  sharedWith?: string[];
+  /** この Wiki を参照しているタスク（開いているタスクを含む）。 */
+  referencingTasks: readonly WikiReferencingTask[];
   /** 回答からの用語ページの自動作成が有効か。 */
   autoTerms: boolean;
+  /** 画面上部のヘッダーの右側。Wiki の概要と操作ボタンをここに出す（#213）。 */
+  headerActions: HTMLElement | null;
+  /** タスクを開く（Wiki の概要の、参照しているタスクから）。 */
+  onOpenTask: (taskId: string) => void;
   /** 自動作成の元になった会話を開く。 */
   onOpenChat: (chatId: string) => void;
   /** 回答から開いたときの戻り先（回答のある会話のパス）。 */
@@ -340,42 +351,34 @@ export const WikiView = ({
     </Button>
   );
 
-  const header = (
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex min-w-0 flex-col">
-        <h1 className="truncate font-semibold text-lg">
-          {wikiName === undefined || wikiName === taskName
-            ? `${taskName} の Wiki`
-            : `Wiki: ${wikiName}`}
-        </h1>
-        {sharedWith.length > 0 && (
-          <span className="text-muted-foreground text-xs">
-            {sharedWith.map((name) => `「${name}」`).join("")}
-            と共有している Wiki
-            です。ノートの変更はすべてのタスクに反映されます。
-          </span>
+  // Wiki の概要と操作ボタンは、画面上部のヘッダーの右側に出す（#213）
+  const header =
+    headerActions !== null &&
+    createPortal(
+      <>
+        <WikiOverviewButton
+          wikiName={wikiName ?? taskName}
+          tasks={referencingTasks}
+          autoTerms={autoTerms}
+          onOpenTask={onOpenTask}
+        />
+        {mode === "view" && (
+          <>
+            <WikiHistoryToolbar
+              api={api}
+              taskId={taskId}
+              revision={historyRevision}
+              onChanged={() => void refresh()}
+            />
+            <Button size="sm" onClick={() => setMode("new")}>
+              <FilePlus className="size-4" />
+              <span className="max-md:sr-only">新しいノート</span>
+            </Button>
+          </>
         )}
-        <span className="text-muted-foreground text-xs">
-          回答からの用語ノートの自動作成: {autoTerms ? "オン" : "オフ"}
-          （タスクの設定で変更できます）
-        </span>
-      </div>
-      {mode === "view" && (
-        <div className="flex shrink-0 flex-col items-end gap-1">
-          <Button size="sm" onClick={() => setMode("new")}>
-            <FilePlus className="size-4" />
-            新しいノート
-          </Button>
-          <WikiHistoryToolbar
-            api={api}
-            taskId={taskId}
-            revision={historyRevision}
-            onChanged={() => void refresh()}
-          />
-        </div>
-      )}
-    </div>
-  );
+      </>,
+      headerActions,
+    );
   const historyButton = (
     <Button
       variant="outline"
@@ -619,9 +622,9 @@ export const WikiView = ({
       >
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
-            {header}
             {body}
           </div>
+          {header}
         </div>
         {asking && (
           <SidePanelResizer

@@ -135,7 +135,7 @@ export const WikiHistoryToolbar = ({
   };
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="relative flex items-center">
       <div className="flex items-center gap-1">
         <Button
           variant="ghost"
@@ -149,7 +149,7 @@ export const WikiHistoryToolbar = ({
           onClick={() => void run(false)}
         >
           <Undo2 className="size-3.5" />
-          元に戻す
+          <span className="max-md:sr-only">元に戻す</span>
         </Button>
         <Button
           variant="ghost"
@@ -163,7 +163,7 @@ export const WikiHistoryToolbar = ({
           onClick={() => void run(true)}
         >
           <Redo2 className="size-3.5" />
-          やり直す
+          <span className="max-md:sr-only">やり直す</span>
         </Button>
         <Button
           variant="outline"
@@ -171,16 +171,22 @@ export const WikiHistoryToolbar = ({
           onClick={() => setCheckpointsOpen(true)}
         >
           <Bookmark className="size-3.5" />
-          チェックポイント
+          <span className="max-md:sr-only">チェックポイント</span>
         </Button>
       </div>
       {error !== undefined && (
-        <p role="alert" className="max-w-md text-destructive text-xs">
+        <p
+          role="alert"
+          className="absolute top-full right-0 z-20 mt-2 w-max max-w-md rounded-md border bg-background px-2 py-1 text-destructive text-xs shadow-sm"
+        >
           {error}
         </p>
       )}
       {notice !== undefined && (
-        <p role="status" className="max-w-md text-muted-foreground text-xs">
+        <p
+          role="status"
+          className="absolute top-full right-0 z-20 mt-2 w-max max-w-md rounded-md border bg-background px-2 py-1 text-muted-foreground text-xs shadow-sm"
+        >
           {notice}
         </p>
       )}
