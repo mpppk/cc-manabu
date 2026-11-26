@@ -39,6 +39,21 @@ const send = async (page: Page, text: string) => {
   await box.press("Enter");
 };
 
+/** モデル選択のボタン（#183）。`data-model` に選択中のモデル ID を持つ。 */
+const modelButton = (scope: Page | Locator) =>
+  scope.getByRole("button", { name: /^モデル: / });
+
+/** モデルを選ぶ。最初の階層に無ければ「その他のモデル」から選ぶ。 */
+const pickModel = async (scope: Page | Locator, name: string) => {
+  await modelButton(scope).click();
+  const menu = scope.getByRole("menu", { name: "モデル", exact: true });
+  const item = menu.getByRole("menuitemradio", { name, exact: true });
+  if ((await item.count()) === 0) {
+    await menu.getByRole("menuitem", { name: "その他のモデル" }).click();
+  }
+  await item.click();
+};
+
 const idle = (page: Page) =>
   expect(page.getByRole("button", { name: "送信", exact: true })).toBeVisible({
     timeout: 15_000,
@@ -1691,18 +1706,17 @@ test("プロンプトキャッシュの推定残り時間を表示し、モデ�
   await page.reload();
   await expect(cache).toHaveText(/^(59|60):\d\d$/);
 
-  const model = page.getByRole("combobox", { name: "モデル" });
-  await model.selectOption("haiku");
+  await pickModel(page, "Haiku");
   await expect(cache).toHaveText("不明");
   await expect(cache).toHaveAccessibleName(/プロンプトキャッシュ/);
   // 選んだモデルは新規スレッドの初期値になるので、ほかのテストのために戻す
-  await model.selectOption("default");
+  await pickModel(page, "Default");
 });
 
 test("最後に選んだモデルと effort を、新規スレッドの初期値にする（#164）", async ({
   page,
 }) => {
-  const model = page.getByRole("combobox", { name: "モデル" });
+  const model = modelButton(page);
   const effort = page.getByRole("combobox", { name: "effort" });
   /** 次の送信で、サーバに送ったモデルと effort。 */
   const sentSettings = async (text: string) => {
@@ -1718,7 +1732,7 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
   await open(page);
   await createTask(page, "初期値の検証");
   await newChat(page);
-  await expect(model).toHaveValue("default");
+  await expect(model).toHaveAttribute("data-model", "default");
   await expect(effort).toHaveValue("");
 
   // 選んだ組み合わせが、次の新規スレッドの初期値になる
@@ -1727,14 +1741,14 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
   await idle(page);
   const first = new URL(page.url()).pathname;
   await newChat(page);
-  await expect(model).toHaveValue("default");
+  await expect(model).toHaveAttribute("data-model", "default");
   await expect(effort).toHaveValue("high");
   // 送らずに選ぶだけでも保存し、再起動（再読み込み）後も引き継ぐ
-  await model.selectOption("haiku");
+  await pickModel(page, "Haiku");
   await expect(effort).toHaveCount(0);
 
   await page.reload();
-  await expect(model).toHaveValue("haiku");
+  await expect(model).toHaveAttribute("data-model", "haiku");
   // 送るとその設定で回答を作る
   expect(await sentSettings("Haiku で")).toEqual({
     model: "haiku",
@@ -1743,10 +1757,10 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
 
   // 既存のスレッドは、そのスレッドの設定を表示する。開いただけでは初期値を変えない
   await page.goto(first);
-  await expect(model).toHaveValue("default");
+  await expect(model).toHaveAttribute("data-model", "default");
   await expect(effort).toHaveValue("high");
   await newChat(page);
-  await expect(model).toHaveValue("haiku");
+  await expect(model).toHaveAttribute("data-model", "haiku");
 
   // Wiki ページから始める質問にも同じ初期値を使う
   await openWiki(page, "初期値の検証");
@@ -1756,9 +1770,7 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await page.getByRole("button", { name: "このノートについて質問" }).click();
   const side = page.getByRole("complementary", { name: "サイドチャット" });
-  await expect(side.getByRole("combobox", { name: "モデル" })).toHaveValue(
-    "haiku",
-  );
+  await expect(modelButton(side)).toHaveAttribute("data-model", "haiku");
   const request = page.waitForRequest((r) => r.url().includes("/wiki/ask"));
   const composer = side.getByRole("textbox", {
     name: "サイドチャットのメッセージ",
@@ -1766,14 +1778,93 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
   await composer.fill("要約して");
   await composer.press("Enter");
   expect((await request).postData()).toContain('"model":"haiku"');
-  await expect(side.getByRole("combobox", { name: "モデル" })).toHaveValue(
-    "haiku",
-  );
+  await expect(modelButton(side)).toHaveAttribute("data-model", "haiku");
 
   // ほかのテストのために既定に戻す
   await page.goto(first);
   await effort.selectOption("");
   await expect(effort).toHaveValue("");
+});
+
+test("モデル選択の最初の階層にシリーズを並べ、残りは「その他のモデル」から選べる（#183）", async ({
+  page,
+}) => {
+  const model = modelButton(page);
+  const effort = page.getByRole("combobox", { name: "effort" });
+  const menu = page.getByRole("menu", { name: "モデル", exact: true });
+  const others = page.getByRole("menu", { name: "その他のモデル" });
+  const sentSettings = async (text: string) => {
+    const request = page.waitForRequest((r) => r.url().includes("/chat/send"));
+    await send(page, text);
+    const body = (await request).postData() ?? "";
+    await idle(page);
+    return {
+      model: /"model":"([^"]+)"/.exec(body)?.[1],
+      effort: /"effort":(null|"[^"]+")/.exec(body)?.[1],
+    };
+  };
+  await open(page);
+  await newChat(page);
+
+  // 最初の階層には、利用可能なシリーズのエイリアスだけをこの順に並べる
+  await model.click();
+  await expect(menu.getByRole("menuitemradio")).toHaveText(["Sonnet", "Haiku"]);
+  await expect(others).toHaveCount(0);
+  await menu.getByRole("menuitem", { name: "その他のモデル" }).click();
+  await expect(others.getByRole("menuitemradio")).toHaveText([
+    "Default",
+    "Opus 4.1",
+  ]);
+  await expect(
+    others.getByRole("menuitemradio", { name: "Default" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+  await expect(others).toHaveCount(0);
+  await expect(
+    menu.getByRole("menuitem", { name: "その他のモデル" }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(model).toBeFocused();
+
+  // キーボードで第 2 階層のバージョン指定のモデルを選ぶ
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    menu.getByRole("menuitemradio", { name: "Sonnet" }),
+  ).toBeFocused();
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    others.getByRole("menuitemradio", { name: "Opus 4.1" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(model).toHaveText("Opus 4.1");
+  await expect(model).toHaveAttribute("data-model", "claude-opus-4-1");
+  await effort.selectOption("max");
+  expect(await sentSettings("Opus 4.1 で")).toEqual({
+    model: "claude-opus-4-1",
+    effort: '"max"',
+  });
+
+  // 開き直しても、選んだバージョン指定のモデル名を表示する
+  await page.reload();
+  await expect(model).toHaveText("Opus 4.1");
+  await expect(effort).toHaveValue("max");
+
+  // 選択先で使えない effort は既定に戻す
+  await pickModel(page, "Sonnet");
+  await expect(model).toHaveText("Sonnet");
+  await expect(effort).toHaveValue("");
+  expect(await sentSettings("Sonnet で")).toEqual({
+    model: "sonnet",
+    effort: "null",
+  });
+
+  // ほかのテストのために既定に戻す
+  await pickModel(page, "Default");
+  await expect(model).toHaveAttribute("data-model", "default");
 });
 
 test("Wiki ページから始めたスレッドに、最初の回答のあとでタイトルを付ける（#161）", async ({

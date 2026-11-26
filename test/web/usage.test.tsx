@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { renderToString } from "react-dom/server";
 import type { ChatUIMessage } from "../../src/chat/chat-service.ts";
-import { ModelPicker } from "../../src/web/components/model-picker.tsx";
+import {
+  groupModels,
+  ModelPicker,
+} from "../../src/web/components/model-picker.tsx";
 import { formatUsage, totalUsage, usageOf } from "../../src/web/lib/usage.ts";
 
 const assistant = (
@@ -99,16 +102,75 @@ describe("ModelPicker", () => {
     ).not.toContain("effort");
   });
 
-  test("一覧に無いモデル（取得前など）も選択肢に残す", () => {
+  test("一覧に無いモデル（取得前など）も、選択中のモデル名として表示する", () => {
     expect(
       renderToString(
         <ModelPicker
           models={[]}
-          model="default"
+          model="claude-opus-4-1"
           effort={null}
           onChange={() => {}}
         />,
       ),
-    ).toContain(">default<");
+    ).toContain(">claude-opus-4-1<");
+  });
+
+  test("選択中のモデルの表示名をボタンに出す", () => {
+    expect(
+      renderToString(
+        <ModelPicker
+          models={models}
+          model="haiku-4"
+          effort={null}
+          onChange={() => {}}
+        />,
+      ),
+    ).toContain('aria-label="モデル: Haiku 4"');
+  });
+});
+
+describe("groupModels（#183）", () => {
+  const m = (value: string) => ({ value, displayName: value });
+
+  test("最初の階層には利用可能な Fable・Opus・Sonnet・Haiku をこの順に並べ、残りはその他にまとめる", () => {
+    const grouped = groupModels(
+      [
+        m("default"),
+        m("haiku"),
+        m("sonnet"),
+        m("claude-opus-4-1"),
+        m("sonnet[1m]"),
+        m("opus"),
+        m("fable"),
+      ],
+      "default",
+    );
+    expect(grouped.primary.map((x) => x.value)).toEqual([
+      "fable",
+      "opus",
+      "sonnet",
+      "haiku",
+    ]);
+    expect(grouped.others.map((x) => x.value)).toEqual([
+      "default",
+      "claude-opus-4-1",
+      "sonnet[1m]",
+    ]);
+  });
+
+  test("利用できないシリーズは出さない", () => {
+    expect(
+      groupModels([m("default"), m("sonnet")], "sonnet").primary.map(
+        (x) => x.value,
+      ),
+    ).toEqual(["sonnet"]);
+  });
+
+  test("一覧に無い選択中のモデル（古いスレッドなど）はその他の先頭に残す", () => {
+    expect(
+      groupModels([m("default"), m("opus")], "claude-sonnet-4-5").others.map(
+        (x) => x.value,
+      ),
+    ).toEqual(["claude-sonnet-4-5", "default"]);
   });
 });
