@@ -823,15 +823,22 @@ test("回答中の用語から説明を開き、Wiki へ移って回答に戻れ
   await page.mouse.move(0, 0);
   await expect(card).toHaveCount(0);
 
-  // キーボード: フォーカスで要約、Tab で要約の「Wiki で開く」へ移って Wiki 画面を開く
+  // キーボード: フォーカスで要約、Tab で要約の「サイドパネルで開く」へ移って本文を開き（#168）、
+  // サイドパネルの「Wiki で開く」で Wiki 画面へ移る
+  const chatUrl = page.url();
   await terms.nth(1).focus();
   await expect(card).toBeVisible();
-  // 要約は読み込んでから出るので、「Wiki で開く」が出てから Tab で移る
-  const openInWiki = card.getByRole("button", { name: "Wiki で開く" });
-  await expect(openInWiki).toBeVisible();
+  // 要約は読み込んでから出るので、ボタンが出てから Tab で移る
+  const openInPane = card.getByRole("button", { name: "サイドパネルで開く" });
+  await expect(openInPane).toBeVisible();
   await page.keyboard.press("Tab");
-  await expect(openInWiki).toBeFocused();
+  await expect(openInPane).toBeFocused();
   await page.keyboard.press("Enter");
+  const termPane = page.getByRole("complementary", { name: "Wiki ページ" });
+  await expect(termPane).toContainText("主体・関係・対象の 3 つ組。");
+  await expect(card).toHaveCount(0);
+  expect(page.url()).toBe(chatUrl);
+  await termPane.getByRole("button", { name: "Wiki で開く" }).click();
   await expect(page).toHaveURL(/\/wiki\/.+/);
   await expect(page.getByRole("heading", { name: "関係タプル" })).toBeVisible();
   await page.getByRole("button", { name: "回答に戻る" }).click();
@@ -1818,6 +1825,78 @@ test("環境に説明を付けて、設定で確かめて変えられる（#160�
   await page.reload();
   await openEnvironmentMenu(page, "個人情報", "環境の設定");
   await expect(description).toHaveValue("仮名加工情報の使い方を検討する");
+});
+
+test("サイドチャットの用語もサイドパネルで開き、閉じると入力途中のサイドチャットに戻る（#168）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "サイドの用語");
+  await openWiki(page, "サイドの用語");
+  await page.getByRole("button", { name: "新しいページ" }).click();
+  await page.getByRole("textbox", { name: "ページのタイトル" }).fill("方式B");
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("非同期で処理する方式。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "方式B" })).toBeVisible();
+  const wikiUrl = page.url();
+
+  const main = page.getByRole("main");
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const sideInput = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  const pane = page.getByRole("complementary", { name: "Wiki ページ" });
+  const card = page.getByRole("dialog", { name: "用語の説明" });
+
+  // Wiki ページから質問したサイドチャット: 用語を押すと本文を重ねて開き、閉じると戻る
+  await page.getByRole("button", { name: "このページについて質問" }).click();
+  await sideInput.fill("方式B とは");
+  await sideInput.press("Enter");
+  const sideTerm = side.locator("button[data-wiki-term]", {
+    hasText: "方式B",
+  });
+  await expect(sideTerm.first()).toBeVisible({ timeout: 15_000 });
+  await sideInput.fill("書きかけの質問");
+  await sideTerm.first().click();
+  await expect(pane).toContainText("非同期で処理する方式。");
+  await expect(side).toBeHidden();
+  expect(page.url()).toBe(wikiUrl);
+  await pane.getByRole("button", { name: "Wiki ページを閉じる" }).click();
+  await expect(pane).toHaveCount(0);
+  await expect(side).toBeVisible();
+  await expect(sideInput).toHaveValue("書きかけの質問");
+
+  // 分岐のサイドチャット: 要約の「サイドパネルで開く」でも開け、「Wiki で開く」で Wiki 画面へ移る
+  await openTask(page, "サイドの用語");
+  await newChat(page);
+  await send(page, "方式A と 方式B の比較");
+  await idle(page);
+  const chatUrl = page.url();
+  await selectLastAnswerParagraph(page);
+  await main
+    .getByRole("toolbar", { name: "選択範囲の操作" })
+    .getByRole("button", { name: "質問", exact: true })
+    .click();
+  await sideInput.fill("方式B の弱点は？");
+  await sideInput.press("Enter");
+  await expect(sideTerm.last()).toBeVisible({ timeout: 15_000 });
+  await sideInput.fill("分岐の書きかけ");
+  await sideTerm.last().click();
+  await expect(pane).toContainText("非同期で処理する方式。");
+  await expect(side).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(pane).toHaveCount(0);
+  await expect(sideInput).toHaveValue("分岐の書きかけ");
+
+  await sideTerm.last().hover();
+  await card.getByRole("button", { name: "サイドパネルで開く" }).click();
+  await expect(pane).toContainText("非同期で処理する方式。");
+  expect(page.url()).toBe(chatUrl);
+  await pane.getByRole("button", { name: "Wiki で開く" }).click();
+  await expect(page).toHaveURL(/\/wiki\/.+/);
+  await expect(page.getByRole("heading", { name: "方式B" })).toBeVisible();
 });
 
 test("スレッドをタイトルと本文で検索し、一致した発言へ移動できる", async ({

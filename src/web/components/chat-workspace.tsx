@@ -50,13 +50,24 @@ export const SideChat = ({
   onClose,
   api,
   models,
+  hidden = false,
   ...callbacks
 }: Pick<
   ChatViewProps,
-  "api" | "models" | "onActivity" | "onOpenWikiPage" | "onWikiPageCreated"
+  | "api"
+  | "models"
+  | "onActivity"
+  | "onOpenWikiPage"
+  | "onOpenWikiPane"
+  | "onWikiPageCreated"
 > & {
   request: BranchRequest | WikiRequest;
   onClose: () => void;
+  /**
+   * 上に Wiki ページを重ねて開いている間は隠す（#168）。
+   * 消さずに隠すので、閉じると入力途中のメッセージごと元に戻る。
+   */
+  hidden?: boolean;
 }) => {
   const wiki = request.kind === "wiki" ? request : undefined;
   const taskId = wiki?.taskId;
@@ -195,6 +206,7 @@ export const SideChat = ({
         wiki === undefined
           ? "max-lg:fixed max-lg:inset-0 max-lg:z-30"
           : "max-lg:flex-[2] max-lg:border-t",
+        hidden && "hidden",
       )}
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
@@ -305,6 +317,8 @@ export const SideChat = ({
 /**
  * メインの会話と、右側のペイン（サイドチャットか Wiki ページのどちらか 1 つ）。
  * 右側のペインは常に 1 つだけで、新しく開くと前のものと入れ替わる。
+ * ただし、サイドチャットを開いているときに用語・引用から開いた Wiki ページは、
+ * サイドチャットを隠して上に重ね、閉じると元のサイドチャットに戻る（#168）。
  */
 export const ChatWorkspace = ({
   loading,
@@ -318,15 +332,20 @@ export const ChatWorkspace = ({
   const [side, setSide] = useState<
     BranchRequest | PageRequest | (WikiRequest & { id: string })
   >();
+  /**
+   * サイドチャットを開いたまま、その上に重ねて開いた Wiki ページ（#168）。
+   * 閉じると、隠していたサイドチャットに入力途中のまま戻る。
+   */
+  const [overlay, setOverlay] = useState<PageRequest>();
+  const sideRef = useRef(side);
+  sideRef.current = side;
   if (!loading && side?.id === props.chat.id) setSide(undefined);
   const main = useRef<HTMLElement>(null);
   const focusComposer = () =>
     main.current
       ?.querySelector<HTMLTextAreaElement>("textarea[aria-label='メッセージ']")
       ?.focus();
-  const closeSide = () => {
-    const returnFocus = side?.kind === "page" ? side.returnFocus : null;
-    setSide(undefined);
+  const restoreFocus = (returnFocus: HTMLElement | null) =>
     requestAnimationFrame(() => {
       if (returnFocus?.isConnected) {
         returnFocus.focus();
@@ -334,10 +353,20 @@ export const ChatWorkspace = ({
         focusComposer();
       }
     });
+  const openSide = (next: NonNullable<typeof side>) => {
+    setOverlay(undefined);
+    setSide(next);
   };
+  const closeSide = () => {
+    const returnFocus = side?.kind === "page" ? side.returnFocus : null;
+    setOverlay(undefined);
+    setSide(undefined);
+    restoreFocus(returnFocus);
+  };
+  /** 用語・引用の Wiki ページを右側のペインで開く。サイドチャットがあれば、その上に重ねる。 */
   const openWikiPane = useCallback((taskId: string, pageId: string) => {
     const active = document.activeElement;
-    setSide({
+    const request: PageRequest = {
       kind: "page",
       id: crypto.randomUUID(),
       taskId,
@@ -346,8 +375,24 @@ export const ChatWorkspace = ({
         active instanceof HTMLElement && active !== document.body
           ? active
           : null,
-    });
+    };
+    const current = sideRef.current;
+    if (current !== undefined && current.kind !== "page") {
+      setOverlay(request);
+    } else {
+      setOverlay(undefined);
+      setSide(request);
+    }
   }, []);
+  const page = overlay ?? (side?.kind === "page" ? side : undefined);
+  const closePage = () => {
+    if (overlay === undefined) {
+      closeSide();
+      return;
+    }
+    setOverlay(undefined);
+    restoreFocus(overlay.returnFocus);
+  };
   const onOpenWikiPage = props.onOpenWikiPage;
   // 会話で Claude が Wiki を編集したかもしれないので、送信・完了のたびに開いているページを読み直す
   const [wikiRevision, setWikiRevision] = useState(0);
@@ -376,32 +421,32 @@ export const ChatWorkspace = ({
             {...props}
             onActivity={onActivity}
             onAskSelection={(quote, settings) =>
-              setSide({
+              openSide({
                 kind: "branch",
                 id: crypto.randomUUID(),
                 draft: { parentId: props.chat.id, quote, settings },
               })
             }
-            onOpenSideBranch={(id) => setSide({ kind: "branch", id })}
+            onOpenSideBranch={(id) => openSide({ kind: "branch", id })}
             onOpenWikiPane={openWikiPane}
           />
         )}
       </section>
-      {side?.kind === "page" ? (
+      {page !== undefined && (
         <WikiPane
-          key={side.id}
+          key={page.id}
           api={props.api}
-          taskId={side.taskId}
-          pageId={side.pageId}
+          taskId={page.taskId}
+          pageId={page.pageId}
           revision={wikiRevision}
-          onClose={closeSide}
-          onOpenPage={(pageId) => openWikiPane(side.taskId, pageId)}
+          onClose={closePage}
+          onOpenPage={(pageId) => openWikiPane(page.taskId, pageId)}
           onAskSelection={(quote) =>
-            setSide({
+            openSide({
               kind: "wiki",
               id: crypto.randomUUID(),
-              taskId: side.taskId,
-              pageId: side.pageId,
+              taskId: page.taskId,
+              pageId: page.pageId,
               title: quote.sourcePage.title,
               quote,
             })
@@ -412,18 +457,21 @@ export const ChatWorkspace = ({
           onOpenFull={
             onOpenWikiPage === undefined
               ? undefined
-              : () => onOpenWikiPage(side.taskId, side.pageId)
+              : () => onOpenWikiPage(page.taskId, page.pageId)
           }
           onOpenChat={onOpenChat}
         />
-      ) : side !== undefined ? (
+      )}
+      {side !== undefined && side.kind !== "page" && (
         <SideChat
           key={side.id}
           request={side}
           api={props.api}
           models={props.models}
+          hidden={overlay !== undefined}
           onClose={closeSide}
           onActivity={onActivity}
+          onOpenWikiPane={openWikiPane}
           {...(props.onOpenWikiPage === undefined
             ? {}
             : { onOpenWikiPage: props.onOpenWikiPage })}
@@ -431,7 +479,7 @@ export const ChatWorkspace = ({
             ? {}
             : { onWikiPageCreated: props.onWikiPageCreated })}
         />
-      ) : null}
+      )}
     </div>
   );
 };

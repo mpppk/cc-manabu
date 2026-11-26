@@ -1,4 +1,4 @@
-import { BookOpen } from "lucide-react";
+import { BookOpen, PanelRight } from "lucide-react";
 import {
   createContext,
   type ReactNode,
@@ -17,8 +17,8 @@ export type WikiTermsContextValue = {
   /** Wiki のページを開く（Wiki 画面へ移る）。 */
   open: (pageId: string) => void;
   /**
-   * 会話の右側のペインでページを開く。あればクリック・Enter でペインを開き、
-   * 無ければ（サイドチャットなど）要約を固定して開く。
+   * 会話の右側（サイドパネル）でページの本文を開く。あればクリック・Enter と要約の
+   * 「サイドパネルで開く」でパネルを開き（#168）、無ければ要約を固定して開く。
    */
   openPane?: ((pageId: string) => void) | undefined;
 };
@@ -49,8 +49,9 @@ type State =
 const HOVER_DELAY_MS = 300;
 
 /**
- * 回答中の用語。ホバー・フォーカスで要約を出し、クリック・タップ・Enter で右側のペインに
- * ページを開く（ペインが無ければ要約を固定して開く）。要約から Wiki のページへ移れる。
+ * 回答中の用語。ホバー・フォーカスで要約を出し、クリック・タップ・Enter で右側のサイドパネルに
+ * ページの本文を開く（パネルが無ければ要約を固定して開く）。要約からもサイドパネルで開け、
+ * Wiki 画面へはサイドパネルの「Wiki で開く」から移る。
  */
 export const WikiTerm = ({
   pageId,
@@ -182,17 +183,32 @@ export const WikiTerm = ({
               <span className="text-muted-foreground">
                 {summaryOf(state.page.body) || "説明はまだありません。"}
               </span>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 self-start text-primary text-xs underline"
-                onClick={() => {
-                  setOpen(undefined);
-                  context.open(pageId);
-                }}
-              >
-                <BookOpen className="size-3.5" />
-                Wiki で開く
-              </button>
+              {context.openPane === undefined ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 self-start text-primary text-xs underline"
+                  onClick={() => {
+                    setOpen(undefined);
+                    context.open(pageId);
+                  }}
+                >
+                  <BookOpen className="size-3.5" />
+                  Wiki で開く
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 self-start text-primary text-xs underline"
+                  onClick={() => {
+                    clearTimeout(timer.current);
+                    setOpen(undefined);
+                    context.openPane?.(pageId);
+                  }}
+                >
+                  <PanelRight className="size-3.5" />
+                  サイドパネルで開く
+                </button>
+              )}
             </>
           )}
         </span>
