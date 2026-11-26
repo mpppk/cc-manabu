@@ -225,6 +225,7 @@ const ChatItem = ({
   );
 };
 
+// 改名前（#188）のキーのまま使い、ブラウザに保存した値を引き継ぐ
 const EXPANDED_KEY = "cc-manabu.sidebarExpanded";
 
 /**
@@ -261,6 +262,7 @@ const saveExpanded = (expanded: Expanded) => {
   }
 };
 
+// 改名前（#188）のキーのまま使い、ブラウザに保存した値を引き継ぐ
 const GROUP_KEY = "cc-manabu.sidebarGroupByEnvironment";
 
 /** タスクを環境ごとにまとめるか（ブラウザに覚える。既定はまとめる）。 */

@@ -16,7 +16,7 @@ import {
   TERM_EXTRACTION_SETTINGS,
 } from "../../src/wiki/terms.ts";
 
-const LIVE = process.env.CC_MANABU_LIVE === "1";
+const LIVE = process.env.MONET_LIVE === "1";
 
 const question = "仮名加工情報を社内の分析に使うときの注意点を、資料にまとめて";
 const answer = [

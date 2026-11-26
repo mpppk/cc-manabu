@@ -41,20 +41,20 @@ jobs:
         include:
           - name: linux-x64
             bun_target: bun-linux-x64
-            binary: cc-manabu
-            archive: cc-manabu-linux-x64.tar.gz
+            binary: monet
+            archive: monet-linux-x64.tar.gz
           - name: linux-arm64
             bun_target: bun-linux-arm64
-            binary: cc-manabu
-            archive: cc-manabu-linux-arm64.tar.gz
+            binary: monet
+            archive: monet-linux-arm64.tar.gz
           - name: darwin-arm64
             bun_target: bun-darwin-arm64
-            binary: cc-manabu
-            archive: cc-manabu-darwin-arm64.tar.gz
+            binary: monet
+            archive: monet-darwin-arm64.tar.gz
           - name: windows-x64
             bun_target: bun-windows-x64
-            binary: cc-manabu.exe
-            archive: cc-manabu-windows-x64.zip
+            binary: monet.exe
+            archive: monet-windows-x64.zip
     steps:
       - uses: actions/checkout@v4
         with:

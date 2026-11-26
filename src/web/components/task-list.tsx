@@ -10,7 +10,7 @@ import {
 } from "../lib/task-status.ts";
 import { cn } from "../lib/utils.ts";
 
-const DRAG_TYPE = "application/x-cc-manabu-task";
+const DRAG_TYPE = "application/x-monet-task";
 
 /**
  * タスク一覧（`/tasks`）。進捗の状態ごとの列に並べるカンバン（#195）。

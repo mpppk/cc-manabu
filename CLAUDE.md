@@ -1,4 +1,4 @@
-# cc-manabu
+# monet
 
 Claude Code のログイン（サブスクリプション）を使うローカルチャットアプリ。設計は [docs/development-plan.md](docs/development-plan.md) を参照。
 

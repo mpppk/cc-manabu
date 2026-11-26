@@ -6,5 +6,5 @@
 /** 問い合わせ先のパス。 */
 export const AUTH_MODE_PATH = "/auth-mode";
 
-/** {@link AUTH_MODE_PATH} の応答。tokenRequired が false なのは CC_MANABU_NO_AUTH=1 のときだけ。 */
+/** {@link AUTH_MODE_PATH} の応答。tokenRequired が false なのは MONET_NO_AUTH=1 のときだけ。 */
 export type AuthMode = { tokenRequired: boolean };

@@ -1,5 +1,6 @@
 export type Theme = "light" | "dark" | "system";
 
+// 改名前（#188）のキーのまま使い、ブラウザに保存した値を引き継ぐ
 const STORAGE_KEY = "cc-manabu:theme";
 
 export const loadTheme = (): Theme => {

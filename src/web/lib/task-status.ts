@@ -43,6 +43,7 @@ export const filterTasksByStatus = <T extends { status: TaskStatus }>(
     ? [...tasks]
     : tasks.filter((task) => statuses.includes(task.status));
 
+// 改名前（#188）のキーのまま使い、ブラウザに保存した値を引き継ぐ
 const STATUS_FILTER_KEY = "cc-manabu.sidebarStatusFilter";
 
 /** 左パネルの進捗の絞り込み（ブラウザに覚える）。読めなければ絞り込まない。 */

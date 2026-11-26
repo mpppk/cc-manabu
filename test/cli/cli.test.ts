@@ -6,7 +6,7 @@ import { version } from "../../src/version.ts";
 
 const run = async (argv: string[]) => {
   const output: string[] = [];
-  const result = await runCli(argv, "cc-manabu", {
+  const result = await runCli(argv, "monet", {
     print: (message) => output.push(message),
   });
   return { output, result };
@@ -27,7 +27,7 @@ describe("runCli", () => {
     async (flag) => {
       const { output, result } = await run([flag]);
       expect(Result.isSuccess(result)).toBe(true);
-      expect(output).toEqual([helpText("cc-manabu")]);
+      expect(output).toEqual([helpText("monet")]);
     },
   );
 
@@ -62,7 +62,7 @@ describe("loadRuntimeConfig", () => {
 
   test("環境変数でポートとブラウザ起動を変えられる", () => {
     expect(
-      loadRuntimeConfig({ CC_MANABU_PORT: "4123", CC_MANABU_NO_OPEN: "1" }),
+      loadRuntimeConfig({ MONET_PORT: "4123", MONET_NO_OPEN: "1" }),
     ).toEqual({
       hostname: "127.0.0.1",
       port: 4123,
@@ -74,8 +74,8 @@ describe("loadRuntimeConfig", () => {
 
   test("--pwa が無くても Chrome の指定を読む（インストール済みの PWA を探すのに使う。#163）", () => {
     const config = loadRuntimeConfig({
-      CC_MANABU_CHROME_PROFILE: " Profile 2 ",
-      CC_MANABU_CHROME_APP_ID: "jceoalhlcmiheiojpbghilhgglnodbme",
+      MONET_CHROME_PROFILE: " Profile 2 ",
+      MONET_CHROME_APP_ID: "jceoalhlcmiheiojpbghilhgglnodbme",
     });
     expect(config.pwa).toBeUndefined();
     expect(config.chrome).toEqual({
@@ -84,27 +84,34 @@ describe("loadRuntimeConfig", () => {
     });
   });
 
-  test("CC_MANABU_NO_AUTH=1 のときだけトークンを要求しない", () => {
-    expect(loadRuntimeConfig({ CC_MANABU_NO_AUTH: "1" }).requireToken).toBe(
-      false,
-    );
-    expect(loadRuntimeConfig({ CC_MANABU_NO_AUTH: "0" }).requireToken).toBe(
-      true,
-    );
-    expect(loadRuntimeConfig({ CC_MANABU_NO_AUTH: "" }).requireToken).toBe(
-      true,
-    );
+  test("改名前の CC_MANABU_* も読み、両方あれば MONET_* を優先する（#188）", () => {
+    expect(
+      loadRuntimeConfig({ CC_MANABU_PORT: "4123", CC_MANABU_NO_OPEN: "1" }),
+    ).toMatchObject({ port: 4123, openBrowser: false });
+    expect(
+      loadRuntimeConfig({ MONET_PORT: "4000", CC_MANABU_PORT: "4123" }).port,
+    ).toBe(4000);
+    expect(
+      loadRuntimeConfig({ MONET_NO_AUTH: "0", CC_MANABU_NO_AUTH: "1" })
+        .requireToken,
+    ).toBe(true);
+  });
+
+  test("MONET_NO_AUTH=1 のときだけトークンを要求しない", () => {
+    expect(loadRuntimeConfig({ MONET_NO_AUTH: "1" }).requireToken).toBe(false);
+    expect(loadRuntimeConfig({ MONET_NO_AUTH: "0" }).requireToken).toBe(true);
+    expect(loadRuntimeConfig({ MONET_NO_AUTH: "" }).requireToken).toBe(true);
   });
 
   test("--pwa は Chrome の設定を読み、ブラウザを開かない指定とトークン認証を保つ", () => {
     expect(
       loadRuntimeConfig(
         {
-          CC_MANABU_PORT: "4000",
-          CC_MANABU_CHROME_PROFILE: "Profile 2",
-          CC_MANABU_CHROME_APP_ID: "jceoalhlcmiheiojpbghilhgglnodbme",
-          CC_MANABU_NO_AUTH: "1",
-          CC_MANABU_NO_OPEN: "1",
+          MONET_PORT: "4000",
+          MONET_CHROME_PROFILE: "Profile 2",
+          MONET_CHROME_APP_ID: "jceoalhlcmiheiojpbghilhgglnodbme",
+          MONET_NO_AUTH: "1",
+          MONET_NO_OPEN: "1",
         },
         true,
       ),
@@ -117,7 +124,7 @@ describe("loadRuntimeConfig", () => {
   });
 
   test("不正なポートは既定値にする", () => {
-    expect(loadRuntimeConfig({ CC_MANABU_PORT: "99999" }).port).toBe(0);
-    expect(loadRuntimeConfig({ CC_MANABU_PORT: "abc" }).port).toBe(0);
+    expect(loadRuntimeConfig({ MONET_PORT: "99999" }).port).toBe(0);
+    expect(loadRuntimeConfig({ MONET_PORT: "abc" }).port).toBe(0);
   });
 });

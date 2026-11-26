@@ -8,7 +8,7 @@ import {
 /** 生成中のエラーを、UI に出す日本語のメッセージにする。 */
 export const toUserErrorMessage = (error: unknown): string => {
   if (error instanceof ClaudeCodeNotFoundError) {
-    return "Claude Code（claude コマンド）が見つかりません。インストールしてから cc-manabu を起動し直してください。";
+    return "Claude Code（claude コマンド）が見つかりません。インストールしてから monet を起動し直してください。";
   }
   if (isAuthenticationError(error)) {
     return "Claude Code にログインしていません。ターミナルで `claude` を実行してログインしてください。";

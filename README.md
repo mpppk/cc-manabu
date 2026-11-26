@@ -1,4 +1,4 @@
-# cc-manabu
+# monet
 
 インストール済みの [Claude Code](https://code.claude.com/docs/en/overview)（`claude` コマンド）を使って、ブラウザから Claude と会話するためのローカルチャットアプリです。
 Bun 製の単一バイナリとして動き、起動するとローカルに Web UI を立ち上げます。
@@ -33,88 +33,100 @@ Bun 製の単一バイナリとして動き、起動するとローカルに Web
 - [Claude Code](https://code.claude.com/docs/en/setup) がインストールされていて、`claude` コマンドが動くこと
 - `claude` の認証が済んでいること（下の「認証と利用規約」を参照）
 
-cc-manabu は自分では認証情報を扱いません。PATH 上の `claude`（または `CC_MANABU_CLAUDE_PATH` で指定したもの）を [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) 経由で起動し、その認証で Claude を呼び出します。
+monet は自分では認証情報を扱いません。PATH 上の `claude`（または `MONET_CLAUDE_PATH` で指定したもの）を [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview) 経由で起動し、その認証で Claude を呼び出します。
 
 ## 認証と利用規約
 
-cc-manabu は、利用者が自分の PC で起動し、自分だけが使うローカルツールです。
+monet は、利用者が自分の PC で起動し、自分だけが使うローカルツールです。
 
 - Web サービスとして公開したり、他の人に Claude を使わせたりするものではありません（サーバは `127.0.0.1` でのみ待ち受けます）
-- 認証情報を収集・保存・中継しません。ログインは Anthropic 純正の `claude` で利用者自身が行い、cc-manabu は改変していない `claude` をそのまま起動します
+- 認証情報を収集・保存・中継しません。ログインは Anthropic 純正の `claude` で利用者自身が行い、monet は改変していない `claude` をそのまま起動します
 - 利用枠は、その利用者自身の Claude のプラン（または API キー）のものが使われます
 
-Anthropic は、サードパーティの製品が claude.ai のログインを提供したり、利用者に代わってサブスクリプションの認証情報でリクエストを中継したりすることを認めていません（[Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview)、[Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)）。また、Pro / Max などの利用枠は、Claude Code と Agent SDK の通常の個人利用を前提としています。cc-manabu を複数人で共有するサーバとして動かしたり、他の人の利用を肩代わりしたりしないでください。
+Anthropic は、サードパーティの製品が claude.ai のログインを提供したり、利用者に代わってサブスクリプションの認証情報でリクエストを中継したりすることを認めていません（[Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview)、[Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)）。また、Pro / Max などの利用枠は、Claude Code と Agent SDK の通常の個人利用を前提としています。monet を複数人で共有するサーバとして動かしたり、他の人の利用を肩代わりしたりしないでください。
 
 規約は変わることがあります。上のページと [Usage Policy](https://www.anthropic.com/legal/aup)、[Consumer Terms](https://www.anthropic.com/legal/consumer-terms)、[Commercial Terms](https://www.anthropic.com/legal/commercial-terms) の最新版を確認し、自分の使い方が規約に沿っているかを確認してください。
 
-API キーで使う場合は、[Claude Console](https://platform.claude.com/) で発行したキーを環境変数に設定してから起動します。cc-manabu は環境変数をそのまま `claude` に渡します。
+API キーで使う場合は、[Claude Console](https://platform.claude.com/) で発行したキーを環境変数に設定してから起動します。monet は環境変数をそのまま `claude` に渡します。
 
 ```sh
 export ANTHROPIC_API_KEY=sk-ant-...
-cc-manabu
+monet
 ```
 
 ヘッダには `claude` が報告するアカウントの種類（例: Claude API）が表示されるので、どの認証で動いているかを確認できます。
 
 ## インストール
 
-[GitHub Releases](https://github.com/mpppk/cc-manabu/releases) から、使っている OS 向けのアーカイブ（linux-x64 / linux-arm64 / darwin-arm64 / windows-x64）をダウンロードして展開し、PATH の通ったディレクトリに置きます。
+[GitHub Releases](https://github.com/mpppk/monet/releases) から、使っている OS 向けのアーカイブ（linux-x64 / linux-arm64 / darwin-arm64 / windows-x64）をダウンロードして展開し、PATH の通ったディレクトリに置きます。
 
 ```sh
 # 例: Linux (x64)
-curl -LO https://github.com/mpppk/cc-manabu/releases/latest/download/cc-manabu-linux-x64.tar.gz
-tar xzf cc-manabu-linux-x64.tar.gz
-install cc-manabu ~/.local/bin/
+curl -LO https://github.com/mpppk/monet/releases/latest/download/monet-linux-x64.tar.gz
+tar xzf monet-linux-x64.tar.gz
+install monet ~/.local/bin/
 ```
 
-`checksums.txt` に各アーカイブの SHA-256 があります。macOS で「開発元を確認できない」と表示される場合は `xattr -d com.apple.quarantine cc-manabu` で隔離属性を外してください。
+`checksums.txt` に各アーカイブの SHA-256 があります。macOS で「開発元を確認できない」と表示される場合は `xattr -d com.apple.quarantine monet` で隔離属性を外してください。
 
 ## 使い方
 
 ```sh
 cd your-project
-cc-manabu            # ローカルサーバを起動してブラウザを開く
-cc-manabu update     # GitHub Releases の最新版に更新する（SHA-256 を検証してから置き換える）
-cc-manabu --help
+monet            # ローカルサーバを起動してブラウザを開く
+monet update     # GitHub Releases の最新版に更新する（SHA-256 を検証してから置き換える）
+monet --help
 ```
 
 | 環境変数 | 説明 |
 | --- | --- |
-| `CC_MANABU_PORT` | 待ち受けるポート（既定: 空いているポート） |
-| `CC_MANABU_NO_OPEN=1` | 起動時にブラウザや PWA を開かない |
-| `CC_MANABU_CHROME_PROFILE` | PWA に使う Chrome のプロファイルディレクトリ（既定: PWA をインストールしたプロファイルを探す） |
-| `CC_MANABU_CHROME_APP_ID` | PWA に使う Chrome のアプリ ID（省略時は起動 URL から算出） |
-| `CC_MANABU_CLAUDE_PATH` | 使う `claude` のパス（既定: PATH から探す） |
-| `CC_MANABU_NO_AUTH=1` | API にアクセストークンを要求しない（デバッグ用。`--pwa` では常にトークンを要求） |
-| `CC_MANABU_DB` | 会話を保存する SQLite のパス（既定: `$XDG_DATA_HOME/cc-manabu/db.sqlite`、未設定なら `~/.local/share/cc-manabu/db.sqlite`） |
+| `MONET_PORT` | 待ち受けるポート（既定: 空いているポート） |
+| `MONET_NO_OPEN=1` | 起動時にブラウザや PWA を開かない |
+| `MONET_CHROME_PROFILE` | PWA に使う Chrome のプロファイルディレクトリ（既定: PWA をインストールしたプロファイルを探す） |
+| `MONET_CHROME_APP_ID` | PWA に使う Chrome のアプリ ID（省略時は起動 URL から算出） |
+| `MONET_CLAUDE_PATH` | 使う `claude` のパス（既定: PATH から探す） |
+| `MONET_NO_AUTH=1` | API にアクセストークンを要求しない（デバッグ用。`--pwa` では常にトークンを要求） |
+| `MONET_DB` | 会話を保存する SQLite のパス（既定: `$XDG_DATA_HOME/monet/db.sqlite`、未設定なら `~/.local/share/monet/db.sqlite`） |
+
+改名前の `CC_MANABU_*`（例: `CC_MANABU_PORT`）もそのまま読みます。両方を指定した場合は `MONET_*` を優先します。
+
+### cc-manabu からの切り替え
+
+monet は cc-manabu を改名したものです（リポジトリも `mpppk/cc-manabu` から `mpppk/monet` に移りました）。配布物の名前が変わったため、旧版の `cc-manabu update` では新しい版を取得できません。次の手順で切り替えてください。
+
+1. [GitHub Releases](https://github.com/mpppk/monet/releases) から `monet-<OS>-<アーキテクチャ>` のアーカイブをダウンロードし、`monet` を PATH の通ったディレクトリに置きます（上の「インストール」と同じ手順）。以降の更新は `monet update` で行えます
+2. 旧バイナリの `cc-manabu` は不要になるので削除します
+3. 会話・タスク・Wiki はそのまま引き継がれます。新しい場所（`~/.local/share/monet/db.sqlite`）に DB が無ければ、旧来の `~/.local/share/cc-manabu/db.sqlite`（`$XDG_DATA_HOME` を使っている場合はその下）をそのまま使います。`CC_MANABU_DB` で場所を指定していた場合も、そのまま読みます
+4. `CC_MANABU_*` の環境変数もそのまま使えます。新しく設定するときは `MONET_*` を使ってください
+5. インストール済みの PWA は、同じポートで起動すればそのまま開けます（マニフェスト ID と起動 URL は変えていません）。テーマやサイドバーなど、ブラウザに保存した設定も引き継がれます。PWA の表示名は、Chrome が次にマニフェストを確認したときに「monet」に変わります
 
 ### macOS の Chrome で PWA として開く
 
-1. `CC_MANABU_PORT=4000 CC_MANABU_NO_OPEN=1 cc-manabu` で起動します。ターミナルに表示された起動 URL を、PWA を使う Chrome プロファイルで開きます。
+1. `MONET_PORT=4000 MONET_NO_OPEN=1 monet` で起動します。ターミナルに表示された起動 URL を、PWA を使う Chrome プロファイルで開きます。
 2. Chrome のメニューで「キャスト、保存、共有」→「ページをアプリとしてインストール」を選びます。[Chrome のインストール手順](https://support.google.com/chrome/answer/9658361?hl=ja)
-3. Ctrl+C でサーバーを止めます。以降は `cc-manabu` だけで、インストール済みの PWA を見つけて、インストール時のポートで起動して PWA を開きます。
+3. Ctrl+C でサーバーを止めます。以降は `monet` だけで、インストール済みの PWA を見つけて、インストール時のポートで起動して PWA を開きます。
 
    ```sh
-   cc-manabu
+   monet
    ```
 
-ポートを指定しない場合は、Chrome のプロファイルからインストール済みの cc-manabu を探し、インストール時のポートを使います。複数のポートでインストールしている場合は、その旨を表示して通常のブラウザで開くので、`CC_MANABU_PORT` で使うポートを指定します。`CC_MANABU_PORT` を指定した場合は、そのポートの URL でインストールした PWA を開きます。PWA が見つからない場合、macOS の Google Chrome 以外の環境、または PWA の起動に失敗した場合は、通常のブラウザで開きます。
+ポートを指定しない場合は、Chrome のプロファイルからインストール済みの monet を探し、インストール時のポートを使います。複数のポートでインストールしている場合は、その旨を表示して通常のブラウザで開くので、`MONET_PORT` で使うポートを指定します。`MONET_PORT` を指定した場合は、そのポートの URL でインストールした PWA を開きます。PWA が見つからない場合、macOS の Google Chrome 以外の環境、または PWA の起動に失敗した場合は、通常のブラウザで開きます。
 
-`--pwa` を付けると、PWA を必ず使う起動になります（`CC_MANABU_PORT` が必要です）。
-
-```sh
-CC_MANABU_PORT=4000 cc-manabu --pwa
-```
-
-PWA をインストールした Chrome プロファイルは自動で探します。複数のプロファイルにインストールした場合は、`chrome://version` に表示される「プロフィール パス」の末尾（例 `Profile 2`）を `CC_MANABU_CHROME_PROFILE` に指定します。アプリ ID は起動 URL から求めます。明示的に指定する場合は、`chrome://web-app-internals` で `http://127.0.0.1:4000/` の `app_id` を確認して `CC_MANABU_CHROME_APP_ID` に渡します。
+`--pwa` を付けると、PWA を必ず使う起動になります（`MONET_PORT` が必要です）。
 
 ```sh
-CC_MANABU_PORT=4000 CC_MANABU_CHROME_PROFILE='Profile 2' cc-manabu --pwa
+MONET_PORT=4000 monet --pwa
 ```
 
-PWA を開くときは、起動ごとに新しいアクセストークンを渡します。Chrome や PWA が見つからない場合は、理由を表示して同じサーバーを既定のブラウザで開きます。指定したポートが使用中なら、先に使用中のプロセスを止めてください（ポートを指定せずに自動で見つけたポートが使用中なら、PWA を使わずに空いているポートで起動します）。別のポートを使う場合は、その URL で PWA をインストールし直します。`CC_MANABU_NO_OPEN=1` を指定するとサーバーだけ起動します。
+PWA をインストールした Chrome プロファイルは自動で探します。複数のプロファイルにインストールした場合は、`chrome://version` に表示される「プロフィール パス」の末尾（例 `Profile 2`）を `MONET_CHROME_PROFILE` に指定します。アプリ ID は起動 URL から求めます。明示的に指定する場合は、`chrome://web-app-internals` で `http://127.0.0.1:4000/` の `app_id` を確認して `MONET_CHROME_APP_ID` に渡します。
 
-Ctrl+C で終了すると、その起動で新しく開いた PWA のウィンドウも閉じます。起動前から開いていた cc-manabu のウィンドウが再利用された場合や、今回開いたウィンドウを特定できない場合は、サーバーだけを止めます。ウィンドウの特定と終了には Chrome の AppleScript を使うので、初回は macOS がターミナルから「Google Chrome」の操作を許可するか尋ねます（許可しなければ、ウィンドウは閉じずにサーバーだけを止めます。あとから「システム設定 → プライバシーとセキュリティ → オートメーション」で変更できます）。
+```sh
+MONET_PORT=4000 MONET_CHROME_PROFILE='Profile 2' monet --pwa
+```
+
+PWA を開くときは、起動ごとに新しいアクセストークンを渡します。Chrome や PWA が見つからない場合は、理由を表示して同じサーバーを既定のブラウザで開きます。指定したポートが使用中なら、先に使用中のプロセスを止めてください（ポートを指定せずに自動で見つけたポートが使用中なら、PWA を使わずに空いているポートで起動します）。別のポートを使う場合は、その URL で PWA をインストールし直します。`MONET_NO_OPEN=1` を指定するとサーバーだけ起動します。
+
+Ctrl+C で終了すると、その起動で新しく開いた PWA のウィンドウも閉じます。起動前から開いていた monet のウィンドウが再利用された場合や、今回開いたウィンドウを特定できない場合は、サーバーだけを止めます。ウィンドウの特定と終了には Chrome の AppleScript を使うので、初回は macOS がターミナルから「Google Chrome」の操作を許可するか尋ねます（許可しなければ、ウィンドウは閉じずにサーバーだけを止めます。あとから「システム設定 → プライバシーとセキュリティ → オートメーション」で変更できます）。
 
 ## セキュリティ
 
@@ -122,7 +134,7 @@ Ctrl+C で終了すると、その起動で新しく開いた PWA のウィン�
 - 読み取り系のツール（Read / Glob / Grep / WebSearch / TodoWrite）は自動で許可し、それ以外は Web UI で都度承認します。`settings.json` の `deny` や `settings.local.json` の `allow` も効きます
 - Web UI は `127.0.0.1` でのみ待ち受けます。API は起動ごとに発行されるトークンがないと呼べず、Host / Origin ヘッダも検証します
 - トークンは起動時に表示される URL のフラグメント（`#token=...`）で渡されます。この URL を共有しないでください
-- `CC_MANABU_NO_AUTH=1` を付けて起動すると、トークンなしで API を呼べます（`bun run dev` の再起動でトークンが変わり、開いているページが使えなくなるのを避けるためのデバッグ用）。Host / Origin の検証は残りますが、同じマシンの他のプロセスやユーザーからも Claude にファイル編集やコマンド実行をさせられるので、普段は使わないでください
+- `MONET_NO_AUTH=1` を付けて起動すると、トークンなしで API を呼べます（`bun run dev` の再起動でトークンが変わり、開いているページが使えなくなるのを避けるためのデバッグ用）。Host / Origin の検証は残りますが、同じマシンの他のプロセスやユーザーからも Claude にファイル編集やコマンド実行をさせられるので、普段は使わないでください
 - 会話の内容（添付した画像を含む）は上記の SQLite ファイルにローカル保存されます。Claude Code 側のセッションの記録は `~/.claude` に残ります
 
 ## 開発
@@ -130,7 +142,7 @@ Ctrl+C で終了すると、その起動で新しく開いた PWA のウィン�
 ```sh
 bun install
 bun run dev          # 開発サーバ（HMR）
-CC_MANABU_NO_AUTH=1 CC_MANABU_PORT=4000 bun run dev
+MONET_NO_AUTH=1 MONET_PORT=4000 bun run dev
                      # トークンなしの開発サーバ（再起動しても同じ URL で開き直せる）
 bun run check        # Biome
 bun run typecheck

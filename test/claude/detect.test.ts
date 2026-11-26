@@ -9,18 +9,25 @@ import { createClaudeStatus } from "../../src/claude/status.ts";
 
 describe("resolveClaudePath", () => {
   const which = (found: string | null) => () => found;
-  test("CC_MANABU_CLAUDE_PATH を優先する", () => {
+  test("MONET_CLAUDE_PATH（改名前の CC_MANABU_CLAUDE_PATH）を優先する", () => {
     expect(
       resolveClaudePath({
-        env: { CC_MANABU_CLAUDE_PATH: "/opt/claude" },
+        env: { MONET_CLAUDE_PATH: "/opt/claude" },
         which: which("/usr/bin/claude"),
         exists: () => true,
       }),
     ).toEqual(Result.succeed("/opt/claude"));
+    expect(
+      resolveClaudePath({
+        env: { CC_MANABU_CLAUDE_PATH: "/legacy/claude" },
+        which: which("/usr/bin/claude"),
+        exists: () => true,
+      }),
+    ).toEqual(Result.succeed("/legacy/claude"));
   });
   test("指定したパスが無ければエラー（PATH は探さない）", () => {
     const result = resolveClaudePath({
-      env: { CC_MANABU_CLAUDE_PATH: "/nope" },
+      env: { MONET_CLAUDE_PATH: "/nope" },
       which: which("/usr/bin/claude"),
       exists: () => false,
     });

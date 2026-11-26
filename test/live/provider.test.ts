@@ -19,7 +19,7 @@ import {
 } from "../../src/provider/index.ts";
 import { buildReferenceText } from "../../src/wiki/reference.ts";
 
-const LIVE = process.env.CC_MANABU_LIVE === "1";
+const LIVE = process.env.MONET_LIVE === "1";
 const TIMEOUT = 120_000;
 
 describe.skipIf(!LIVE)("live: Claude Code provider", () => {

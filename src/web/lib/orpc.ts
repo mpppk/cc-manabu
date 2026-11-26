@@ -7,7 +7,7 @@ export type ApiClient = RouterClient<Router>;
 
 /**
  * oRPC を呼ぶクライアント。起動時トークンを Authorization ヘッダに付ける。
- * token が undefined なのは、サーバがトークンを要求しない（CC_MANABU_NO_AUTH=1）ときだけ。
+ * token が undefined なのは、サーバがトークンを要求しない（MONET_NO_AUTH=1）ときだけ。
  */
 export const createApiClient = (token: string | undefined): ApiClient =>
   createORPCClient(

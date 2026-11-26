@@ -16,7 +16,7 @@ import { router } from "../../src/router.ts";
 import { WIKI_TOOL_NAMES } from "../../src/wiki/tool-names.ts";
 import { createTestContext } from "../helpers/context.ts";
 
-const LIVE = process.env.CC_MANABU_LIVE === "1";
+const LIVE = process.env.MONET_LIVE === "1";
 const TIMEOUT = 180_000;
 
 const REQUEST =

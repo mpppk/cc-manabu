@@ -71,7 +71,7 @@ import { createScriptedQuery, goalVerdicts } from "./scripted-query.ts";
 
 export const E2E_PORT = Number(process.env.E2E_PORT ?? 45200);
 export const E2E_TOKEN = "e2e-token";
-/** E2E_NO_AUTH=1 なら、トークンを要求しないモード（CC_MANABU_NO_AUTH=1 相当）で起動する。 */
+/** E2E_NO_AUTH=1 なら、トークンを要求しないモード（MONET_NO_AUTH=1 相当）で起動する。 */
 const NO_AUTH = process.env.E2E_NO_AUTH === "1";
 
 const opened = openDatabase(":memory:");

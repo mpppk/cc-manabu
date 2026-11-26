@@ -1,3 +1,4 @@
+// 改名前（#188）のキーのまま使い、ブラウザに保存した値を引き継ぐ
 const STORAGE_KEY = "cc-manabu:token";
 
 export const launchTokenFromHash = (hash: string): string | undefined =>
@@ -25,7 +26,7 @@ export const takeToken = (
 export type Access =
   /** 起動時トークンを付けて呼ぶ（通常）。 */
   | { kind: "token"; token: string }
-  /** トークンなしで呼ぶ（サーバが CC_MANABU_NO_AUTH=1 で起動しているとき）。 */
+  /** トークンなしで呼ぶ（サーバが MONET_NO_AUTH=1 で起動しているとき）。 */
   | { kind: "open" }
   /** トークンが無く、サーバも要求している。 */
   | { kind: "missing" };

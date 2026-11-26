@@ -127,7 +127,7 @@ describe("Host（DNS rebinding）", () => {
   });
 });
 
-describe("トークンを要求しないモード（CC_MANABU_NO_AUTH=1）", () => {
+describe("トークンを要求しないモード（MONET_NO_AUTH=1）", () => {
   let open: RunningServer;
   let openBase: string;
 

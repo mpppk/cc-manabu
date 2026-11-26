@@ -378,7 +378,7 @@ export const wikiToolInstructions = (
   page: { id: string; title: string } | undefined,
 ) =>
   [
-    "cc-manabu の Wiki（このタスクが参照する Markdown のページ集）を読み書きするツールです。",
+    "monet の Wiki（このタスクが参照する Markdown のページ集）を読み書きするツールです。",
     ...(page === undefined
       ? []
       : [

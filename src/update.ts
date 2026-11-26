@@ -4,7 +4,7 @@ import path from "node:path";
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
 
-export const REPOSITORY = "mpppk/cc-manabu";
+export const REPOSITORY = "mpppk/monet";
 
 export class RunningFromSourceError extends ErrorFactory({
   name: "RunningFromSourceError",
@@ -88,9 +88,7 @@ export const assetNameFor = (
   if (os === undefined || !supported.has(key)) {
     return Result.fail(new UnsupportedPlatformError({ platform, arch }));
   }
-  return Result.succeed(
-    `cc-manabu-${key}.${os === "windows" ? "zip" : "tar.gz"}`,
-  );
+  return Result.succeed(`monet-${key}.${os === "windows" ? "zip" : "tar.gz"}`);
 };
 
 /** checksums.txt（sha256sum の出力）から、指定したファイルのハッシュを取り出す。 */
@@ -239,7 +237,7 @@ const install = (
 ): Result.ResultAsync<void, UpdateInstallError> =>
   Result.try({
     try: async () => {
-      const dir = await mkdtemp(path.join(tmpdir(), "cc-manabu-update-"));
+      const dir = await mkdtemp(path.join(tmpdir(), "monet-update-"));
       try {
         const archive = path.join(dir, release.assetName);
         await Bun.write(archive, data);
@@ -253,7 +251,7 @@ const install = (
         const { execPath, platform } = target;
         const binary = path.join(
           dir,
-          platform === "win32" ? "cc-manabu.exe" : "cc-manabu",
+          platform === "win32" ? "monet.exe" : "monet",
         );
         await chmod(binary, 0o755);
         // Windows では実行中のファイルを上書きできないので、先に退避する
@@ -276,7 +274,7 @@ export type UpdateOutcome =
   | { kind: "up-to-date"; version: string }
   | { kind: "updated"; from: string; to: string };
 
-/** cc-manabu update の本体。 */
+/** monet update の本体。 */
 export const update = (deps: {
   currentVersion: string;
   execPath: string;

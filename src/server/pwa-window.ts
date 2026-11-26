@@ -2,7 +2,7 @@
  * CLI の起動で開いた PWA のウィンドウを覚えておき、Ctrl+C で終了するときに閉じる（#182）。
  *
  * Chrome の AppleScript でウィンドウの一覧（id とアクティブなタブの URL）を取り、
- * 起動の前になかった cc-manabu のウィンドウだけを「今回開いたウィンドウ」とみなす。
+ * 起動の前になかった monet のウィンドウだけを「今回開いたウィンドウ」とみなす。
  * 起動前から開いていたウィンドウが再利用されたときや、特定できないときは何も閉じない。
  * 初回は macOS がターミナルから Chrome の操作を許可するか尋ねる。許可されなければ何もしない。
  */
@@ -68,7 +68,7 @@ export const parseWindowList = (output: string): ChromeWindow[] | undefined => {
     );
 };
 
-/** cc-manabu の PWA のウィンドウ（タブが 1 つで、そのオリジンを開いているもの）。 */
+/** monet の PWA のウィンドウ（タブが 1 つで、そのオリジンを開いているもの）。 */
 export const pwaWindowsOf = (
   windows: readonly ChromeWindow[],
   origin: string,

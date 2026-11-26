@@ -3,7 +3,7 @@ import { NO_AUTH_PORT } from "../../playwright.config.ts";
 
 const NO_AUTH_BASE = `http://127.0.0.1:${NO_AUTH_PORT}`;
 
-test("CC_MANABU_NO_AUTH=1 のサーバは、トークン付きの URL でなくても開ける", async ({
+test("MONET_NO_AUTH=1 のサーバは、トークン付きの URL でなくても開ける", async ({
   browser,
 }) => {
   const context = await browser.newContext();

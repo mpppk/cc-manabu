@@ -1,7 +1,7 @@
 node_modules/
 dist/
-/cc-manabu
-/cc-manabu.exe
+/monet
+/monet.exe
 *.sqlite
 *.sqlite-*
 .env

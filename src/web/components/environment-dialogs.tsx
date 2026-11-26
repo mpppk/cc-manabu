@@ -267,7 +267,7 @@ const EnvironmentFormDialog = ({
         <input
           className="rounded-md border bg-background px-3 py-2 text-sm"
           aria-label="環境の名前"
-          placeholder="例: cc-manabu"
+          placeholder="例: monet"
           maxLength={100}
           value={name}
           onChange={(event) => setName(event.target.value)}
