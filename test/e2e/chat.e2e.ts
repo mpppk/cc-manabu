@@ -39,6 +39,21 @@ const send = async (page: Page, text: string) => {
   await box.press("Enter");
 };
 
+/** モデル選択のボタン（#183）。`data-model` に選択中のモデル ID を持つ。 */
+const modelButton = (scope: Page | Locator) =>
+  scope.getByRole("button", { name: /^モデル: / });
+
+/** モデルを選ぶ。最初の階層に無ければ「その他のモデル」から選ぶ。 */
+const pickModel = async (scope: Page | Locator, name: string) => {
+  await modelButton(scope).click();
+  const menu = scope.getByRole("menu", { name: "モデル", exact: true });
+  const item = menu.getByRole("menuitemradio", { name, exact: true });
+  if ((await item.count()) === 0) {
+    await menu.getByRole("menuitem", { name: "その他のモデル" }).click();
+  }
+  await item.click();
+};
+
 const idle = (page: Page) =>
   expect(page.getByRole("button", { name: "送信", exact: true })).toBeVisible({
     timeout: 15_000,
@@ -469,6 +484,16 @@ const createTask = async (page: Page, name: string) => {
   await expect(page).toHaveURL(/\/t\/.+/);
   await expect(taskRow(page, name)).toBeVisible();
 };
+
+/** タスク一覧のカンバンの列（#195）。 */
+const column = (page: Page, label: string) =>
+  page.getByRole("region", { name: new RegExp(`^${label}`) });
+
+/** タスク一覧のカンバンのカード（#195）。 */
+const card = (page: Page, name: string) =>
+  page
+    .locator("[data-task-card]")
+    .filter({ has: page.getByRole("button", { name, exact: true }) });
 
 test("何も送っていないスレッドは開いている間だけ出て、＋で使い回す", async ({
   page,
@@ -1097,6 +1122,142 @@ test("タスクに関連リンクを登録し、開き、編集・削除でき�
   await expect(links.getByRole("link")).toHaveCount(1);
 });
 
+test("タスク内のスレッドでは、保存したタスクの情報が Claude に届く（#186）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "タスク情報の検証");
+  await page.getByRole("combobox", { name: "状態" }).selectOption({
+    label: "進行中",
+  });
+  await page
+    .getByRole("textbox", { name: "ゴール" })
+    .fill("API 仕様をレビューする");
+  await page.getByRole("button", { name: "進捗を保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+  await page
+    .getByRole("textbox", { name: "URL" })
+    .last()
+    .fill("https://example.com/design");
+  await page
+    .getByRole("textbox", { name: "表示名（任意）" })
+    .last()
+    .fill("設計資料");
+  await page.getByRole("button", { name: "追加", exact: true }).click();
+  await expect(
+    page.getByRole("list", { name: "関連リンク" }).getByRole("link"),
+  ).toHaveCount(1);
+
+  await newChat(page);
+  await send(
+    page,
+    "このタスクのゴールと、関連リンクを教えて。タスクの情報を教えて",
+  );
+  const answer = page.locator("[data-assistant-message]").last();
+  await expect(answer).toContainText("タスク名: タスク情報の検証");
+  await expect(answer).toContainText("状態: 進行中");
+  await expect(answer).toContainText("API 仕様をレビューする");
+  await expect(answer).toContainText("設計資料: https://example.com/design");
+  await idle(page);
+  // 質問の吹き出しには参照情報を混ぜない
+  await expect(page.getByText("<task-context>")).toHaveCount(0);
+
+  // 未所属のスレッドには付けない
+  await newUnassignedChat(page);
+  await send(page, "タスクの情報を教えて");
+  await expect(page.getByText("タスクの情報はありません")).toBeVisible();
+  await idle(page);
+});
+
+test("チャットからタスクの進捗と関連リンクを更新し、タスク画面で確認できる（#187）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "ツール更新の検証");
+  const status = page.getByRole("combobox", { name: "状態" });
+  const nextAction = page.getByRole("textbox", { name: "ゴール" });
+  const links = page.getByRole("list", { name: "関連リンク" });
+  await page.getByRole("textbox", { name: "進捗メモ" }).fill("設計を進めた");
+  await page.getByRole("button", { name: "進捗を保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+
+  await newChat(page);
+  const chatUrl = page.url();
+  await send(page, "タスクを更新: in_progress|API 仕様をレビューする");
+  await expect(page.getByText("進捗を反映しました。")).toBeVisible();
+  await idle(page);
+  await send(page, "リンクを追加: https://example.com/spec|仕様書");
+  await expect(page.getByText("リンクを登録しました。")).toBeVisible();
+  await idle(page);
+  // 不正な URL は追加しない
+  await send(page, "リンクを追加: javascript:alert(1)|だめなリンク");
+  await idle(page);
+
+  // 指定した項目だけがタスク画面に反映される
+  await openTask(page, "ツール更新の検証");
+  await expect(status).toHaveValue("in_progress");
+  await expect(nextAction).toHaveValue("API 仕様をレビューする");
+  await expect(page.getByRole("textbox", { name: "進捗メモ" })).toHaveValue(
+    "設計を進めた",
+  );
+  await expect(links.getByRole("link")).toHaveCount(1);
+  await expect(links.getByRole("link", { name: /仕様書/ })).toHaveAttribute(
+    "href",
+    "https://example.com/spec",
+  );
+
+  // 次の回答に使うタスク情報にも反映される
+  await page.goto(chatUrl);
+  await send(page, "タスクの情報を教えて");
+  const answer = page.locator("[data-assistant-message]").last();
+  await expect(answer).toContainText("状態: 進行中");
+  await expect(answer).toContainText("仕様書: https://example.com/spec");
+  await idle(page);
+});
+
+test("入力欄の下に所属環境の名前を出し、押すと詳細を開く（#192）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "環境表示の検証");
+  await newChat(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const button = main.getByRole("button", {
+    name: "環境: 環境表示の検証（詳細を開く）",
+  });
+  await expect(button).toBeVisible();
+  // 作業ディレクトリ名ではなく、環境名を出す
+  await expect(button).toHaveText("環境表示の検証");
+
+  await button.click();
+  const details = main.getByRole("dialog", {
+    name: "環境「環境表示の検証」の詳細",
+  });
+  await expect(details).toContainText("説明（なし）");
+  await expect(details).toContainText("参照する Wiki環境表示の検証");
+  await expect(details).toContainText("/e2e（既定の作業ディレクトリ）");
+  await expect(details).not.toContainText("このスレッドの作業ディレクトリ");
+  // 閉じると入力を続けられる
+  await page.keyboard.press("Escape");
+  await expect(details).toHaveCount(0);
+  await expect(button).toBeFocused();
+  const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  await box.fill("続けて入力");
+  await expect(box).toHaveValue("続けて入力");
+  await box.fill("");
+
+  // 別の環境のスレッドに切り替えると、環境名も変わる
+  await createTask(page, "別環境の検証");
+  await newChat(page);
+  await expect(
+    main.getByRole("button", { name: "環境: 別環境の検証（詳細を開く）" }),
+  ).toBeVisible();
+
+  // 未所属のスレッドには環境名を出さない
+  await newUnassignedChat(page);
+  await expect(main.getByRole("button", { name: /^環境: / })).toHaveCount(0);
+});
+
 test("タスクの進捗を記録し、一覧で状態ごとに確認できる", async ({ page }) => {
   await open(page);
   const status = page.getByRole("combobox", { name: "状態" });
@@ -1106,11 +1267,11 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   await expect(status).toHaveValue("not_started");
   await expect(progress).toContainText("最終更新: —");
 
-  // 状態はすぐ保存、次にやること・進捗メモは「進捗を保存」で保存
+  // 状態はすぐ保存、ゴール・進捗メモは「進捗を保存」で保存
   await status.selectOption({ label: "進行中" });
   await expect(progress).not.toContainText("最終更新: —");
   await page
-    .getByRole("textbox", { name: "次にやること" })
+    .getByRole("textbox", { name: "ゴール" })
     .fill("検証環境で権限モデルを試す");
   await page
     .getByRole("textbox", { name: "進捗メモ" })
@@ -1122,9 +1283,7 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   // 別のタスクには反映されない
   await createTask(page, "進捗B");
   await expect(status).toHaveValue("not_started");
-  await expect(page.getByRole("textbox", { name: "次にやること" })).toHaveValue(
-    "",
-  );
+  await expect(page.getByRole("textbox", { name: "ゴール" })).toHaveValue("");
 
   // スレッドで会話を続けても、状態と最終更新は変わらない
   await openTask(page, "進捗A");
@@ -1135,31 +1294,22 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   await expect(status).toHaveValue("in_progress");
   await expect(progress.getByText(/最終更新:/)).toHaveText(updatedText ?? "");
 
-  // 一覧で状態と次にやることを確認し、絞り込める（リロードしても保たれる）
+  // カンバンで状態ごとの列に並び、カードにゴールを出す（#195）
   await page.getByRole("button", { name: "タスク一覧" }).click();
   await expect(page).toHaveURL(/\/tasks$/);
-  const rows = page.getByRole("row");
-  await expect(rows.filter({ hasText: "進捗A" })).toContainText("進行中");
-  await expect(rows.filter({ hasText: "進捗A" })).toContainText(
-    "検証環境で権限モデルを試す",
-  );
-  await expect(rows.filter({ hasText: "進捗B" })).toContainText("未着手");
-  const filters = page.getByRole("navigation", { name: "状態で絞り込む" });
-  await filters.getByRole("button", { name: /^進行中/ }).click();
-  await expect(page).toHaveURL(/status=in_progress/);
-  await expect(rows.filter({ hasText: "進捗A" })).toBeVisible();
-  await expect(rows.filter({ hasText: "進捗B" })).toHaveCount(0);
+  await expect(card(page, "進捗A")).toContainText("検証環境で権限モデルを試す");
+  await expect(column(page, "進行中")).toContainText("進捗A");
+  await expect(column(page, "未着手")).toContainText("進捗B");
+
+  // カードを別の列にドロップすると保存し、リロードしても移動先に出る
+  await card(page, "進捗B").dragTo(column(page, "保留"));
+  await expect(column(page, "保留")).toContainText("進捗B");
+  await expect(column(page, "未着手")).not.toContainText("進捗B");
   await page.reload();
-  await expect(
-    filters.getByRole("button", { name: /^進行中/ }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(rows.filter({ hasText: "進捗A" })).toContainText(
-    "検証環境で権限モデルを試す",
-  );
-  await expect(rows.filter({ hasText: "進捗B" })).toHaveCount(0);
+  await expect(column(page, "保留")).toContainText("進捗B");
 
   // 完了してもスレッド・Wiki・関連リンクを開け、進行中に戻せる
-  await rows.filter({ hasText: "進捗A" }).getByRole("button").click();
+  await card(page, "進捗A").getByRole("button", { name: "進捗A" }).click();
   await status.selectOption({ label: "完了" });
   await expect(taskRow(page, "進捗A")).toContainText("完了");
   await expect(page.getByRole("heading", { name: "関連リンク" })).toBeVisible();
@@ -1172,6 +1322,161 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   await openTask(page, "進捗A");
   await status.selectOption({ label: "進行中" });
   await expect(taskRow(page, "進捗A")).not.toContainText("完了");
+});
+
+test("カンバンの保存に失敗したら元の列に戻し、左パネルは進捗で絞り込める（#195）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "カンバンA");
+  await page.getByRole("combobox", { name: "状態" }).selectOption({
+    label: "進行中",
+  });
+  await expect(page.getByRole("region", { name: "進捗" })).not.toContainText(
+    "最終更新: —",
+  );
+  await createTask(page, "カンバンB");
+  await page.getByRole("combobox", { name: "状態" }).selectOption({
+    label: "保留",
+  });
+  await expect(page.getByRole("region", { name: "進捗" })).not.toContainText(
+    "最終更新: —",
+  );
+  await createTask(page, "カンバンC");
+
+  // 保存に失敗すると元の列に戻り、失敗が分かる
+  await page.getByRole("button", { name: "タスク一覧" }).click();
+  await page.route("**/tasks/updateProgress**", (route) =>
+    route.fulfill({ status: 500, body: "{}" }),
+  );
+  await card(page, "カンバンC").dragTo(column(page, "完了"));
+  await expect(page.getByRole("alert")).toContainText(
+    "「カンバンC」を「完了」にできませんでした",
+  );
+  await expect(column(page, "未着手")).toContainText("カンバンC");
+  await expect(column(page, "完了")).not.toContainText("カンバンC");
+  await page.unroute("**/tasks/updateProgress**");
+
+  // キーボードでもカードの「状態」から移せる。左パネルにも反映する
+  await page
+    .getByRole("combobox", { name: "「カンバンC」の状態" })
+    .selectOption({ label: "進行中" });
+  await expect(column(page, "進行中")).toContainText("カンバンC");
+
+  // 左パネルで「進行中」と「保留」を選ぶと、そのどちらかのタスクだけを出す
+  const filter = page.getByRole("group", { name: "進捗で絞り込む" });
+  await filter.getByRole("button", { name: "進行中" }).click();
+  await filter.getByRole("button", { name: "保留" }).click();
+  await expect(taskRow(page, "カンバンA")).toBeVisible();
+  await expect(taskRow(page, "カンバンB")).toBeVisible();
+  await expect(taskRow(page, "カンバンC")).toBeVisible();
+  // 状態を変えると、表示対象も変わる
+  await page
+    .getByRole("combobox", { name: "「カンバンC」の状態" })
+    .selectOption({ label: "完了" });
+  await expect(taskRow(page, "カンバンC")).toHaveCount(0);
+  // カンバンは全状態の列を出す
+  await expect(column(page, "完了")).toContainText("カンバンC");
+  // フラット表示でも効く。リロードしても保つ
+  await page.getByRole("button", { name: "環境ごとにまとめる" }).click();
+  await page.reload();
+  await expect(taskRow(page, "カンバンA")).toBeVisible();
+  await expect(taskRow(page, "カンバンC")).toHaveCount(0);
+  // 選択をすべて外すと全件に戻る
+  await filter.getByRole("button", { name: "進行中" }).click();
+  await filter.getByRole("button", { name: "保留" }).click();
+  await expect(taskRow(page, "カンバンC")).toBeVisible();
+  await page.getByRole("button", { name: "環境ごとにまとめる" }).click();
+});
+
+test("ゴールを実行すると /goal のスレッドを作って開き、実行状況でタスクの進捗を自動で更新する（#198）", async ({
+  page,
+}) => {
+  const status = page.getByRole("combobox", { name: "状態" });
+  const panel = page.getByRole("region", { name: "ゴールの実行" });
+  const runState = panel.getByTestId("goal-run-state");
+  /** ゴールを保存して実行し、作られたスレッドに移る。 */
+  const runGoal = async (task: string, goal: string) => {
+    await createTask(page, task);
+    await expect(panel.getByRole("button", { name: "実行" })).toBeDisabled();
+    await page.getByRole("textbox", { name: "ゴール" }).fill(goal);
+    // 保存するまでは実行できない
+    await expect(panel.getByRole("button", { name: "実行" })).toBeDisabled();
+    await page.getByRole("button", { name: "進捗を保存" }).click();
+    await expect(page.getByRole("status")).toHaveText("保存しました");
+    await panel.getByRole("button", { name: "実行" }).click();
+    await expect(page).toHaveURL(/\/c\/.+/);
+    await expect(page.getByText(`Goal set: ${goal}`)).toBeVisible();
+  };
+
+  await open(page);
+  // 達成を確認すると完了
+  await runGoal("ゴール達成の検証", "テストがすべて通る");
+  await expect(
+    page.getByText("ゴールに向けた作業が終わりました。"),
+  ).toBeVisible();
+  await idle(page);
+  await openTask(page, "ゴール達成の検証");
+  await expect(runState).toHaveText("達成");
+  await expect(status).toHaveValue("done");
+  await expect(panel.getByTestId("goal-run-reason")).toHaveText(
+    "条件を満たしました",
+  );
+  // 実行のスレッドはタスクに属し、タスクから開ける
+  await panel
+    .getByRole("button", { name: "直近の実行のスレッドを開く" })
+    .click();
+  await expect(page.getByText("Goal set: テストがすべて通る")).toBeVisible();
+
+  // 判定できないまま止まると要確認。スレッドで答えて再開すると進行中に戻り、達成で完了
+  await runGoal("ゴール要確認の検証", "要確認が必要な作業を終える");
+  await expect(page.getByText("どちらの方針で進めますか？")).toBeVisible();
+  await idle(page);
+  await openTask(page, "ゴール要確認の検証");
+  await expect(runState).toHaveText("要確認");
+  await expect(status).toHaveValue("needs_review");
+  await expect(panel.getByTestId("goal-run-reason")).toContainText(
+    "判定できないまま止まりました",
+  );
+  // 要確認の間も多重に起動しない
+  await expect(panel.getByRole("button", { name: "停止" })).toBeVisible();
+  await expect(panel.getByRole("button", { name: /実行$/ })).toHaveCount(0);
+  await panel.getByRole("button", { name: "実行中のスレッドを開く" }).click();
+  await send(page, "方針A で進めて");
+  await expect(
+    page.getByText("方針A で進めて、ゴールを達成しました。"),
+  ).toBeVisible();
+  await idle(page);
+  await openTask(page, "ゴール要確認の検証");
+  await expect(runState).toHaveText("達成");
+  await expect(status).toHaveValue("done");
+
+  // 達成不能なら保留にして理由を出し、再実行できる
+  await runGoal("ゴール不能の検証", "不可能な条件を満たす");
+  await idle(page);
+  await openTask(page, "ゴール不能の検証");
+  await expect(runState).toHaveText("達成できず");
+  await expect(status).toHaveValue("on_hold");
+  await expect(panel.getByTestId("goal-run-reason")).toHaveText(
+    "条件が矛盾しているため達成できません",
+  );
+  await expect(panel.getByRole("button", { name: "再実行" })).toBeEnabled();
+
+  // ツールの承認待ちは要確認。カンバンの要確認の列にも出る。承認すると進み、達成で完了
+  await runGoal("ゴール承認の検証", "承認が必要な作業を終える");
+  const approval = page.getByRole("region", { name: "ツール実行の承認" });
+  await expect(approval).toBeVisible();
+  await page.getByRole("button", { name: "タスク一覧" }).click();
+  await expect(column(page, "要確認")).toContainText("ゴール承認の検証");
+  await page.goBack();
+  await approval.getByRole("button", { name: "許可" }).click();
+  await expect(
+    page.getByText("ゴールに向けた作業が終わりました。"),
+  ).toBeVisible();
+  await idle(page);
+  await openTask(page, "ゴール承認の検証");
+  await expect(runState).toHaveText("達成");
+  await expect(status).toHaveValue("done");
 });
 
 test("回答から分岐し、同じスレッドの中で会話を切り替えて続けられる", async ({
@@ -1664,18 +1969,17 @@ test("プロンプトキャッシュの推定残り時間を表示し、モデ�
   await page.reload();
   await expect(cache).toHaveText(/^(59|60):\d\d$/);
 
-  const model = page.getByRole("combobox", { name: "モデル" });
-  await model.selectOption("haiku");
+  await pickModel(page, "Haiku");
   await expect(cache).toHaveText("不明");
   await expect(cache).toHaveAccessibleName(/プロンプトキャッシュ/);
   // 選んだモデルは新規スレッドの初期値になるので、ほかのテストのために戻す
-  await model.selectOption("default");
+  await pickModel(page, "Default");
 });
 
 test("最後に選んだモデルと effort を、新規スレッドの初期値にする（#164）", async ({
   page,
 }) => {
-  const model = page.getByRole("combobox", { name: "モデル" });
+  const model = modelButton(page);
   const effort = page.getByRole("combobox", { name: "effort" });
   /** 次の送信で、サーバに送ったモデルと effort。 */
   const sentSettings = async (text: string) => {
@@ -1691,7 +1995,7 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
   await open(page);
   await createTask(page, "初期値の検証");
   await newChat(page);
-  await expect(model).toHaveValue("default");
+  await expect(model).toHaveAttribute("data-model", "default");
   await expect(effort).toHaveValue("");
 
   // 選んだ組み合わせが、次の新規スレッドの初期値になる
@@ -1700,14 +2004,14 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
   await idle(page);
   const first = new URL(page.url()).pathname;
   await newChat(page);
-  await expect(model).toHaveValue("default");
+  await expect(model).toHaveAttribute("data-model", "default");
   await expect(effort).toHaveValue("high");
   // 送らずに選ぶだけでも保存し、再起動（再読み込み）後も引き継ぐ
-  await model.selectOption("haiku");
+  await pickModel(page, "Haiku");
   await expect(effort).toHaveCount(0);
 
   await page.reload();
-  await expect(model).toHaveValue("haiku");
+  await expect(model).toHaveAttribute("data-model", "haiku");
   // 送るとその設定で回答を作る
   expect(await sentSettings("Haiku で")).toEqual({
     model: "haiku",
@@ -1716,10 +2020,10 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
 
   // 既存のスレッドは、そのスレッドの設定を表示する。開いただけでは初期値を変えない
   await page.goto(first);
-  await expect(model).toHaveValue("default");
+  await expect(model).toHaveAttribute("data-model", "default");
   await expect(effort).toHaveValue("high");
   await newChat(page);
-  await expect(model).toHaveValue("haiku");
+  await expect(model).toHaveAttribute("data-model", "haiku");
 
   // Wiki ページから始める質問にも同じ初期値を使う
   await openWiki(page, "初期値の検証");
@@ -1729,9 +2033,7 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
   await page.getByRole("button", { name: "保存", exact: true }).click();
   await page.getByRole("button", { name: "このノートについて質問" }).click();
   const side = page.getByRole("complementary", { name: "サイドチャット" });
-  await expect(side.getByRole("combobox", { name: "モデル" })).toHaveValue(
-    "haiku",
-  );
+  await expect(modelButton(side)).toHaveAttribute("data-model", "haiku");
   const request = page.waitForRequest((r) => r.url().includes("/wiki/ask"));
   const composer = side.getByRole("textbox", {
     name: "サイドチャットのメッセージ",
@@ -1739,14 +2041,93 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
   await composer.fill("要約して");
   await composer.press("Enter");
   expect((await request).postData()).toContain('"model":"haiku"');
-  await expect(side.getByRole("combobox", { name: "モデル" })).toHaveValue(
-    "haiku",
-  );
+  await expect(modelButton(side)).toHaveAttribute("data-model", "haiku");
 
   // ほかのテストのために既定に戻す
   await page.goto(first);
   await effort.selectOption("");
   await expect(effort).toHaveValue("");
+});
+
+test("モデル選択の最初の階層にシリーズを並べ、残りは「その他のモデル」から選べる（#183）", async ({
+  page,
+}) => {
+  const model = modelButton(page);
+  const effort = page.getByRole("combobox", { name: "effort" });
+  const menu = page.getByRole("menu", { name: "モデル", exact: true });
+  const others = page.getByRole("menu", { name: "その他のモデル" });
+  const sentSettings = async (text: string) => {
+    const request = page.waitForRequest((r) => r.url().includes("/chat/send"));
+    await send(page, text);
+    const body = (await request).postData() ?? "";
+    await idle(page);
+    return {
+      model: /"model":"([^"]+)"/.exec(body)?.[1],
+      effort: /"effort":(null|"[^"]+")/.exec(body)?.[1],
+    };
+  };
+  await open(page);
+  await newChat(page);
+
+  // 最初の階層には、利用可能なシリーズのエイリアスだけをこの順に並べる
+  await model.click();
+  await expect(menu.getByRole("menuitemradio")).toHaveText(["Sonnet", "Haiku"]);
+  await expect(others).toHaveCount(0);
+  await menu.getByRole("menuitem", { name: "その他のモデル" }).click();
+  await expect(others.getByRole("menuitemradio")).toHaveText([
+    "Default",
+    "Opus 4.1",
+  ]);
+  await expect(
+    others.getByRole("menuitemradio", { name: "Default" }),
+  ).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape");
+  await expect(others).toHaveCount(0);
+  await expect(
+    menu.getByRole("menuitem", { name: "その他のモデル" }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(model).toBeFocused();
+
+  // キーボードで第 2 階層のバージョン指定のモデルを選ぶ
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    menu.getByRole("menuitemradio", { name: "Sonnet" }),
+  ).toBeFocused();
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowDown");
+  await expect(
+    others.getByRole("menuitemradio", { name: "Opus 4.1" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(menu).toHaveCount(0);
+  await expect(model).toHaveText("Opus 4.1");
+  await expect(model).toHaveAttribute("data-model", "claude-opus-4-1");
+  await effort.selectOption("max");
+  expect(await sentSettings("Opus 4.1 で")).toEqual({
+    model: "claude-opus-4-1",
+    effort: '"max"',
+  });
+
+  // 開き直しても、選んだバージョン指定のモデル名を表示する
+  await page.reload();
+  await expect(model).toHaveText("Opus 4.1");
+  await expect(effort).toHaveValue("max");
+
+  // 選択先で使えない effort は既定に戻す
+  await pickModel(page, "Sonnet");
+  await expect(model).toHaveText("Sonnet");
+  await expect(effort).toHaveValue("");
+  expect(await sentSettings("Sonnet で")).toEqual({
+    model: "sonnet",
+    effort: "null",
+  });
+
+  // ほかのテストのために既定に戻す
+  await pickModel(page, "Default");
+  await expect(model).toHaveAttribute("data-model", "default");
 });
 
 test("Wiki ページから始めたスレッドに、最初の回答のあとでタイトルを付ける（#161）", async ({
@@ -2416,8 +2797,9 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
     .getByRole("dialog")
     .getByRole("button", { name: "削除", exact: true })
     .click();
+  // 削除したノートは変更履歴から復元できる（#180）
   await expect(
-    page.getByRole("button", { name: "削除前に復元" }),
+    page.getByText("このノートは削除されています。変更履歴から復元できます。"),
   ).toBeVisible();
   await close.click();
   await page.reload();
@@ -2481,7 +2863,8 @@ test("Wiki ページの本文の選択範囲から、ページを作ったり引
   await expect(composer).toBeFocused();
   await composer.fill("なぜ？");
   await composer.press("Enter");
-  await expect(side.getByText("なぜ？", { exact: true })).toBeVisible();
+  // 回答のあとに同じ文言の段落（ノートの Q&A など）も出ることがあるので、最初の 1 つで確かめる
+  await expect(side.getByText("なぜ？", { exact: true }).first()).toBeVisible();
   await expect(side.locator("blockquote")).toHaveText("二重に課金しない");
   await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(
     "決済 API",
@@ -2616,11 +2999,15 @@ test("環境のタスクは Wiki を共有し、サイドバーで環境ごと�
   // 環境のスレッドは、選んだディレクトリで動く
   await rowAction(taskRow(page, "共有先"), "「共有先」に新しいスレッド");
   await expect(page).toHaveURL(/\/c\/.+/);
+  // 入力欄の下に環境名を出し、詳細に選んだディレクトリが出る（#192）
+  const mainChat = page.getByRole("region", { name: "メインのチャット" });
+  await mainChat
+    .getByRole("button", { name: "環境: 共通環境（詳細を開く）" })
+    .click();
   await expect(
-    page
-      .getByRole("region", { name: "メインのチャット" })
-      .locator(`[title="${picked}"]`),
-  ).toBeVisible();
+    mainChat.getByRole("dialog", { name: "環境「共通環境」の詳細" }),
+  ).toContainText(`${picked}（既定の作業ディレクトリ）`);
+  await page.keyboard.press("Escape");
 
   // タスクを別の環境に移すと、その環境の下に移る
   await openTaskMenu(page, "共有先", "タスクの設定");
@@ -2680,6 +3067,62 @@ test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロ
   await expect(box).toHaveValue("下書き");
   await box.press("ControlOrMeta+B");
   await expect(sidebar).toBeVisible();
+});
+
+test("左サイドバーの幅をドラッグとキーボードで変え、開き直しや再読み込みでも保つ（#185）", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await open(page);
+  const sidebar = page.getByRole("complementary", { name: "サイドバー" });
+  const main = page.locator("main");
+  const handle = page.getByRole("separator", { name: "サイドバーの幅" });
+  const widthOf = async (locator: Locator) =>
+    Math.round((await locator.boundingBox())?.width ?? 0);
+
+  // 保存していなければ既定の幅
+  await expect.poll(() => widthOf(sidebar)).toBe(256);
+
+  // ドラッグの間、サイドバーとメインパネルが追従する
+  const box = await handle.boundingBox();
+  if (box === null) throw new Error("ハンドルが見えない");
+  const x = box.x + box.width / 2;
+  const y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 60, y, { steps: 4 });
+  await expect.poll(() => widthOf(sidebar)).toBe(316);
+  await expect.poll(() => widthOf(main)).toBe(1280 - 316);
+  await page.mouse.move(x + 100, y, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(() => widthOf(sidebar)).toBe(356);
+  await expect(handle).toHaveAttribute("aria-valuenow", "356");
+
+  // キーボードでも変えられる
+  await handle.focus();
+  await page.keyboard.press("ArrowLeft");
+  await expect(handle).toHaveAttribute("aria-valuenow", "340");
+  await expect.poll(() => widthOf(sidebar)).toBe(340);
+
+  // 閉じて開き直しても、再読み込みしても戻る
+  await page.keyboard.press("ControlOrMeta+B");
+  await expect(sidebar).toBeHidden();
+  await expect(handle).toHaveCount(0);
+  await page.keyboard.press("ControlOrMeta+B");
+  await expect.poll(() => widthOf(sidebar)).toBe(340);
+  await page.reload();
+  await expect(sidebar).toBeVisible();
+  await expect.poll(() => widthOf(sidebar)).toBe(340);
+
+  // 広げすぎてもメインパネルの幅は残し、画面を狭くしても収める
+  await handle.focus();
+  await page.keyboard.press("End");
+  await expect.poll(() => widthOf(main)).toBe(360);
+  await page.setViewportSize({ width: 800, height: 800 });
+  await expect.poll(() => widthOf(main)).toBe(360);
+  await expect.poll(() => widthOf(sidebar)).toBe(440);
+  await page.keyboard.press("Home");
+  await expect.poll(() => widthOf(sidebar)).toBe(232);
 });
 
 test("macOS では Ctrl+B を入力欄に渡し、⌘B でサイドバーを開閉する", async ({

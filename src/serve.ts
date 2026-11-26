@@ -15,6 +15,7 @@ import {
 } from "./chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "./chat/rate-limit.ts";
 import { RunnerRegistry } from "./chat/runner-registry.ts";
+import { createTaskContextBuilder } from "./chat/task-context.ts";
 import {
   createWikiThreadTitler,
   THREAD_TITLE_MODEL,
@@ -24,6 +25,7 @@ import { resolveClaudePath } from "./claude/detect.ts";
 import { createClaudeStatus } from "./claude/status.ts";
 import { createChatRepository } from "./db/chat-repository.ts";
 import { createEnvironmentRepository } from "./db/environment-repository.ts";
+import { createGoalRunRepository } from "./db/goal-run-repository.ts";
 import { openDatabase } from "./db/index.ts";
 import { resolveDbPath } from "./db/path.ts";
 import { createPreferencesRepository } from "./db/preferences-repository.ts";
@@ -44,7 +46,11 @@ import {
   type InstalledPwa,
   openPwa,
 } from "./server/open-pwa.ts";
+import { closePwaOnExit, trackPwaWindow } from "./server/pwa-window.ts";
 import { openBrowser, PortInUseError, startServer } from "./server/server.ts";
+import { createGoalRuns, type GoalRuns } from "./task/goal-runs.ts";
+import { readGoalVerdict } from "./task/goal-verdict.ts";
+import { createTaskToolServers } from "./task/tools.ts";
 import index from "./web/index.html";
 import { createTermPageWriter } from "./wiki/auto-terms.ts";
 import {
@@ -124,9 +130,13 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           ? claudePath.value
           : undefined,
       };
+      // ゴールの実行（#198）。送信に chatService を使うので、あとで作る
+      let goalRuns: GoalRuns | undefined;
       const approvals = createApprovalBroker({
-        onPendingChange: (chatId, count) =>
-          chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
+        onPendingChange: (chatId, count) => {
+          chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running");
+          goalRuns?.onPendingChange(chatId, count);
+        },
       });
       // 用語抽出は Claude Code の機能を使わない軽い呼び出し（docs/spikes/term-extraction.md）
       const termModel = createClaudeCode({
@@ -217,6 +227,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         approvals,
         languageModel: (modelId, options) =>
           createClaudeCode({ ...providerSettings, ...options })(modelId),
+        taskTools: createTaskToolServers({ tasks }),
         wikiTools: createWikiToolServers({
           wiki,
           tasks,
@@ -225,6 +236,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         onWikiBatchFinish: (batchId, messageId) =>
           wikiHistory.attachAnswer(batchId, messageId),
         wikiContext: createWikiContextBuilder(wiki, tasks),
+        taskContext: createTaskContextBuilder(tasks, environments),
         readWikiPage: createWikiPageReader(wiki, tasks),
         directoriesOf: (taskId) => {
           const directories = environments.directoriesOfTask(taskId);
@@ -237,9 +249,24 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           void writePageQa(event);
         },
         onWikiChatCreated: (chat) => wikiThreadTitler.track(chat),
-        onRunnerFinish: (chatId, outcome) =>
-          queueDispatcher?.onRunnerFinish(chatId, outcome),
+        onRunnerStart: (chatId) => goalRuns?.onRunnerStart(chatId),
+        onRunnerFinish: (chatId, outcome) => {
+          queueDispatcher?.onRunnerFinish(chatId, outcome);
+          void goalRuns?.onRunnerFinish(chatId, outcome);
+        },
       });
+      const preferences = createPreferencesRepository(db);
+      goalRuns = createGoalRuns({
+        tasks,
+        chats,
+        environments,
+        goalRuns: createGoalRunRepository(db),
+        preferences,
+        chatService,
+        readVerdict: readGoalVerdict,
+        cwd: process.cwd(),
+      });
+      const goalRunService = goalRuns;
       queueDispatcher = createQueueDispatcher({
         queue,
         registry,
@@ -261,7 +288,8 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
             queueDispatcher,
             search: createSearchRepository(db),
             rateLimits,
-            preferences: createPreferencesRepository(db),
+            preferences,
+            goalRuns: goalRunService,
             wikiHistory,
             chatService,
             approvals,
@@ -312,8 +340,19 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       ? undefined
       : { profile: installedPwa.profile, appId: installedPwa.appId });
   if (pwa !== undefined) {
+    // 起動前のウィンドウを覚えておき、今回開いた PWA のウィンドウを Ctrl+C で閉じる（#182）
+    const tracker =
+      process.platform === "darwin"
+        ? await trackPwaWindow(new URL("/", server.url).href)
+        : undefined;
     const launch = await openPwa(server.url, pwa);
-    if (Result.isSuccess(launch)) return;
+    if (Result.isSuccess(launch)) {
+      if (tracker !== undefined) {
+        void tracker.findLaunched();
+        closePwaOnExit(tracker);
+      }
+      return;
+    }
     console.warn(
       `PWA を開けませんでした。 ${launch.error.message} 通常のブラウザで開きます。`,
     );

@@ -1,8 +1,9 @@
+import { taskToolLabel } from "../../task/tool-names.ts";
 import { WIKI_TOOL_NAMES, wikiToolLabel } from "../../wiki/tool-names.ts";
 
-/** 画面に出すツールの名前（Wiki のツールは日本語の名前にする）。 */
+/** 画面に出すツールの名前（Wiki とタスクのツールは日本語の名前にする）。 */
 export const toolLabel = (toolName: string): string =>
-  wikiToolLabel(toolName) ?? toolName;
+  wikiToolLabel(toolName) ?? taskToolLabel(toolName) ?? toolName;
 
 /** ツールの入力から、カードの見出しに出す短い説明を作る。 */
 export const summarizeToolInput = (

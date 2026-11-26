@@ -1,6 +1,7 @@
 import { ShieldAlert, ShieldCheck, ShieldX } from "lucide-react";
 import { useState } from "react";
 import type { ApprovalData } from "../../chat/approval-broker.ts";
+import { taskToolLabel } from "../../task/tool-names.ts";
 import { wikiToolLabel } from "../../wiki/tool-names.ts";
 import { summarizeToolInput, toolLabel } from "../lib/tool-display.ts";
 import { InputView } from "./tool-card.tsx";
@@ -69,6 +70,7 @@ export const ApprovalCard = ({
         <div className="min-w-0">
           <p className="font-medium">
             {wikiToolLabel(approval.toolName) ??
+              taskToolLabel(approval.toolName) ??
               approval.displayName ??
               approval.toolName}{" "}
             を実行してもよいですか？

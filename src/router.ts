@@ -20,15 +20,15 @@ import {
 import type { PreferencesRepository } from "./db/preferences-repository.ts";
 import type { QueueRepository } from "./db/queue-repository.ts";
 import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
-import {
-  type ChatRow,
-  type MessageRow,
-  TASK_STATUSES,
-  type TaskLinkRow,
-  type TaskRow,
-  type WikiCheckpointRow,
-  type WikiPageRow,
-  type WikiPageVersionRow,
+import type {
+  ChatRow,
+  GoalRunRow,
+  MessageRow,
+  TaskLinkRow,
+  TaskRow,
+  WikiCheckpointRow,
+  WikiPageRow,
+  WikiPageVersionRow,
 } from "./db/schema.ts";
 import type { SearchRepository } from "./db/search-repository.ts";
 import {
@@ -46,6 +46,8 @@ import type { WikiRepository } from "./db/wiki-repository.ts";
 import { normalizeDirectories } from "./environment/directories.ts";
 import type { DirectoryPicker } from "./environment/directory-picker.ts";
 import { type OrpcErrorCodeMap, unwrapForOrpc } from "./errors/index.ts";
+import type { GoalRuns } from "./task/goal-runs.ts";
+import { taskLinkInput, taskName, taskProgressFields } from "./task/inputs.ts";
 import { version } from "./version.ts";
 import type { WikiPageGenerator } from "./wiki/page-generation.ts";
 import { MAX_PAGE_TERM_LENGTH } from "./wiki/terms.ts";
@@ -75,6 +77,8 @@ export type RouterContext = {
   cwd: string;
   /** OS のフォルダを選ぶダイアログを開く。 */
   pickDirectory: DirectoryPicker;
+  /** タスクのゴールの実行（#198）。 */
+  goalRuns: GoalRuns;
 };
 
 export const base = os.$context<RouterContext>();
@@ -90,6 +94,9 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   DirectoryPickerUnavailableError: "SERVICE_UNAVAILABLE",
   DirectoryPickerError: "INTERNAL_SERVER_ERROR",
   TaskLinkNotFoundError: "NOT_FOUND",
+  GoalNotSetError: "BAD_REQUEST",
+  GoalRunAlreadyActiveError: "CONFLICT",
+  GoalRunNotActiveError: "CONFLICT",
   QueuedMessageNotFoundError: "NOT_FOUND",
   WikiPageNotFoundError: "NOT_FOUND",
   WikiPageUnavailableError: "NOT_FOUND",
@@ -270,6 +277,23 @@ const cwdForTask = (
         Result.map((directories) => directories?.[0] ?? context.cwd),
       );
 
+/** クライアントに返すゴールの実行（#198）。 */
+export type GoalRunDto = Pick<
+  GoalRunRow,
+  "id" | "taskId" | "chatId" | "goal" | "state" | "reason"
+> & { createdAt: string; updatedAt: string };
+
+const toGoalRunDto = (row: GoalRunRow): GoalRunDto => ({
+  id: row.id,
+  taskId: row.taskId,
+  chatId: row.chatId,
+  goal: row.goal,
+  state: row.state,
+  reason: row.reason,
+  createdAt: row.createdAt.toISOString(),
+  updatedAt: row.updatedAt.toISOString(),
+});
+
 /** クライアントに返す Wiki（複数のタスクで共有できる）。 */
 export type WikiDto = { id: string; name: string; taskCount: number };
 
@@ -293,26 +317,6 @@ const toTaskLinkDto = (row: TaskLinkRow): TaskLinkDto => ({
   taskId: row.taskId,
   url: row.url,
   label: row.label,
-});
-
-/** 関連リンクの入力。URL は http / https だけ。表示名は空なら null（URL を表示する）。 */
-const taskLinkInput = z.object({
-  url: z
-    .string()
-    .trim()
-    .max(2000)
-    .url()
-    .refine(
-      (url) => URL.canParse(url) && /^https?:$/.test(new URL(url).protocol),
-      "http または https の URL を入力してください。",
-    ),
-  label: z
-    .string()
-    .trim()
-    .max(200)
-    .nullable()
-    .optional()
-    .transform((label) => (label === "" || label === undefined ? null : label)),
 });
 
 /** クライアントに返す Wiki ページ。 */
@@ -404,7 +408,6 @@ const wikiPageInput = z.object({
 });
 
 const chatId = z.object({ id: z.string().min(1) });
-const taskName = z.string().trim().min(1).max(100);
 const wikiChatTarget = z.object({
   taskId: z.string().min(1),
   pageId: z.string().min(1),
@@ -632,14 +635,12 @@ export const router = {
           ),
         ),
       ),
-    /** 進捗（状態・進捗メモ・次にやること）を更新する。指定した項目だけを変える。 */
+    /** 進捗（状態・進捗メモ・ゴール）を更新する。指定した項目だけを変える。 */
     updateProgress: base
       .input(
         z.object({
           id: z.string().min(1),
-          status: z.enum(TASK_STATUSES).optional(),
-          progressNote: z.string().max(20_000).optional(),
-          nextAction: z.string().trim().max(500).optional(),
+          ...taskProgressFields,
         }),
       )
       .handler(async ({ context, input }) =>
@@ -656,6 +657,37 @@ export const router = {
             }),
             ERROR_CODES,
           ),
+        ),
+      ),
+    /** タスクの最新のゴールの実行（#198）。無ければ null。 */
+    goalRun: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        const run = await unwrapForOrpc(
+          Result.pipe(
+            requireTask(context, input.id),
+            Result.andThen(() => context.goalRuns.latest(input.id)),
+          ),
+          ERROR_CODES,
+        );
+        return run === undefined ? null : toGoalRunDto(run);
+      }),
+    /** 保存済みのゴールで実行を始める。作ったスレッドを返す（#198）。 */
+    runGoal: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) => {
+        const started = await unwrapForOrpc(
+          context.goalRuns.start(input.id),
+          ERROR_CODES,
+        );
+        return { chatId: started.chatId, run: toGoalRunDto(started.run) };
+      }),
+    /** 進行中のゴールの実行を止める（#198）。 */
+    stopGoal: base
+      .input(z.object({ id: z.string().min(1) }))
+      .handler(async ({ context, input }) =>
+        toGoalRunDto(
+          await unwrapForOrpc(context.goalRuns.stop(input.id), ERROR_CODES),
         ),
       ),
     /** 回答からの用語ページの自動作成を切り替える。 */

@@ -41,6 +41,7 @@ import type {
   RunnerRegistry,
   TooManyRunnersError,
 } from "./runner-registry.ts";
+import type { TaskContextBuilder } from "./task-context.ts";
 import { makeTitle } from "./title.ts";
 
 export class MessageNotFoundError extends ErrorFactory({
@@ -218,8 +219,20 @@ export const createChatService = (deps: {
    * （batchId）に回答の id を付ける（回答ごとに元に戻すのに使う。#166）。
    */
   onWikiBatchFinish?: (batchId: string, messageId: string) => void;
+  /**
+   * タスクの会話で、Claude が所属タスクの進捗と関連リンクを更新する MCP サーバ（#187）。
+   * 更新先は会話の所属タスクに決まる。タスクに属さない会話には渡さない。
+   */
+  taskTools?: (scope: {
+    taskId: string;
+  }) => Record<string, McpServerConfig> | undefined;
   /** タスクの会話で、質問に関係する Wiki ページを参照資料にする。 */
   wikiContext?: WikiContextBuilder;
+  /**
+   * タスクの会話で、タスクと環境の保存情報を参照情報にする（#186）。
+   * 生成を始めるたびに、その時点で会話が属するタスクから読み直す。
+   */
+  taskContext?: TaskContextBuilder;
   readWikiPage?: WikiPageReader;
   /** タスクが属する環境のディレクトリ（追加のディレクトリとして渡す）。 */
   directoriesOf?: (taskId: string) => string[] | undefined;
@@ -238,6 +251,8 @@ export const createChatService = (deps: {
    * 最初の回答のあとにタイトルを付ける（#161）のに使う。
    */
   onWikiChatCreated?: (chat: ChatRow) => void;
+  /** 会話の生成が始まったとき（ゴールの実行の進捗の更新に使う。#198）。 */
+  onRunnerStart?: (chatId: string) => void;
   /** 会話の生成が終わったとき（予約したメッセージの送信に使う。#102）。 */
   onRunnerFinish?: (
     chatId: string,
@@ -314,17 +329,35 @@ export const createChatService = (deps: {
             params.chatId,
             (chunk) => writer.write(chunk),
           );
-          // タスクの会話では、Claude がタスクの Wiki を読み書きできる
-          const mcpServers =
+          // タスクの会話では、Claude がタスクの Wiki と、タスクの進捗・関連リンクを読み書きできる
+          const servers =
             params.taskId === null
-              ? undefined
-              : deps.wikiTools?.({
-                  taskId: params.taskId,
-                  pageId: params.wikiPageId,
-                  chatId: params.chatId,
-                  batchId: wikiBatchId,
-                  question: params.question,
-                });
+              ? []
+              : [
+                  deps.wikiTools?.({
+                    taskId: params.taskId,
+                    pageId: params.wikiPageId,
+                    chatId: params.chatId,
+                    batchId: wikiBatchId,
+                    question: params.question,
+                  }),
+                  deps.taskTools?.({ taskId: params.taskId }),
+                ].filter((server) => server !== undefined);
+          const mcpServers =
+            servers.length === 0 ? undefined : Object.assign({}, ...servers);
+          // タスクの情報と Wiki の参照資料は、質問とは別のブロックで渡す（DB の発話には保存しない）。
+          // スラッシュコマンド（`/goal …` など）は、Claude Code が解釈できるようにそのまま送る（#198）
+          const slashCommand = params.question.trimStart().startsWith("/");
+          const context = slashCommand
+            ? ""
+            : [
+                params.taskId === null
+                  ? undefined
+                  : deps.taskContext?.(params.taskId),
+                params.context?.text,
+              ]
+                .filter((text) => text !== undefined && text.trim() !== "")
+                .join("\n\n");
           const result = streamText({
             model: deps.languageModel(params.model, {
               canUseTool,
@@ -341,9 +374,7 @@ export const createChatService = (deps: {
                   ? {}
                   : { resumeSessionAt: params.resumeSessionAt }),
                 ...(params.forkSession === true ? { forkSession: true } : {}),
-                ...(params.context === undefined
-                  ? {}
-                  : { context: params.context.text }),
+                ...(context === "" ? {} : { context }),
                 cwd: params.cwd,
                 ...(params.additionalDirectories.length === 0
                   ? {}
@@ -778,6 +809,11 @@ export const createChatService = (deps: {
 
   const trackStatus = (runner: ChatRunner) => {
     chats.setStatus(runner.chatId, "running");
+    try {
+      deps.onRunnerStart?.(runner.chatId);
+    } catch {
+      // 進捗の更新は生成に影響させない
+    }
     runner.onFinish(() => {
       const chunks = runner.snapshot();
       const failed = chunks.some(

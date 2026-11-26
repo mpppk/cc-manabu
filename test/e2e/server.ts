@@ -23,6 +23,7 @@ import {
 } from "../../src/chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
+import { createTaskContextBuilder } from "../../src/chat/task-context.ts";
 import {
   createWikiThreadTitler,
   THREAD_TITLE_MODEL,
@@ -31,6 +32,7 @@ import {
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { createEnvironmentRepository } from "../../src/db/environment-repository.ts";
+import { createGoalRunRepository } from "../../src/db/goal-run-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
 import { createPreferencesRepository } from "../../src/db/preferences-repository.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
@@ -42,6 +44,8 @@ import { createWikiRepository } from "../../src/db/wiki-repository.ts";
 import { createClaudeCode } from "../../src/provider/index.ts";
 import { router } from "../../src/router.ts";
 import { startServer } from "../../src/server/server.ts";
+import { createGoalRuns, type GoalRuns } from "../../src/task/goal-runs.ts";
+import { createTaskToolServers } from "../../src/task/tools.ts";
 import index from "../../src/web/index.html";
 import { createTermPageWriter } from "../../src/wiki/auto-terms.ts";
 import {
@@ -63,7 +67,7 @@ import {
   TERM_EXTRACTION_SETTINGS,
 } from "../../src/wiki/terms.ts";
 import { createWikiToolServers } from "../../src/wiki/tools.ts";
-import { createScriptedQuery } from "./scripted-query.ts";
+import { createScriptedQuery, goalVerdicts } from "./scripted-query.ts";
 
 export const E2E_PORT = Number(process.env.E2E_PORT ?? 45200);
 export const E2E_TOKEN = "e2e-token";
@@ -83,9 +87,12 @@ const onRateLimit = (info: SDKRateLimitInfo) => {
   rateLimits.save(normalizeRateLimit(info, Date.now()));
 };
 let queueDispatcher: QueueDispatcher | undefined;
+let goalRuns: GoalRuns | undefined;
 const approvals = createApprovalBroker({
-  onPendingChange: (chatId, count) =>
-    chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running"),
+  onPendingChange: (chatId, count) => {
+    chats.setStatus(chatId, count > 0 ? "awaiting_approval" : "running");
+    goalRuns?.onPendingChange(chatId, count);
+  },
 });
 const query = createScriptedQuery();
 const termModel = createClaudeCode({
@@ -154,17 +161,22 @@ const chatService = createChatService({
   approvals,
   languageModel: (modelId, options) =>
     createClaudeCode({ cwd: "/e2e", query, onRateLimit, ...options })(modelId),
+  taskTools: createTaskToolServers({ tasks }),
   wikiTools: createWikiToolServers({ wiki, tasks, history: wikiHistory }),
   onWikiBatchFinish: (batchId, messageId) =>
     wikiHistory.attachAnswer(batchId, messageId),
   wikiContext: createWikiContextBuilder(wiki, tasks),
+  taskContext: createTaskContextBuilder(tasks, environments),
   readWikiPage: createWikiPageReader(wiki, tasks),
   directoriesOf: (taskId) => {
     const directories = environments.directoriesOfTask(taskId);
     return Result.isSuccess(directories) ? directories.value : undefined;
   },
-  onRunnerFinish: (chatId, outcome) =>
-    queueDispatcher?.onRunnerFinish(chatId, outcome),
+  onRunnerStart: (chatId) => goalRuns?.onRunnerStart(chatId),
+  onRunnerFinish: (chatId, outcome) => {
+    queueDispatcher?.onRunnerFinish(chatId, outcome);
+    void goalRuns?.onRunnerFinish(chatId, outcome);
+  },
   onAnswerComplete: (event) => void writeTermPages(event),
   onAnswerFinish: (event) => {
     void summarizeAnswer(event);
@@ -174,6 +186,19 @@ const chatService = createChatService({
   onWikiChatCreated: (chat) => wikiThreadTitler.track(chat),
 });
 queueDispatcher = createQueueDispatcher({ queue, registry, chatService });
+const preferences = createPreferencesRepository(opened.value.db);
+goalRuns = createGoalRuns({
+  tasks,
+  chats,
+  environments,
+  goalRuns: createGoalRunRepository(opened.value.db),
+  preferences,
+  chatService,
+  readVerdict: async (sessionId) =>
+    goalVerdicts.get(sessionId) ?? { kind: "none", reason: "" },
+  cwd: "/e2e",
+});
+const goalRunService = goalRuns;
 const claude = createClaudeStatus(
   { found: true, path: "/usr/local/bin/claude" },
   {
@@ -188,7 +213,21 @@ const claude = createClaudeStatus(
             supportsEffort: true,
             supportedEffortLevels: ["low", "medium", "high"],
           },
+          {
+            value: "sonnet",
+            displayName: "Sonnet",
+            description: "",
+            supportsEffort: true,
+            supportedEffortLevels: ["low", "high"],
+          },
           { value: "haiku", displayName: "Haiku", description: "" },
+          {
+            value: "claude-opus-4-1",
+            displayName: "Opus 4.1",
+            description: "",
+            supportsEffort: true,
+            supportedEffortLevels: ["low", "medium", "high", "max"],
+          },
         ],
         account: { subscriptionType: "E2E" },
       }),
@@ -209,7 +248,8 @@ const started = startServer({
     queueDispatcher,
     search: createSearchRepository(opened.value.db),
     rateLimits,
-    preferences: createPreferencesRepository(opened.value.db),
+    preferences,
+    goalRuns: goalRunService,
     wikiHistory,
     chatService,
     approvals,

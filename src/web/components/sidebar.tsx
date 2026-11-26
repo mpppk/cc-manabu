@@ -30,6 +30,7 @@ import {
   useRef,
   useState,
 } from "react";
+import type { TaskStatus } from "../../db/schema.ts";
 import type {
   ChatDto,
   EnvironmentDto,
@@ -37,6 +38,14 @@ import type {
   WikiDto,
 } from "../../router.ts";
 import { type ChatGroup, groupChats } from "../lib/groups.ts";
+import {
+  filterTasksByStatus,
+  loadStatusFilter,
+  saveStatusFilter,
+  TASK_STATUS_CLASSES,
+  TASK_STATUS_LABELS,
+  TASK_STATUS_ORDER,
+} from "../lib/task-status.ts";
 import { cn } from "../lib/utils.ts";
 import {
   type EnvironmentDialog,
@@ -360,9 +369,43 @@ const TreeRow = ({
   </div>
 );
 
+/** 左パネルのタスクを進捗で絞り込む（複数選択。#195）。 */
+const StatusFilter = ({
+  selected,
+  onToggle,
+}: {
+  selected: readonly TaskStatus[];
+  onToggle: (status: TaskStatus) => void;
+}) => (
+  <fieldset className="flex flex-wrap gap-1 px-2 pb-2">
+    <legend className="sr-only">進捗で絞り込む</legend>
+    {TASK_STATUS_ORDER.map((status) => {
+      const pressed = selected.includes(status);
+      return (
+        <button
+          key={status}
+          type="button"
+          aria-pressed={pressed}
+          className={cn(
+            "rounded-full border px-2 py-0.5 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            pressed
+              ? TASK_STATUS_CLASSES[status]
+              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            pressed && "border-transparent",
+          )}
+          onClick={() => onToggle(status)}
+        >
+          {TASK_STATUS_LABELS[status]}
+        </button>
+      );
+    })}
+  </fieldset>
+);
+
 export const Sidebar = ({
   id,
   hidden = false,
+  width,
   chats,
   tasks,
   environments,
@@ -397,6 +440,8 @@ export const Sidebar = ({
   id?: string;
   /** 畳んでいるか（⌘B）。畳んでも状態（検索・開閉）は保つ。 */
   hidden?: boolean;
+  /** 幅（px、#185）。省略すると既定の幅。 */
+  width?: number;
   /** すべての会話。 */
   chats: ChatDto[];
   tasks: TaskDto[];
@@ -458,6 +503,17 @@ export const Sidebar = ({
   const [groupByEnvironment, setGroupByEnvironment] = useState(
     loadGroupByEnvironment,
   );
+  // 進捗の絞り込み（#195）。何も選んでいなければすべてのタスクを出す
+  const [statusFilter, setStatusFilter] =
+    useState<TaskStatus[]>(loadStatusFilter);
+  const toggleStatus = (status: TaskStatus) => {
+    const next = TASK_STATUS_ORDER.filter((s) =>
+      s === status ? !statusFilter.includes(s) : statusFilter.includes(s),
+    );
+    setStatusFilter(next);
+    saveStatusFilter(next);
+  };
+  const visibleTasks = filterTasksByStatus(tasks, statusFilter);
   const searchId = useId();
   const searchButton = useRef<HTMLButtonElement>(null);
   const closeSearch = (restoreFocus: boolean) => {
@@ -633,6 +689,7 @@ export const Sidebar = ({
       hidden={hidden}
       aria-label="サイドバー"
       className="flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground [&[hidden]]:hidden"
+      style={width === undefined ? undefined : { width }}
     >
       <div className="flex items-center p-2">
         <div className="flex items-center">
@@ -734,117 +791,130 @@ export const Sidebar = ({
           />
         </nav>
       ) : (
-        <nav
-          className="flex-1 overflow-y-auto px-2 pb-2"
-          aria-label="スレッド一覧"
-        >
-          <ul className="flex flex-col gap-0.5">
-            {!groupByEnvironment && tasks.map((item) => renderTask(item, 0))}
-            {groupByEnvironment &&
-              environments.map((environment) => {
-                const key = `env:${environment.id}`;
-                const open = isExpanded(expanded, key);
-                const members = tasks.filter(
-                  (p) => p.environmentId === environment.id,
-                );
-                const first = members[0];
-                return (
-                  <li key={environment.id} data-environment-id={environment.id}>
-                    <TreeRow
-                      level={0}
-                      expanded={open}
-                      onToggle={() => toggle(key)}
-                      icon={<Boxes />}
-                      label={environment.name}
-                      selected={openWikiEnvironmentId === environment.id}
-                      actions={
-                        <>
-                          {first !== undefined && (
+        <>
+          <StatusFilter selected={statusFilter} onToggle={toggleStatus} />
+          <nav
+            className="flex-1 overflow-y-auto px-2 pb-2"
+            aria-label="スレッド一覧"
+          >
+            <ul className="flex flex-col gap-0.5">
+              {!groupByEnvironment &&
+                visibleTasks.map((item) => renderTask(item, 0))}
+              {groupByEnvironment &&
+                environments.map((environment) => {
+                  const key = `env:${environment.id}`;
+                  const open = isExpanded(expanded, key);
+                  const first = tasks.find(
+                    (p) => p.environmentId === environment.id,
+                  );
+                  const members = visibleTasks.filter(
+                    (p) => p.environmentId === environment.id,
+                  );
+                  // 絞り込み中は、当てはまるタスクの無い環境を出さない
+                  if (statusFilter.length > 0 && members.length === 0) {
+                    return null;
+                  }
+                  return (
+                    <li
+                      key={environment.id}
+                      data-environment-id={environment.id}
+                    >
+                      <TreeRow
+                        level={0}
+                        expanded={open}
+                        onToggle={() => toggle(key)}
+                        icon={<Boxes />}
+                        label={environment.name}
+                        selected={openWikiEnvironmentId === environment.id}
+                        actions={
+                          <>
+                            {first !== undefined && (
+                              <RowAction
+                                label={`環境「${environment.name}」の Wiki を開く`}
+                                onClick={() => onOpenWiki(first.id)}
+                              >
+                                <BookOpen className="size-3.5" />
+                              </RowAction>
+                            )}
                             <RowAction
-                              label={`環境「${environment.name}」の Wiki を開く`}
-                              onClick={() => onOpenWiki(first.id)}
+                              label={`環境「${environment.name}」に新しいタスク`}
+                              onClick={() =>
+                                setTaskDialog({
+                                  kind: "create",
+                                  environmentId: environment.id,
+                                })
+                              }
                             >
-                              <BookOpen className="size-3.5" />
+                              <FolderPlus className="size-3.5" />
                             </RowAction>
-                          )}
-                          <RowAction
-                            label={`環境「${environment.name}」に新しいタスク`}
-                            onClick={() =>
-                              setTaskDialog({
-                                kind: "create",
-                                environmentId: environment.id,
-                              })
-                            }
+                            <DropdownMenu
+                              label={`環境「${environment.name}」のメニュー`}
+                              triggerClassName="size-6"
+                              icon={<Settings className="size-3.5" />}
+                              items={[
+                                {
+                                  label: "環境の設定",
+                                  icon: <SlidersHorizontal />,
+                                  onSelect: () =>
+                                    setEnvironmentDialog({
+                                      kind: "settings",
+                                      environmentId: environment.id,
+                                    }),
+                                },
+                                {
+                                  label: "環境を削除",
+                                  icon: <Trash2 />,
+                                  onSelect: () =>
+                                    setEnvironmentDialog({
+                                      kind: "delete",
+                                      environmentId: environment.id,
+                                    }),
+                                  variant: "destructive",
+                                },
+                              ]}
+                            />
+                          </>
+                        }
+                      />
+                      {open &&
+                        (members.length === 0 ? (
+                          <p
+                            className="py-1 text-muted-foreground text-xs"
+                            style={{ paddingLeft: threadIndent(1, 0.5) }}
                           >
-                            <FolderPlus className="size-3.5" />
-                          </RowAction>
-                          <DropdownMenu
-                            label={`環境「${environment.name}」のメニュー`}
-                            triggerClassName="size-6"
-                            icon={<Settings className="size-3.5" />}
-                            items={[
-                              {
-                                label: "環境の設定",
-                                icon: <SlidersHorizontal />,
-                                onSelect: () =>
-                                  setEnvironmentDialog({
-                                    kind: "settings",
-                                    environmentId: environment.id,
-                                  }),
-                              },
-                              {
-                                label: "環境を削除",
-                                icon: <Trash2 />,
-                                onSelect: () =>
-                                  setEnvironmentDialog({
-                                    kind: "delete",
-                                    environmentId: environment.id,
-                                  }),
-                                variant: "destructive",
-                              },
-                            ]}
-                          />
-                        </>
-                      }
-                    />
-                    {open &&
-                      (members.length === 0 ? (
-                        <p
-                          className="py-1 text-muted-foreground text-xs"
-                          style={{ paddingLeft: threadIndent(1, 0.5) }}
-                        >
-                          まだタスクがありません。
-                        </p>
-                      ) : (
-                        <ul className="flex flex-col gap-0.5">
-                          {members.map((member) => renderTask(member, 1))}
-                        </ul>
-                      ))}
-                  </li>
-                );
-              })}
-            {groupByEnvironment &&
-              orphans.map((orphan) => renderTask(orphan, 0))}
-            <li data-unassigned>
-              <TreeRow
-                level={0}
-                expanded={unassignedOpen}
-                onToggle={() => toggle("unassigned")}
-                icon={<MessagesSquare />}
-                label="未所属のスレッド"
-                actions={
-                  <RowAction
-                    label="未所属に新しいスレッド"
-                    onClick={() => onNewInTask(null)}
-                  >
-                    <MessageSquarePlus className="size-3.5" />
-                  </RowAction>
-                }
-              />
-              {unassignedOpen && renderThreads(threadsOf(null), 1, undefined)}
-            </li>
-          </ul>
-        </nav>
+                            まだタスクがありません。
+                          </p>
+                        ) : (
+                          <ul className="flex flex-col gap-0.5">
+                            {members.map((member) => renderTask(member, 1))}
+                          </ul>
+                        ))}
+                    </li>
+                  );
+                })}
+              {groupByEnvironment &&
+                orphans.map((orphan) => renderTask(orphan, 0))}
+              <li data-unassigned>
+                <TreeRow
+                  level={0}
+                  expanded={unassignedOpen}
+                  onToggle={() => toggle("unassigned")}
+                  icon={<MessagesSquare />}
+                  label="未所属のスレッド"
+                  actions={
+                    <RowAction
+                      label="未所属に新しいスレッド"
+                      onClick={() => onNewInTask(null)}
+                    >
+                      <MessageSquarePlus className="size-3.5" />
+                    </RowAction>
+                  }
+                />
+                {unassignedOpen && renderThreads(threadsOf(null), 1, undefined)}
+              </li>
+            </ul>
+          </nav>
+        </>
       )}
       <TaskDialogs
         dialog={taskDialog}

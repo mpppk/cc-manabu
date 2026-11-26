@@ -25,7 +25,7 @@ import {
   type QuoteData,
   quotesOf,
 } from "../../chat/quote.ts";
-import type { ChatDto } from "../../router.ts";
+import type { ChatDto, EnvironmentDto } from "../../router.ts";
 import { citedPageIds, linkWikiCitations } from "../../wiki/citations.ts";
 import {
   createTermMatcher,
@@ -47,6 +47,7 @@ import { cn } from "../lib/utils.ts";
 import { AnswerWikiUndo, changedWiki } from "./answer-wiki-undo.tsx";
 import { ApprovalCard } from "./approval-card.tsx";
 import { Composer } from "./composer.tsx";
+import { EnvironmentPopover } from "./environment-popover.tsx";
 import { Markdown, type WikiLinks } from "./markdown.tsx";
 import { imagePartsOf, MessageImages } from "./message-images.tsx";
 import { ModelPicker } from "./model-picker.tsx";
@@ -726,8 +727,8 @@ export type ChatViewProps = {
   onClearQuote?: () => void;
   /** 作業フォルダ（入力欄の下に出す）。 */
   cwd?: string;
-  /** 作業フォルダのほかに Claude Code が扱えるディレクトリ（環境の設定）。 */
-  extraDirectories?: string[];
+  /** スレッドが属するタスクの環境（入力欄の下に名前を出し、押すと詳細を開く。#192）。 */
+  environment?: EnvironmentDto | undefined;
   /** 入力欄の下にサブスクリプションの利用枠を出す（メインのチャットだけ。#170）。 */
   showRateLimit?: boolean;
 };
@@ -751,7 +752,7 @@ export const ChatView = ({
   pendingQuote,
   onClearQuote,
   cwd,
-  extraDirectories = [],
+  environment,
   showRateLimit = false,
 }: ChatViewProps) => {
   const chatDefaults = useContext(ChatDefaultsContext);
@@ -1435,21 +1436,17 @@ export const ChatView = ({
             onStop={onStop}
           />
           <div className="mx-auto mt-1.5 flex max-w-3xl items-center justify-between gap-3 px-2">
-            {cwd === undefined || cwd === "" ? (
+            {environment !== undefined ? (
+              <EnvironmentPopover environment={environment} cwd={cwd ?? ""} />
+            ) : cwd === undefined || cwd === "" ? (
               <span />
             ) : (
               <span
                 className="flex min-w-0 items-center gap-1 text-muted-foreground text-xs"
-                title={[cwd, ...extraDirectories].join("\n")}
+                title={cwd}
               >
                 <Folder className="size-3.5 shrink-0" aria-hidden />
                 <span className="truncate">{folderName(cwd)}</span>
-                {extraDirectories.length > 0 && (
-                  <span className="shrink-0">
-                    ＋{extraDirectories.length}
-                    <span className="sr-only">個のディレクトリ</span>
-                  </span>
-                )}
               </span>
             )}
             <span className="flex min-w-0 items-center gap-3">

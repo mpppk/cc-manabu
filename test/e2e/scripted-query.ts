@@ -3,6 +3,7 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryFunction } from "../../src/provider/types.ts";
+import type { GoalVerdict } from "../../src/task/goal-verdict.ts";
 
 /**
  * E2E 用のモック query()。プロンプトの内容で振る舞いを変える（台本）。
@@ -26,6 +27,12 @@ import type { QueryFunction } from "../../src/provider/types.ts";
  *
  * resume / fork を受け取ったセッション ID はそのまま（fork なら新しい ID を）返す。
  */
+/**
+ * `/goal` の評価の結果（#198）。実機ではセッションの記録に残るので、E2E ではここに置いて
+ * サーバの readVerdict から読む（セッション ID → 最後の評価）。
+ */
+export const goalVerdicts = new Map<string, GoalVerdict>();
+
 export const createScriptedQuery = (): QueryFunction => {
   let counter = 0;
   return ({ prompt, options }) => {
@@ -112,12 +119,13 @@ export const createScriptedQuery = (): QueryFunction => {
       } as unknown as SDKMessage;
     }
 
-    /** in-process の Wiki の MCP サーバのツールを呼ぶ（承認は通さない）。 */
-    const callWikiTool = async (
+    /** in-process の MCP サーバ（wiki / task）のツールを呼ぶ（承認は通さない）。 */
+    const callTool = async (
+      serverName: string,
       name: string,
       args: Record<string, unknown>,
     ): Promise<{ content: { type: string; text: string }[] } | undefined> => {
-      const server = options?.mcpServers?.wiki as
+      const server = options?.mcpServers?.[serverName] as
         | {
             instance?: {
               _registeredTools: Record<
@@ -135,7 +143,11 @@ export const createScriptedQuery = (): QueryFunction => {
           });
     };
 
-    async function* wikiToolCall(
+    const callWikiTool = (name: string, args: Record<string, unknown>) =>
+      callTool("wiki", name, args);
+
+    async function* toolCall(
+      serverName: string,
       name: string,
       args: Record<string, unknown>,
     ): AsyncGenerator<SDKMessage> {
@@ -147,11 +159,16 @@ export const createScriptedQuery = (): QueryFunction => {
         message: {
           role: "assistant",
           content: [
-            { type: "tool_use", id, name: `mcp__wiki__${name}`, input: args },
+            {
+              type: "tool_use",
+              id,
+              name: `mcp__${serverName}__${name}`,
+              input: args,
+            },
           ],
         },
       } as unknown as SDKMessage;
-      const result = await callWikiTool(name, args);
+      const result = await callTool(serverName, name, args);
       yield {
         ...base,
         type: "user",
@@ -169,19 +186,30 @@ export const createScriptedQuery = (): QueryFunction => {
       } as unknown as SDKMessage;
     }
 
+    const wikiToolCall = (name: string, args: Record<string, unknown>) =>
+      toolCall("wiki", name, args);
+
     return (async function* (): AsyncGenerator<SDKMessage> {
       // 画像付きの発話は、content ブロックを持つユーザーメッセージで届く
       let text = typeof prompt === "string" ? prompt : "";
       let images = 0;
       let reference = "";
+      /** タスクと環境の参照情報（#186）。 */
+      let taskContext = "";
       if (typeof prompt !== "string") {
         for await (const message of prompt as AsyncIterable<SDKUserMessage>) {
           const { content } = message.message;
           for (const item of typeof content === "string" ? [] : content) {
             if (item.type === "image") images++;
             if (item.type === "text") {
+              if (item.text.includes("<task-context>")) {
+                taskContext +=
+                  /<task-context>\n([\s\S]*?)\n<\/task-context>/.exec(
+                    item.text,
+                  )?.[1] ?? "";
+              }
               if (item.text.includes("<wiki-page")) reference += item.text;
-              else text += item.text;
+              else if (!item.text.includes("<task-context>")) text += item.text;
             }
           }
         }
@@ -209,6 +237,23 @@ export const createScriptedQuery = (): QueryFunction => {
           ? wikiToolCall("create_page", { title, body })
           : wikiToolCall("update_page", { id: existing, body });
         yield* textMessage([`Wiki の「${title}」に書きました。`], 0);
+      } else if (/^タスクを更新: /.test(text)) {
+        // 「タスクを更新: 状態|ゴール」。#187
+        const [status = "", nextAction = ""] = text
+          .replace(/^タスクを更新: /, "")
+          .split("|");
+        yield* toolCall("task", "update_task", {
+          status,
+          goal: nextAction,
+        });
+        yield* textMessage(["進捗を反映しました。"], 0);
+      } else if (/^リンクを追加: /.test(text)) {
+        // 「リンクを追加: URL|表示名」。#187
+        const [url = "", label = ""] = text
+          .replace(/^リンクを追加: /, "")
+          .split("|");
+        yield* toolCall("task", "add_link", { url, label });
+        yield* textMessage(["リンクを登録しました。"], 0);
       } else if (text.includes("<term-extraction>")) {
         const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(text)?.[1] ?? "";
         const terms = [...answer.matchAll(/「([^」]{2,20})」/g)].map(
@@ -256,6 +301,54 @@ export const createScriptedQuery = (): QueryFunction => {
         const answer = /<answer>\n([\s\S]*?)\n<\/answer>/.exec(text)?.[1] ?? "";
         // 回答の文言を繰り返すと、画面上で回答の本文と区別できなくなるので文字数だけ使う
         yield* textMessage([`要約（${[...answer].length} 文字の回答）`], 0);
+      } else if (text.includes("タスクの情報を教えて")) {
+        yield* textMessage(
+          [taskContext === "" ? "タスクの情報はありません" : taskContext],
+          0,
+        );
+      } else if (text.startsWith("/goal ")) {
+        // 「/goal <ゴール>」（#198）。ゴールの文言で評価の結果を変える
+        const goal = text.slice("/goal ".length);
+        yield* textMessage([`Goal set: ${goal}\n\n`], 0);
+        if (goal.includes("要確認")) {
+          yield* textMessage(["どちらの方針で進めますか？"], 0);
+          goalVerdicts.set(sessionId, {
+            kind: "none",
+            reason: "利用者の判断を待っています",
+          });
+        } else if (goal.includes("不可能")) {
+          yield* textMessage(["このゴールは達成できません。"], 0);
+          goalVerdicts.set(sessionId, {
+            kind: "failed",
+            reason: "条件が矛盾しているため達成できません",
+          });
+        } else {
+          if (goal.includes("承認")) {
+            await options?.canUseTool?.(
+              "Bash",
+              { command: "touch goal.txt", description: "Create goal.txt" },
+              {
+                signal: signal ?? new AbortController().signal,
+                suggestions: [],
+                toolUseID: "toolu_goal",
+                displayName: "Bash",
+                description: "Create goal.txt",
+              } as never,
+            );
+          }
+          yield* textMessage(["ゴールに向けた作業が終わりました。"], 0);
+          goalVerdicts.set(sessionId, {
+            kind: "met",
+            reason: "条件を満たしました",
+          });
+        }
+      } else if (
+        goalVerdicts.get(sessionId)?.kind === "none" &&
+        text.includes("方針A")
+      ) {
+        // 要確認のあと、利用者が答えて再開した
+        yield* textMessage(["方針A で進めて、ゴールを達成しました。"], 0);
+        goalVerdicts.set(sessionId, { kind: "met", reason: "方針A で達成" });
       } else if (text.includes("承認")) {
         const decision = await options?.canUseTool?.(
           "Bash",
