@@ -12,11 +12,13 @@ import {
 import {
   Fragment,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { resolveChatDefaults } from "../../chat/chat-defaults.ts";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
 import {
   type AnswerQuote,
@@ -31,6 +33,7 @@ import {
   type TermMatch,
 } from "../../wiki/term-matcher.ts";
 import { isPageTerm, normalizeTerm } from "../../wiki/terms.ts";
+import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import { OrpcChatTransport, type SendSettings } from "../lib/chat-transport.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
@@ -736,10 +739,23 @@ export const ChatView = ({
   cwd,
   extraDirectories = [],
 }: ChatViewProps) => {
+  const chatDefaults = useContext(ChatDefaultsContext);
+  /**
+   * まだ何も送っていない新規スレッド。最後に選んだモデルと effort を初期値にする（#164）。
+   * 分岐した会話・送信済みの会話は、その会話の保存済みの設定を使う。
+   */
+  const fresh =
+    initialMessages.length === 0 && chat.parentId === null && !chat.hasSession;
   const [settings, setSettings] = useState<{
     model: string;
     effort: Effort | null;
-  }>({ model: chat.model, effort: (chat.effort as Effort | null) ?? null });
+  }>(() =>
+    fresh
+      ? resolveChatDefaults(chatDefaults.defaults, models)
+      : { model: chat.model, effort: (chat.effort as Effort | null) ?? null },
+  );
+  /** この会話で利用者がモデルか effort を選んだか。選んだら初期値で上書きしない。 */
+  const pickedSettings = useRef(false);
   // transport は作り直さず、送信時に最新の設定を読む
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -815,6 +831,12 @@ export const ChatView = ({
       setTimeout(() => void refreshTerms(), 3000);
     },
   });
+  // 初期値や選べるモデルを読み込み終えたら、送る前の新規スレッドに反映する
+  const unsent = messages.length === 0;
+  useEffect(() => {
+    if (!fresh || !unsent || pickedSettings.current) return;
+    setSettings(resolveChatDefaults(chatDefaults.defaults, models));
+  }, [fresh, unsent, chatDefaults.defaults, models]);
   const busy = status === "submitted" || status === "streaming";
   const turns = useMemo(() => groupTurns(messages), [messages]);
   const latestTurn = busy
@@ -1375,7 +1397,11 @@ export const ChatView = ({
                 model={settings.model}
                 effort={settings.effort}
                 disabled={busy}
-                onChange={setSettings}
+                onChange={(next) => {
+                  pickedSettings.current = true;
+                  setSettings(next);
+                  chatDefaults.choose(next);
+                }}
               />
             }
             onSubmit={submit}

@@ -17,6 +17,7 @@ import {
   type EnvironmentRepository,
   type EnvironmentSummary,
 } from "./db/environment-repository.ts";
+import type { PreferencesRepository } from "./db/preferences-repository.ts";
 import type { QueueRepository } from "./db/queue-repository.ts";
 import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
 import {
@@ -50,6 +51,7 @@ export type RouterContext = {
   queueDispatcher: QueueDispatcher;
   search: SearchRepository;
   rateLimits: RateLimitRepository;
+  preferences: PreferencesRepository;
   wiki: WikiRepository;
   chatService: ChatService;
   approvals: ApprovalBroker;
@@ -916,6 +918,26 @@ export const router = {
       await unwrapForOrpc(context.chats.markSelected(input.id), ERROR_CODES);
       return { id: input.id };
     }),
+  },
+  preferences: {
+    /** 新規スレッドの初期値にする、最後に選んだモデルと effort（#164）。まだ無ければ null。 */
+    chatDefaults: base.handler(async ({ context }) =>
+      unwrapForOrpc(context.preferences.chatDefaults(), ERROR_CODES),
+    ),
+    /** モデルか effort を利用者が選び直したときに呼ぶ。 */
+    setChatDefaults: base
+      .input(
+        z.object({
+          model: sendSettings.model.unwrap(),
+          effort: sendSettings.effort.unwrap(),
+        }),
+      )
+      .handler(async ({ context, input }) => {
+        await unwrapForOrpc(
+          context.preferences.saveChatDefaults(input),
+          ERROR_CODES,
+        );
+      }),
   },
   limits: {
     /** 最後に観測したサブスクリプションの利用枠（#116）。まだ無ければ null。 */

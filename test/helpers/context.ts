@@ -13,6 +13,7 @@ import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
 import { createEnvironmentRepository } from "../../src/db/environment-repository.ts";
 import { openDatabase } from "../../src/db/index.ts";
+import { createPreferencesRepository } from "../../src/db/preferences-repository.ts";
 import { createQueueRepository } from "../../src/db/queue-repository.ts";
 import { createRateLimitRepository } from "../../src/db/rate-limit-repository.ts";
 import { createSearchRepository } from "../../src/db/search-repository.ts";
@@ -152,6 +153,7 @@ export const createTestContext = (
     queueDispatcher,
     search: createSearchRepository(opened.value.db),
     rateLimits,
+    preferences: createPreferencesRepository(opened.value.db),
     chatService,
     approvals,
     claude,

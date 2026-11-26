@@ -298,6 +298,7 @@ export type MessageRow = typeof messages.$inferSelect;
 /**
  * アプリ全体で 1 つだけ持つ値（キーごとに JSON）。
  * - `rate_limit`: 最後に観測した利用枠（#116）
+ * - `chat_defaults`: 新規スレッドの初期値にする、最後に選んだモデルと effort（#164）
  */
 export const appState = sqliteTable("app_state", {
   key: text("key").primaryKey(),

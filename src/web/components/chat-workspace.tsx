@@ -1,8 +1,13 @@
 import { X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  type ChatDefaults,
+  resolveChatDefaults,
+} from "../../chat/chat-defaults.ts";
 import type { ChatUIMessage } from "../../chat/chat-service.ts";
 import type { AnswerQuote, WikiPageQuote } from "../../chat/quote.ts";
 import type { ChatDto } from "../../router.ts";
+import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import type { SendSettings } from "../lib/chat-transport.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
@@ -10,6 +15,7 @@ import { requestNotificationPermission } from "../lib/notify.ts";
 import { cn } from "../lib/utils.ts";
 import { ChatView, type ChatViewProps, QuoteBlock } from "./chat-view.tsx";
 import { Composer } from "./composer.tsx";
+import { ModelPicker } from "./model-picker.tsx";
 import { Button } from "./ui/button.tsx";
 import { WikiPane } from "./wiki-pane.tsx";
 
@@ -67,6 +73,11 @@ export const SideChat = ({
     SideConversation | null | undefined
   >(draft === undefined ? undefined : null);
   const [error, setError] = useState<string>();
+  // Wiki ページについての最初の質問は、最後に選んだモデルと effort で送る（#164）
+  const chatDefaults = useContext(ChatDefaultsContext);
+  const [pickedSettings, setPickedSettings] = useState<ChatDefaults>();
+  const firstSettings =
+    pickedSettings ?? resolveChatDefaults(chatDefaults.defaults, models);
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     panel.current?.focus();
@@ -131,6 +142,7 @@ export const SideChat = ({
               taskId: wiki.taskId,
               pageId: wiki.pageId,
               message,
+              ...firstSettings,
             })
           : draft !== undefined && branchId !== undefined
             ? await api.chat.branch({
@@ -266,6 +278,21 @@ export const SideChat = ({
               busy={false}
               pending={creating}
               messageLabel="サイドチャットのメッセージ"
+              {...(wiki === undefined
+                ? {}
+                : {
+                    toolbar: (
+                      <ModelPicker
+                        models={models}
+                        model={firstSettings.model}
+                        effort={firstSettings.effort}
+                        onChange={(next) => {
+                          setPickedSettings(next);
+                          chatDefaults.choose(next);
+                        }}
+                      />
+                    ),
+                  })}
               onSubmit={submit}
             />
           </div>
