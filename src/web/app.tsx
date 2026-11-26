@@ -556,6 +556,10 @@ export const App = ({ api }: { api: ApiClient }) => {
             <TaskList
               tasks={tasks ?? []}
               onOpen={(id) => navigate(pathForTask(id))}
+              onMove={async (id, status) => {
+                await api.tasks.updateProgress({ id, status });
+                await refreshTasks();
+              }}
             />
           ) : showWiki ? (
             <WikiView
