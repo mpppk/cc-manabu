@@ -81,8 +81,8 @@ cc-manabu --help
 | --- | --- |
 | `CC_MANABU_PORT` | 待ち受けるポート（既定: 空いているポート） |
 | `CC_MANABU_NO_OPEN=1` | 起動時にブラウザや PWA を開かない |
-| `CC_MANABU_CHROME_PROFILE` | `--pwa` で使う Chrome のプロファイルディレクトリ（既定: PWA をインストールしたプロファイルを探す） |
-| `CC_MANABU_CHROME_APP_ID` | `--pwa` で使う Chrome のアプリ ID（省略時は起動 URL から算出） |
+| `CC_MANABU_CHROME_PROFILE` | PWA に使う Chrome のプロファイルディレクトリ（既定: PWA をインストールしたプロファイルを探す） |
+| `CC_MANABU_CHROME_APP_ID` | PWA に使う Chrome のアプリ ID（省略時は起動 URL から算出） |
 | `CC_MANABU_CLAUDE_PATH` | 使う `claude` のパス（既定: PATH から探す） |
 | `CC_MANABU_NO_AUTH=1` | API にアクセストークンを要求しない（デバッグ用。`--pwa` では常にトークンを要求） |
 | `CC_MANABU_DB` | 会話を保存する SQLite のパス（既定: `$XDG_DATA_HOME/cc-manabu/db.sqlite`、未設定なら `~/.local/share/cc-manabu/db.sqlite`） |
@@ -91,11 +91,19 @@ cc-manabu --help
 
 1. `CC_MANABU_PORT=4000 CC_MANABU_NO_OPEN=1 cc-manabu` で起動します。ターミナルに表示された起動 URL を、PWA を使う Chrome プロファイルで開きます。
 2. Chrome のメニューで「キャスト、保存、共有」→「ページをアプリとしてインストール」を選びます。[Chrome のインストール手順](https://support.google.com/chrome/answer/9658361?hl=ja)
-3. Ctrl+C でサーバーを止め、以降は同じポートで起動します。
+3. Ctrl+C でサーバーを止めます。以降は `cc-manabu` だけで、インストール済みの PWA を見つけて、インストール時のポートで起動して PWA を開きます。
 
    ```sh
-   CC_MANABU_PORT=4000 cc-manabu --pwa
+   cc-manabu
    ```
+
+ポートを指定しない場合は、Chrome のプロファイルからインストール済みの cc-manabu を探し、インストール時のポートを使います。複数のポートでインストールしている場合は、その旨を表示して通常のブラウザで開くので、`CC_MANABU_PORT` で使うポートを指定します。`CC_MANABU_PORT` を指定した場合は、そのポートの URL でインストールした PWA を開きます。PWA が見つからない場合、macOS の Google Chrome 以外の環境、または PWA の起動に失敗した場合は、通常のブラウザで開きます。
+
+`--pwa` を付けると、PWA を必ず使う起動になります（`CC_MANABU_PORT` が必要です）。
+
+```sh
+CC_MANABU_PORT=4000 cc-manabu --pwa
+```
 
 PWA をインストールした Chrome プロファイルは自動で探します。複数のプロファイルにインストールした場合は、`chrome://version` に表示される「プロフィール パス」の末尾（例 `Profile 2`）を `CC_MANABU_CHROME_PROFILE` に指定します。アプリ ID は起動 URL から求めます。明示的に指定する場合は、`chrome://web-app-internals` で `http://127.0.0.1:4000/` の `app_id` を確認して `CC_MANABU_CHROME_APP_ID` に渡します。
 
@@ -103,7 +111,7 @@ PWA をインストールした Chrome プロファイルは自動で探しま�
 CC_MANABU_PORT=4000 CC_MANABU_CHROME_PROFILE='Profile 2' cc-manabu --pwa
 ```
 
-`--pwa` は起動ごとに新しいアクセストークンを渡します。Chrome や PWA が見つからない場合は、理由を表示して同じサーバーを既定のブラウザで開きます。ポートが使用中なら、先に使用中のプロセスを止めてください。別のポートを使う場合は、その URL で PWA をインストールし直します。`CC_MANABU_NO_OPEN=1` を指定するとサーバーだけ起動します。
+PWA を開くときは、起動ごとに新しいアクセストークンを渡します。Chrome や PWA が見つからない場合は、理由を表示して同じサーバーを既定のブラウザで開きます。指定したポートが使用中なら、先に使用中のプロセスを止めてください（ポートを指定せずに自動で見つけたポートが使用中なら、PWA を使わずに空いているポートで起動します）。別のポートを使う場合は、その URL で PWA をインストールし直します。`CC_MANABU_NO_OPEN=1` を指定するとサーバーだけ起動します。
 
 ## セキュリティ
 

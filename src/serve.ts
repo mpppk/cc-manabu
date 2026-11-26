@@ -38,7 +38,11 @@ import { createClaudeCode } from "./provider/index.ts";
 import { router } from "./router.ts";
 import type { RuntimeConfig } from "./runtime-config.ts";
 import { generateToken } from "./server/access-control.ts";
-import { openPwa } from "./server/open-pwa.ts";
+import {
+  findInstalledPwa,
+  type InstalledPwa,
+  openPwa,
+} from "./server/open-pwa.ts";
 import { openBrowser, PortInUseError, startServer } from "./server/server.ts";
 import index from "./web/index.html";
 import { createTermPageWriter } from "./wiki/auto-terms.ts";
@@ -69,6 +73,16 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
       "--pwa には CC_MANABU_PORT が必要です。PWA をインストールしたときのポート（1〜65535）を指定してください。",
     );
     throw new CliExit({ code: 1 });
+  }
+  // --pwa が無くても、インストール済みの PWA があればそのポートで起動して開く（#163）
+  let installedPwa: InstalledPwa | undefined;
+  if (config.openBrowser && config.pwa === undefined) {
+    const found = findInstalledPwa({ port: config.port, ...config.chrome });
+    if (Result.isSuccess(found)) {
+      installedPwa = found.value;
+    } else {
+      console.warn(`${found.error.message} 通常のブラウザで開きます。`);
+    }
   }
   const result = Result.pipe(
     openDatabase(resolveDbPath()),
@@ -223,30 +237,47 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         registry,
         chatService,
       });
-      return startServer({
-        port: config.port,
-        token: config.requireToken ? generateToken() : null,
-        router,
-        index,
-        development: process.env.NODE_ENV !== "production",
-        context: {
-          chats,
-          tasks,
-          environments,
-          wiki,
-          queue,
-          queueDispatcher,
-          search: createSearchRepository(db),
-          rateLimits,
-          preferences: createPreferencesRepository(db),
-          chatService,
-          approvals,
-          claude,
-          generateWikiPage,
-          cwd: process.cwd(),
-          pickDirectory: createDirectoryPicker(),
-        },
-      });
+      const start = (port: number) =>
+        startServer({
+          port,
+          token: config.requireToken ? generateToken() : null,
+          router,
+          index,
+          development: process.env.NODE_ENV !== "production",
+          context: {
+            chats,
+            tasks,
+            environments,
+            wiki,
+            queue,
+            queueDispatcher,
+            search: createSearchRepository(db),
+            rateLimits,
+            preferences: createPreferencesRepository(db),
+            chatService,
+            approvals,
+            claude,
+            generateWikiPage,
+            cwd: process.cwd(),
+            pickDirectory: createDirectoryPicker(),
+          },
+        });
+      const port = installedPwa?.port ?? config.port;
+      const started = start(port);
+      // 自動で見つけた PWA のポートが使用中なら、PWA は使わずに空いているポートで起動する
+      if (
+        Result.isFailure(started) &&
+        started.error instanceof PortInUseError &&
+        installedPwa !== undefined &&
+        config.port === 0
+      ) {
+        console.warn(
+          `PWA をインストールしたポート ${port} は使用中です。PWA を使わずに起動します。PWA を使うには、そのポートを空けてから再実行してください。`,
+        );
+        installedPwa = undefined;
+        return start(0);
+      }
+      return started;
     }),
   );
   if (Result.isFailure(result)) {
@@ -266,8 +297,13 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
   console.log(`cc-manabu を起動しました: ${server.url}`);
   console.log("終了するには Ctrl+C を押してください。");
   if (!config.openBrowser) return;
-  if (config.pwa !== undefined) {
-    const launch = await openPwa(server.url, config.pwa);
+  const pwa =
+    config.pwa ??
+    (installedPwa === undefined
+      ? undefined
+      : { profile: installedPwa.profile, appId: installedPwa.appId });
+  if (pwa !== undefined) {
+    const launch = await openPwa(server.url, pwa);
     if (Result.isSuccess(launch)) return;
     console.warn(
       `PWA を開けませんでした。 ${launch.error.message} 通常のブラウザで開きます。`,
