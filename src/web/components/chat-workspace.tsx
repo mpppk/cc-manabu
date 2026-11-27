@@ -60,6 +60,7 @@ export const SideChat = ({
   models,
   hidden = false,
   width,
+  onConversation,
   ...callbacks
 }: Pick<
   ChatViewProps,
@@ -79,6 +80,8 @@ export const SideChat = ({
   hidden?: boolean;
   /** メインと並べるときの幅（#209）。省略すると既定の幅。 */
   width?: number | undefined;
+  /** 開いている会話が変わったとき（閉じたときは undefined。#234）。 */
+  onConversation?: ((chatId: string | undefined) => void) | undefined;
 }) => {
   const widthProps = sidePanelWidthProps(width);
   const wiki = request.kind === "wiki" ? request : undefined;
@@ -142,6 +145,13 @@ export const SideChat = ({
   useEffect(() => {
     if (chatId !== undefined || pageId !== undefined) void loadConversation();
   }, [chatId, pageId, loadConversation]);
+
+  // 開いている会話を伝える（新しい回答の印を外す。#234）
+  const conversationId = conversation?.chat.id;
+  useEffect(() => {
+    onConversation?.(conversationId);
+  }, [conversationId, onConversation]);
+  useEffect(() => () => onConversation?.(undefined), [onConversation]);
 
   const submit = async (text: string, images: ImageAttachment[]) => {
     if (creating) return false;
@@ -358,8 +368,11 @@ export const SidePanelResizer = (props: {
 export const ChatWorkspace = ({
   loading,
   onOpenChat,
+  onSideChatChange,
   ...props
 }: ChatViewProps & {
+  /** 右側のペインで開いている会話が変わったとき（#234）。 */
+  onSideChatChange?: ((chatId: string | undefined) => void) | undefined;
   loading: boolean;
   /** 別のスレッドの会話を開く（Wiki ページの「元の回答を開く」）。 */
   onOpenChat?: (chatId: string) => void;
@@ -522,6 +535,7 @@ export const ChatWorkspace = ({
           models={props.models}
           hidden={overlay !== undefined}
           width={sidePanel.width}
+          onConversation={onSideChatChange}
           onClose={closeSide}
           onActivity={onActivity}
           onOpenWikiPane={openWikiPane}

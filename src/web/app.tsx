@@ -46,6 +46,7 @@ import {
   sidebarWidthRange,
 } from "./lib/sidebar-width.ts";
 import { applyTheme, loadTheme, type Theme } from "./lib/theme.ts";
+import { useUnreadChats } from "./lib/unread.ts";
 import { useWikiPages } from "./lib/use-wiki-pages.ts";
 
 type Status = Awaited<ReturnType<ApiClient["system"]["status"]>>;
@@ -362,6 +363,12 @@ export const App = ({ api }: { api: ApiClient }) => {
     );
   };
   const models = status?.claude.state === "ready" ? status.claude.models : [];
+  // 右側のペインで開いている会話。メインの会話とともに、新しい回答の印を外す（#234）
+  const [sideChatId, setSideChatId] = useState<string>();
+  const unreadChatIds = useUnreadChats(chats, [
+    showWiki ? undefined : chatViewId,
+    sideChatId,
+  ]);
   const workspace = chatViewId === undefined ? undefined : current;
   /** 会話が属するタスクの環境（未所属なら undefined）。 */
   const environmentOf = (chat: ChatDto): EnvironmentDto | undefined => {
@@ -580,6 +587,9 @@ export const App = ({ api }: { api: ApiClient }) => {
                 onOpenWikiPage={(taskId, pageId) =>
                   navigate(pathForWiki(taskId, pageId), { returnTo: path })
                 }
+                headerSlot={showWiki ? null : headerActions}
+                unreadChatIds={unreadChatIds}
+                onSideChatChange={setSideChatId}
               />
             </div>
           )}
