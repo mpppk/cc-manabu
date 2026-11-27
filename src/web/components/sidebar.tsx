@@ -176,6 +176,15 @@ const ChatItem = ({
         onClick={onSelect}
         aria-current={selected ? "page" : undefined}
       >
+        {chat.wikiPageId !== null && (
+          // どのノートかは、スレッドを開くとチャットの先頭に出す
+          <span
+            className="shrink-0 text-muted-foreground"
+            title="ノートから質問したスレッド"
+          >
+            <BookOpen aria-hidden className="size-3.5" />
+          </span>
+        )}
         <span className="truncate">{label}</span>
         {branchCount > 1 && (
           <span
