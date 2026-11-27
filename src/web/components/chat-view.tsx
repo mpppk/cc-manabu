@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {
   Fragment,
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
@@ -48,7 +49,7 @@ import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { cn } from "../lib/utils.ts";
 import { AnswerWikiUndo, changedWiki } from "./answer-wiki-undo.tsx";
 import { ApprovalCard } from "./approval-card.tsx";
-import { BranchMenu } from "./branch-menu.tsx";
+import { BranchMenu, ForkPointBranches } from "./branch-menu.tsx";
 import { Composer } from "./composer.tsx";
 import { EnvironmentPopover } from "./environment-popover.tsx";
 import { Markdown, type WikiLinks } from "./markdown.tsx";
@@ -217,6 +218,7 @@ const MessageView = ({
   onOpenWikiPage,
   termMatcher,
   onBranch,
+  forks,
   wikiUndo,
 }: {
   message: ChatUIMessage;
@@ -236,6 +238,8 @@ const MessageView = ({
   termMatcher?: (text: string) => TermMatch[];
   /** この回答から分岐する（完了した回答だけ）。 */
   onBranch?: () => void;
+  /** この回答から分岐した会話の一覧（分岐点の回答だけ。#235）。 */
+  forks?: ReactNode;
   /** 回答で Claude が Wiki に加えた変更を元に戻す（タスクの会話だけ。#166）。 */
   wikiUndo?: { api: ApiClient; onChanged: () => void };
 }) => {
@@ -419,6 +423,7 @@ const MessageView = ({
             ここから分岐
           </Button>
         )}
+        {forks}
         {!streaming && wikiUndo !== undefined && changedWiki(message) && (
           <AnswerWikiUndo
             api={wikiUndo.api}
@@ -535,14 +540,41 @@ const WikiSourceNote = ({
   );
 };
 
-/** 分岐元から引き継いだ履歴と、この会話で書いた履歴の境目。 */
-const InheritedDivider = ({ parent }: { parent: ChatDto | undefined }) => (
+/**
+ * 分岐元から引き継いだ履歴と、この会話で書いた履歴の境目。
+ * 分岐元の名前を押すと、分岐元の会話に移る（#235）。
+ */
+const InheritedDivider = ({
+  parent,
+  onOpen,
+}: {
+  parent: ChatDto | undefined;
+  /** 分岐元の会話を開く。HEAD を動かしている間などで開けなければ undefined。 */
+  onOpen: ((chatId: string) => void) | undefined;
+}) => (
   <div className="flex items-center gap-2 text-muted-foreground text-xs">
     <span className="h-px flex-1 bg-border" />
     <GitBranch className="size-3.5" />
-    {parent === undefined
-      ? "ここから分岐"
-      : `ここまで「${branchLabel(parent)}」から引き継いだ履歴`}
+    {parent === undefined ? (
+      "ここから分岐"
+    ) : (
+      <span>
+        ここまで「
+        {onOpen === undefined ? (
+          branchLabel(parent)
+        ) : (
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:text-foreground"
+            title="分岐元の会話を開く"
+            onClick={() => onOpen(parent.id)}
+          >
+            {branchLabel(parent)}
+          </button>
+        )}
+        」から引き継いだ履歴
+      </span>
+    )}
     <span className="h-px flex-1 bg-border" />
   </div>
 );
@@ -1287,11 +1319,34 @@ export const ChatView = ({
     onActivity?.();
   };
 
+  /** 回答から分岐した会話（#235）。 */
+  const forksOf = (messageIds: readonly string[]): ChatDto[] =>
+    messageIds
+      .flatMap((id) => forkPoints.get(id) ?? [])
+      .flatMap((id) => branches.filter((branch) => branch.id === id));
+  const forkMenu = (forks: readonly ChatDto[]) =>
+    side || forks.length === 0 ? undefined : (
+      <ForkPointBranches
+        forks={forks}
+        current={chat}
+        branches={branches}
+        unread={unreadChatIds}
+        disabled={branchFrom !== undefined}
+        onSelect={(id) => onSelectBranch?.(id)}
+        onOpenSide={onOpenSideBranch}
+      />
+    );
+
   const renderMessage = (message: ChatUIMessage, index: number) => (
     <Fragment key={message.id}>
       {!side && chat.inheritedCount > 0 && index === chat.inheritedCount && (
         <InheritedDivider
           parent={branches.find((b) => b.id === chat.parentId)}
+          onOpen={
+            branchFrom === undefined && onSelectBranch !== undefined
+              ? onSelectBranch
+              : undefined
+          }
         />
       )}
       <div
@@ -1318,6 +1373,10 @@ export const ChatView = ({
           streaming={busy && index === messages.length - 1}
           canAct={!busy && branchFrom === undefined}
           isLast={index === messages.length - 1}
+          {...(() => {
+            const menu = forkMenu(forksOf([message.id]));
+            return menu === undefined ? {} : { forks: menu };
+          })()}
           {...(!side &&
           message.role === "assistant" &&
           message.metadata?.claudeCode?.lastAssistantUuid !== undefined
@@ -1364,6 +1423,33 @@ export const ChatView = ({
       </div>
     </Fragment>
   );
+
+  // 分岐点の回答と、そこから分岐した会話（#235）。会話が増えたり履歴が変わったら取り直す
+  const [forkPoints, setForkPoints] = useState<ReadonlyMap<string, string[]>>(
+    () => new Map(),
+  );
+  // 会話が 1 つだけのスレッドには分岐点が無いので取らない
+  const branchKey =
+    branches.length < 2 ? "" : branches.map((branch) => branch.id).join(",");
+  const historyKey = `${messages.length}:${busy}`;
+  useEffect(() => {
+    if (side || branchKey === "" || historyKey === "") return;
+    let cancelled = false;
+    api.chats
+      .forkPoints({ id: chat.id })
+      .then((points) => {
+        if (cancelled) return;
+        setForkPoints(
+          new Map(points.map((point) => [point.messageId, point.chatIds])),
+        );
+      })
+      .catch(() => {
+        // 取れなくても会話は表示できる（ヘッダーから切り替えられる）
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, chat.id, side, branchKey, historyKey]);
 
   // 会話の切り替えは、画面上部のヘッダーに出す（#234）
   const branchMenu =
@@ -1453,6 +1539,9 @@ export const ChatView = ({
                   >
                     {question !== undefined && renderMessage(question, start)}
                     <div className="flex items-center justify-end gap-2 empty:hidden">
+                      {/* 閉じている回答でも、そこから分岐した会話は見せる（#235） */}
+                      {!open &&
+                        forkMenu(forksOf(answers.map((answer) => answer.id)))}
                       {current && (
                         <span
                           className="rounded-md bg-muted px-2 py-1 text-muted-foreground text-xs"

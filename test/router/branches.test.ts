@@ -182,6 +182,48 @@ describe("分岐（#76）", () => {
     expect(await textsOf(client, branchId)).toHaveLength(6);
   });
 
+  test("会話の中の分岐点と、そこから分岐した会話が分かる。写した履歴の中でも、分岐元を編集した後でも（#235）", async () => {
+    const { client } = setup();
+    const root = await twoTurns(client);
+    const a = await branchFrom(client, root.id, 1, "A");
+    const b = await branchFrom(client, root.id, 1, "B");
+    const c = await branchFrom(client, a, 3, "C");
+    const idsOf = async (chatId: string) =>
+      (await client.chats.get({ id: chatId })).messages.map((m) => m.id);
+    const rootIds = await idsOf(root.id);
+    const aIds = await idsOf(a);
+    const cIds = await idsOf(c);
+
+    expect(await client.chats.forkPoints({ id: root.id })).toEqual([
+      { messageId: rootIds[1] ?? "", chatIds: [a, b] },
+    ]);
+    // 分岐した会話では、写した回答（id は別）を分岐点として返す。自分自身と祖先は含めない
+    expect(await client.chats.forkPoints({ id: a })).toEqual([
+      { messageId: aIds[1] ?? "", chatIds: [b] },
+      { messageId: aIds[3] ?? "", chatIds: [c] },
+    ]);
+    expect(await client.chats.forkPoints({ id: c })).toEqual([
+      { messageId: cIds[1] ?? "", chatIds: [b] },
+    ]);
+
+    // 元の会話を編集すると、元の会話からは分岐点が無くなるが、分岐した会話同士では分かる
+    await drain(
+      await client.chat.edit({
+        chatId: root.id,
+        messageId: rootIds[0] ?? "",
+        text: "別の設計案は？",
+      }),
+    );
+    expect(await client.chats.forkPoints({ id: root.id })).toEqual([]);
+    expect(await client.chats.forkPoints({ id: a })).toEqual([
+      { messageId: aIds[1] ?? "", chatIds: [b] },
+      { messageId: aIds[3] ?? "", chatIds: [c] },
+    ]);
+    await expect(
+      client.chats.forkPoints({ id: "missing" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
   test("最後に開いた会話を記録する", async () => {
     const { client } = setup();
     const root = await twoTurns(client);
