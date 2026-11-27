@@ -16,7 +16,11 @@ export class TooManyRunnersError extends ErrorFactory({
   fields: ErrorFactory.fields<{ limit: number }>(),
 }) {}
 
-export const DEFAULT_MAX_CONCURRENT = 3;
+/**
+ * 同時に生成できる会話の数。生成中でも「現在地を維持して送信」で次々と分岐に質問できるよう、
+ * 多めにしている（#225）。
+ */
+export const DEFAULT_MAX_CONCURRENT = 10;
 
 /** 生成中の ChatRunner を会話ごとに管理する。同時に生成できる数に上限を設ける。 */
 export class RunnerRegistry {

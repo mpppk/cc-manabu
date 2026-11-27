@@ -130,6 +130,20 @@ describe("RunnerRegistry", () => {
     );
   });
 
+  test("既定では 10 件まで同時に生成できる（#225）", () => {
+    const registry = new RunnerRegistry();
+    expect(registry.maxConcurrent).toBe(10);
+    for (let i = 0; i < 10; i++) {
+      expect(
+        Result.isSuccess(registry.start(`c${i}`, controllableSource().start)),
+      ).toBe(true);
+    }
+    const eleventh = registry.start("c10", controllableSource().start);
+    expect(Result.isFailure(eleventh) && eleventh.error.name).toBe(
+      "TooManyRunnersError",
+    );
+  });
+
   test("同時に生成できる数を超えたら TooManyRunnersError", () => {
     const registry = new RunnerRegistry({ maxConcurrent: 2 });
     registry.start("c1", controllableSource().start);

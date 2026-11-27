@@ -2176,7 +2176,7 @@ test("現在地を維持した送信が同時に生成できる数の上限を�
   await send(page, "最初の質問");
   await idle(page);
 
-  // メインと 2 つの分岐で、同時に生成できる 3 件を使い切る
+  // メインと 2 つの分岐で、同時に生成できる 3 件（E2E のサーバの上限）を使い切る
   await mainInput.fill("ゆっくり数えて");
   await mainInput.press("Enter");
   for (const question of ["ゆっくり A", "ゆっくり B"]) {
