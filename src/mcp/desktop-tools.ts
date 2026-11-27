@@ -72,7 +72,7 @@ const taskLine = (task: TaskRow, environmentName: string | undefined) =>
   `- ${task.name}（task_id: ${task.id}、状態: ${statusText(task.status)}、環境: ${environmentName ?? "（不明）"}）`;
 
 const environmentLine = (environment: EnvironmentSummary) =>
-  `- ${environment.name}（environment_id: ${environment.id}、Wiki: ${environment.wikiName}、タスク ${environment.taskCount} 件、ディレクトリ: ${environment.directories.join(", ") || "（なし）"}）`;
+  `- ${environment.name}（environment_id: ${environment.id}、Wiki: ${environment.wikiName ?? "（使わない）"}、タスク ${environment.taskCount} 件、ディレクトリ: ${environment.directories.join(", ") || "（なし）"}）`;
 
 export const createDesktopToolHandlers = (deps: DesktopToolDeps) => {
   const { tasks, environments } = deps;
@@ -132,7 +132,9 @@ export const createDesktopToolHandlers = (deps: DesktopToolDeps) => {
           `task_id: ${task.id}`,
           text,
           `環境: ${environment === undefined ? "（不明）" : `${environment.name}（environment_id: ${environment.id}）`}`,
-          `Wiki: ${environment?.wikiName ?? "（不明）"}（list_pages・read_page で読めます）`,
+          environment !== undefined && environment.wikiName === null
+            ? "Wiki: （この環境は Wiki を使っていません）"
+            : `Wiki: ${environment?.wikiName ?? "（不明）"}（list_pages・read_page で読めます）`,
         ].join("\n");
       }),
     );
@@ -280,7 +282,9 @@ export const createDesktopToolHandlers = (deps: DesktopToolDeps) => {
                   Result.andThen(() => environments.listEnvironments()),
                   Result.map((list) => {
                     const summary = list.find((e) => e.id === environment.id);
-                    return `環境を「${environment.name}」に移しました。参照する Wiki は「${summary?.wikiName ?? "（不明）"}」になります。`;
+                    return summary !== undefined && summary.wikiName === null
+                      ? `環境を「${environment.name}」に移しました。この環境は Wiki を使っていません。`
+                      : `環境を「${environment.name}」に移しました。参照する Wiki は「${summary?.wikiName ?? "（不明）"}」になります。`;
                   }),
                 ),
           ),

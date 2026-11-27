@@ -105,6 +105,7 @@ describe("migration 0011_tasks", () => {
       "0014_wiki_page_qas",
       "0015_wiki_history",
       "0016_goal_runs",
+      "0017_environment_without_wiki",
     ]);
     const db = drizzle(sqlite, { schema });
     expect(unwrap(createTaskRepository(db).getTask("p1"))).toMatchObject({

@@ -32,6 +32,7 @@ import type {
 } from "./db/schema.ts";
 import type { SearchRepository } from "./db/search-repository.ts";
 import {
+  requireWikiId,
   type TaskNotFoundError,
   type TaskRepository,
   wikiIdOf,
@@ -89,6 +90,7 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   EnvironmentNotFoundError: "NOT_FOUND",
   EnvironmentNotEmptyError: "CONFLICT",
   WikiNotFoundError: "NOT_FOUND",
+  TaskWithoutWikiError: "BAD_REQUEST",
   DirectoryNotFoundError: "BAD_REQUEST",
   RelativeDirectoryError: "BAD_REQUEST",
   DirectoryPickerUnavailableError: "SERVICE_UNAVAILABLE",
@@ -198,8 +200,8 @@ export type TaskDto = Pick<
 > & {
   /** 所属する環境。 */
   environmentId: string | null;
-  /** 参照する Wiki（所属する環境の Wiki）。 */
-  wikiId: string;
+  /** 参照する Wiki（所属する環境の Wiki）。環境が Wiki を使っていなければ null（#232）。 */
+  wikiId: string | null;
 };
 
 const toTaskDto = (row: TaskRow): TaskDto => ({
@@ -380,9 +382,9 @@ const toCheckpointDto = (row: WikiCheckpointRow) => ({
 });
 export type WikiCheckpointDto = ReturnType<typeof toCheckpointDto>;
 
-/** タスクが参照する Wiki の ID。 */
+/** タスクが参照する Wiki の ID。環境が Wiki を使っていなければ TaskWithoutWikiError。 */
 const wikiOfTask = (context: RouterContext, taskId: string) =>
-  Result.pipe(context.tasks.getTask(taskId), Result.map(wikiIdOf));
+  Result.pipe(context.tasks.getTask(taskId), Result.andThen(requireWikiId));
 
 /** 版・チェックポイントが、タスクの Wiki のものか確かめる（ほかの Wiki のものは見つからない扱い）。 */
 const inWiki = <T extends { wikiId: string }>(
@@ -508,14 +510,18 @@ export const router = {
         )
       ).map(toEnvironmentDto),
     ),
-    /** 環境を作る。wikiId を渡すとその Wiki を共有し、無ければ同じ名前の Wiki を新しく作る。 */
+    /**
+     * 環境を作る。wikiId を渡すとその Wiki を共有し、null なら Wiki を使わず（#232）、
+     * 無ければ同じ名前の Wiki を新しく作る。
+     */
     create: base
       .input(
         z.object({
           name: environmentName,
           directories: directoriesInput,
           description: environmentDescription.optional(),
-          wikiId: z.string().min(1).optional(),
+          /** null なら Wiki を使わない（#232）。 */
+          wikiId: z.string().min(1).nullable().optional(),
         }),
       )
       .handler(async ({ context, input }) =>
@@ -548,7 +554,10 @@ export const router = {
           name: environmentName.optional(),
           directories: directoriesInput.optional(),
           description: environmentDescription.optional(),
-          wikiId: z.string().min(1).optional(),
+          /** null なら Wiki を使わなくする（#232）。 */
+          wikiId: z.string().min(1).nullable().optional(),
+          /** 環境と同じ名前の Wiki を新しく作って使う。wikiId と同時には指定しない。 */
+          newWiki: z.boolean().optional(),
         }),
       )
       .handler(async ({ context, input }) =>
@@ -565,6 +574,7 @@ export const router = {
                   ? {}
                   : { description: input.description }),
                 ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
+                ...(input.newWiki === true ? { newWiki: true } : {}),
               }),
             ),
             Result.andThen((row) => environmentDto(context, row.id)),
@@ -1056,7 +1066,13 @@ export const router = {
           await unwrapForOrpc(
             Result.pipe(
               context.tasks.getTask(input.taskId),
-              Result.andThen((task) => context.wiki.listPages(wikiIdOf(task))),
+              // Wiki を使わない環境のタスクには、ページが無いものとして返す（#232）
+              Result.andThen((task) => {
+                const wikiId = wikiIdOf(task);
+                return wikiId === null
+                  ? Result.succeed([])
+                  : context.wiki.listPages(wikiId);
+              }),
             ),
             ERROR_CODES,
           )
@@ -1075,10 +1091,10 @@ export const router = {
         toWikiPageDto(
           await unwrapForOrpc(
             Result.pipe(
-              context.tasks.getTask(input.taskId),
-              Result.andThen((task) =>
+              wikiOfTask(context, input.taskId),
+              Result.andThen((wikiId) =>
                 context.wiki.createPage({
-                  wikiId: wikiIdOf(task),
+                  wikiId,
                   title: input.title,
                   aliases: input.aliases,
                   body: input.body,

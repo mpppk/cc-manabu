@@ -4,14 +4,21 @@ import type { EnvironmentDto, WikiDto } from "../../router.ts";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 
-/** 環境の作成・変更で送る値。wikiId が無ければ新しい Wiki を作る。 */
+/**
+ * 環境の作成・変更で送る値。wikiId が null なら Wiki を使わない（#232）。
+ * 作成で wikiId が無ければ、変更で newWiki なら、新しい Wiki を作る。
+ */
 export type EnvironmentInput = {
   name: string;
   directories: string[];
   /** 環境の目的や扱うテーマ（空欄でもよい）。 */
   description: string;
-  wikiId?: string;
+  wikiId?: string | null;
+  newWiki?: boolean;
 };
+
+/** 環境の Wiki の選び方。 */
+type WikiMode = "new" | "existing" | "none";
 
 /** 環境の操作で開くダイアログ。 */
 export type EnvironmentDialog =
@@ -201,7 +208,7 @@ const EnvironmentFormDialog = ({
   const [name, setName] = useState("");
   const [directories, setDirectories] = useState<string[]>([]);
   const [description, setDescription] = useState("");
-  const [useExisting, setUseExisting] = useState(false);
+  const [wikiMode, setWikiMode] = useState<WikiMode>("new");
   const [wikiId, setWikiId] = useState("");
   const [wikiName, setWikiName] = useState("");
   const [error, setError] = useState<string>();
@@ -217,21 +224,38 @@ const EnvironmentFormDialog = ({
           (defaultDirectory === undefined ? [] : [defaultDirectory]),
       );
       setDescription(environment?.description ?? "");
-      setUseExisting(environment !== undefined);
+      setWikiMode(
+        environment === undefined
+          ? "new"
+          : environment.wikiId === null
+            ? "none"
+            : "existing",
+      );
       setWikiId(environment?.wikiId ?? wikis[0]?.id ?? "");
       setWikiName(environment?.wikiName ?? "");
       setError(undefined);
     }
   }
   const editing = environment !== undefined;
+  const useExisting = wikiMode === "existing";
   const chosenWiki = useExisting
     ? wikis.find((wiki) => wiki.id === wikiId)
     : undefined;
+  // 変更では、参照する Wiki の名前もここで変えられる
+  const renamingWiki = editing && useExisting;
   const valid =
     name.trim() !== "" &&
     directories.length > 0 &&
     (!useExisting || chosenWiki !== undefined) &&
-    (!editing || wikiName.trim() !== "");
+    (!renamingWiki || wikiName.trim() !== "");
+  /** 送る Wiki の指定。変更で Wiki を変えなければ何も送らない。 */
+  const wikiInput = (): Pick<EnvironmentInput, "wikiId" | "newWiki"> => {
+    if (wikiMode === "none") {
+      return editing && environment.wikiId === null ? {} : { wikiId: null };
+    }
+    if (wikiMode === "new") return editing ? { newWiki: true } : {};
+    return chosenWiki === undefined ? {} : { wikiId: chosenWiki.id };
+  };
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -243,8 +267,8 @@ const EnvironmentFormDialog = ({
         name: name.trim(),
         directories,
         description: description.trim(),
-        ...(chosenWiki === undefined ? {} : { wikiId: chosenWiki.id }),
-        ...(editing ? { wikiName: wikiName.trim() } : {}),
+        ...wikiInput(),
+        ...(renamingWiki ? { wikiName: wikiName.trim() } : {}),
       });
       onClose();
     } catch (cause) {
@@ -261,7 +285,7 @@ const EnvironmentFormDialog = ({
         if (!next) onClose();
       }}
       title={editing ? "環境の設定" : "新しい環境"}
-      description="環境は、Claude Code が作業するディレクトリと、回答で参照する Wiki の組み合わせです。タスクは 1 つの環境に属します。"
+      description="環境は、Claude Code が作業するディレクトリと、回答で参照する Wiki（使わないこともできます）の組み合わせです。タスクは 1 つの環境に属します。"
     >
       <form className="grid min-w-0 grid-cols-1 gap-4" onSubmit={submit}>
         <input
@@ -294,41 +318,40 @@ const EnvironmentFormDialog = ({
         </label>
         <fieldset className="grid min-w-0 grid-cols-1 gap-2 text-sm">
           <legend className="mb-1 font-medium">Wiki</legend>
-          {!editing && (
-            <>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="environment-wiki"
-                  checked={!useExisting}
-                  onChange={() => setUseExisting(false)}
-                />
-                新しい Wiki を作る
-              </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="radio"
-                  name="environment-wiki"
-                  checked={useExisting}
-                  disabled={wikis.length === 0}
-                  onChange={() => setUseExisting(true)}
-                />
-                既存の Wiki を使う
-                {wikis.length === 0 && (
-                  <span className="text-muted-foreground text-xs">
-                    （まだ Wiki がありません）
-                  </span>
-                )}
-              </label>
-            </>
-          )}
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="environment-wiki"
+              checked={wikiMode === "new"}
+              onChange={() => setWikiMode("new")}
+            />
+            新しい Wiki を作る
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="environment-wiki"
+              checked={useExisting}
+              disabled={wikis.length === 0}
+              onChange={() => {
+                setWikiMode("existing");
+                const id = wikis.some((wiki) => wiki.id === wikiId)
+                  ? wikiId
+                  : (wikis[0]?.id ?? "");
+                setWikiId(id);
+                setWikiName(wikis.find((wiki) => wiki.id === id)?.name ?? "");
+              }}
+            />
+            既存の Wiki を使う
+            {wikis.length === 0 && (
+              <span className="text-muted-foreground text-xs">
+                （まだ Wiki がありません）
+              </span>
+            )}
+          </label>
           {useExisting && (
             <select
-              className={
-                editing
-                  ? "rounded-md border bg-background px-2 py-1.5"
-                  : "ml-6 rounded-md border bg-background px-2 py-1.5"
-              }
+              className="ml-6 rounded-md border bg-background px-2 py-1.5"
               aria-label="参照する Wiki"
               value={wikiId}
               onChange={(event) => {
@@ -346,19 +369,30 @@ const EnvironmentFormDialog = ({
               ))}
             </select>
           )}
-          {editing && (
+          {renamingWiki && (
             <input
-              className="rounded-md border bg-background px-3 py-1.5 text-sm"
+              className="ml-6 rounded-md border bg-background px-3 py-1.5 text-sm"
               aria-label="Wiki の名前"
               maxLength={100}
               value={wikiName}
               onChange={(event) => setWikiName(event.target.value)}
             />
           )}
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              name="environment-wiki"
+              checked={wikiMode === "none"}
+              onChange={() => setWikiMode("none")}
+            />
+            Wiki を使わない
+          </label>
           <span className="text-muted-foreground text-xs">
-            環境のタスクのスレッドは、この Wiki
-            のノートを回答の参照資料に使い、用語ノートもこの Wiki
-            に作ります。同じ Wiki をほかの環境と共有することもできます。
+            {wikiMode === "none"
+              ? editing && environment.wikiId !== null
+                ? "環境のタスクのスレッドは、Wiki を参照せず、用語ノートも作りません。今の Wiki とノートは消えずに残り、あとで選び直せます。"
+                : "環境のタスクのスレッドは、Wiki を参照せず、用語ノートも作りません。あとから Wiki を使うように変えられます。"
+              : "環境のタスクのスレッドは、この Wiki のノートを回答の参照資料に使い、用語ノートもこの Wiki に作ります。同じ Wiki をほかの環境と共有することもできます。"}
           </span>
         </fieldset>
         {error !== undefined && (
@@ -409,6 +443,7 @@ export const EnvironmentDialogs = ({
       : environments.find((e) => e.id === dialog.environmentId);
   const wikiShared =
     current !== undefined &&
+    current.wikiId !== null &&
     environments.some(
       (e) => e.id !== current.id && e.wikiId === current.wikiId,
     );
@@ -428,9 +463,14 @@ export const EnvironmentDialogs = ({
         onSubmit={async ({ wikiName, ...input }) => {
           if (dialog?.kind === "settings" && current !== undefined) {
             await onUpdate(current.id, input);
-            const wikiId = input.wikiId ?? current.wikiId;
+            const wikiId =
+              input.wikiId === undefined ? current.wikiId : input.wikiId;
             const before = wikis.find((wiki) => wiki.id === wikiId)?.name;
-            if (wikiName !== undefined && wikiName !== before) {
+            if (
+              wikiId !== null &&
+              wikiName !== undefined &&
+              wikiName !== before
+            ) {
               await onRenameWiki(wikiId, wikiName);
             }
           } else {
@@ -454,9 +494,11 @@ export const EnvironmentDialogs = ({
             : current.taskCount > 0
               ? `「${current.name}」には ${current.taskCount} 件のタスクがあります。タスクを別の環境に移すか、削除してから削除してください。`
               : `「${current.name}」を削除します。ディレクトリの中身は消えません。${
-                  wikiShared
-                    ? `Wiki「${current.wikiName}」はほかの環境でも使っているので残ります。`
-                    : `Wiki「${current.wikiName}」とそのノートも削除されます。`
+                  current.wikiName === null
+                    ? ""
+                    : wikiShared
+                      ? `Wiki「${current.wikiName}」はほかの環境でも使っているので残ります。`
+                      : `Wiki「${current.wikiName}」とそのノートも削除されます。`
                 }`
         }
       >

@@ -34,10 +34,13 @@ export const TaskOverview = ({
             <MessageSquare className="size-4" />
             新しいスレッド
           </Button>
-          <Button size="sm" variant="outline" onClick={onOpenWiki}>
-            <BookOpen className="size-4" />
-            Wiki を開く
-          </Button>
+          {/* Wiki を使わない環境のタスクには出さない（#232） */}
+          {task.wikiId !== null && (
+            <Button size="sm" variant="outline" onClick={onOpenWiki}>
+              <BookOpen className="size-4" />
+              Wiki を開く
+            </Button>
+          )}
         </div>
       </header>
 

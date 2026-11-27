@@ -42,10 +42,16 @@ export const createTermPageWriter =
         onError(task.error);
         return [];
       }
-      if (!task.value.autoTerms || event.answer.trim() === "") {
+      const wikiId = wikiIdOf(task.value);
+      // Wiki を使わない環境のタスクでは作らない（#232）
+      if (
+        wikiId === null ||
+        !task.value.autoTerms ||
+        event.answer.trim() === ""
+      ) {
         return [];
       }
-      const pages = deps.wiki.listPages(wikiIdOf(task.value));
+      const pages = deps.wiki.listPages(wikiId);
       if (Result.isFailure(pages)) {
         onError(pages.error);
         return [];
@@ -69,14 +75,10 @@ export const createTermPageWriter =
       if (candidates.length === 0) {
         return [];
       }
-      const created = deps.wiki.createTermPages(
-        wikiIdOf(task.value),
-        candidates,
-        {
-          chatId: event.chatId,
-          messageId: event.messageId,
-        },
-      );
+      const created = deps.wiki.createTermPages(wikiId, candidates, {
+        chatId: event.chatId,
+        messageId: event.messageId,
+      });
       if (Result.isFailure(created)) {
         onError(created.error);
         return [];

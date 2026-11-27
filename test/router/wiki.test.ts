@@ -344,9 +344,9 @@ describe("Wiki の共有", () => {
       [page.id],
     );
     expect(await client.wikis.list()).toEqual([
-      { id: a.wikiId, name: "認可基盤", taskCount: 2 },
+      { id: a.wikiId ?? "", name: "認可基盤", taskCount: 2 },
     ]);
-    await client.wikis.rename({ id: a.wikiId, name: "共通用語集" });
+    await client.wikis.rename({ id: a.wikiId ?? "", name: "共通用語集" });
     expect((await client.wikis.list())[0]?.name).toBe("共通用語集");
 
     // 新しい環境（と Wiki）を作ったタスクには見えない
@@ -436,6 +436,61 @@ describe("タスクのスレッドで、Claude が Wiki を読み書きする", 
     const loose = await client.chats.create({});
     await send(client, loose.id, "ふつうの質問");
     expect(calls[3]?.options?.mcpServers).toBeUndefined();
+  });
+
+  test("Wiki を使わない環境のタスクには wiki の MCP サーバを渡さず、Wiki を読み書きできない（#232）", async () => {
+    const { client, calls } = await setup();
+    const environment = await client.environments.create({
+      name: "Wiki なし",
+      directories: [process.cwd()],
+      wikiId: null,
+    });
+    expect(environment).toMatchObject({ wikiId: null, wikiName: null });
+    expect(await client.wikis.list()).toEqual([]);
+    const task = await client.tasks.create({
+      name: "調査",
+      environmentId: environment.id,
+    });
+    expect(task.wikiId).toBeNull();
+
+    const chat = await client.chats.create({ taskId: task.id });
+    await send(client, chat.id, "調べて");
+    expect(Object.keys(calls[0]?.options?.mcpServers ?? {})).toEqual(["task"]);
+
+    expect(await client.wiki.list({ taskId: task.id })).toEqual([]);
+    await expect(
+      client.wiki.create({
+        taskId: task.id,
+        title: "用語",
+        aliases: [],
+        body: "",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(
+      client.wiki.undoState({ taskId: task.id }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    // あとから新しい Wiki を作って使うと、ふつうに読み書きできる
+    const updated = await client.environments.update({
+      id: environment.id,
+      newWiki: true,
+    });
+    expect(updated).toMatchObject({ wikiName: "Wiki なし" });
+    expect(updated.wikiId).not.toBeNull();
+    await client.wiki.create({
+      taskId: task.id,
+      title: "用語",
+      aliases: [],
+      body: "",
+    });
+    expect(
+      (await client.wiki.list({ taskId: task.id })).map((p) => p.title),
+    ).toEqual(["用語"]);
+    await send(client, chat.id, "もう一度");
+    expect(Object.keys(calls[1]?.options?.mcpServers ?? {})).toEqual([
+      "wiki",
+      "task",
+    ]);
   });
 
   test("本文から選んだ引用を質問に添えて渡し、発話に残す", async () => {

@@ -3,7 +3,7 @@ import { Result } from "@praha/byethrow";
 import { openDatabase } from "../../src/db/index.ts";
 import {
   createTaskRepository,
-  wikiIdOf,
+  requireWikiId,
 } from "../../src/db/task-repository.ts";
 import {
   createWikiHistoryRepository,
@@ -20,6 +20,10 @@ const unwrap = <T>(result: Result.Result<T, unknown>): T => {
   if (Result.isFailure(result)) throw result.error;
   return result.value;
 };
+
+/** 環境の Wiki（テストのタスクは Wiki のある環境に作る）。 */
+const wikiIdOf = (task: Parameters<typeof requireWikiId>[0]): string =>
+  unwrap(requireWikiId(task));
 
 let wiki: WikiRepository;
 let history: WikiHistoryRepository;

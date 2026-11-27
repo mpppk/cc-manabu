@@ -7,9 +7,10 @@ import type {
 } from "../db/chat-repository.ts";
 import type { MessageRow, WikiPageRow } from "../db/schema.ts";
 import {
+  requireWikiId,
   type TaskNotFoundError,
   type TaskRepository,
-  wikiIdOf,
+  type TaskWithoutWikiError,
 } from "../db/task-repository.ts";
 import type { WikiRepository } from "../db/wiki-repository.ts";
 import type { WikiPageReader, WikiPageUnavailableError } from "./context.ts";
@@ -165,7 +166,8 @@ export type GenerateWikiPageError =
   | WikiPageQaNotFoundError
   | WikiPageUnavailableError
   | InvalidPageTermError
-  | WikiPageGenerationError;
+  | WikiPageGenerationError
+  | TaskWithoutWikiError;
 
 const textOf = (row: MessageRow): string =>
   row.parts
@@ -262,8 +264,9 @@ export const createWikiPageGenerator = (deps: {
       .findLast((message) => message.role === "user");
     return Result.pipe(
       deps.tasks.getTask(chat.taskId),
-      Result.map((task) => ({
-        wikiId: wikiIdOf(task),
+      Result.andThen(requireWikiId),
+      Result.map((wikiId) => ({
+        wikiId,
         source: {
           question: question === undefined ? "" : textOf(question),
           answer: textOf(answer),

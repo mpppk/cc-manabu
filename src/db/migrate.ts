@@ -33,6 +33,9 @@ import wikiHistory from "./migrations/0015_wiki_history.sql" with {
   type: "text",
 };
 import goalRuns from "./migrations/0016_goal_runs.sql" with { type: "text" };
+import environmentWithoutWiki from "./migrations/0017_environment_without_wiki.sql" with {
+  type: "text",
+};
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -56,7 +59,15 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0014_wiki_page_qas", sql: wikiPageQas },
   { name: "0015_wiki_history", sql: wikiHistory },
   { name: "0016_goal_runs", sql: goalRuns },
+  { name: "0017_environment_without_wiki", sql: environmentWithoutWiki },
 ];
+
+/**
+ * 表を作り直すマイグレーション（drizzle-kit が先頭に `PRAGMA foreign_keys=OFF` を出す）。
+ * 外部キーの設定はトランザクションの中では変えられないので、外で切ってから適用する。
+ */
+const needsForeignKeysOff = (sql: string): boolean =>
+  /PRAGMA\s+foreign_keys\s*=\s*OFF/i.test(sql);
 
 /** 未適用のマイグレーションを順に適用する。 */
 export const runMigrations = (
@@ -78,16 +89,36 @@ export const runMigrations = (
     if (applied.has(migration.name)) {
       continue;
     }
-    sqlite.transaction(() => {
-      for (const statement of migration.sql.split("--> statement-breakpoint")) {
-        if (statement.trim() !== "") {
-          sqlite.exec(statement);
+    const foreignKeysOff =
+      needsForeignKeysOff(migration.sql) &&
+      sqlite.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()
+        ?.foreign_keys === 1;
+    if (foreignKeysOff) sqlite.exec("PRAGMA foreign_keys = OFF;");
+    try {
+      sqlite.transaction(() => {
+        for (const statement of migration.sql.split(
+          "--> statement-breakpoint",
+        )) {
+          if (statement.trim() !== "") {
+            sqlite.exec(statement);
+          }
         }
-      }
-      sqlite
-        .query("INSERT INTO __migrations (name, applied_at) VALUES (?, ?)")
-        .run(migration.name, Date.now());
-    })();
+        // 外部キーを切っている間に壊れた参照ができていないか、コミットの前に確かめる
+        if (foreignKeysOff) {
+          const broken = sqlite.query("PRAGMA foreign_key_check").all();
+          if (broken.length > 0) {
+            throw new Error(
+              `Migration ${migration.name} broke foreign keys: ${JSON.stringify(broken)}`,
+            );
+          }
+        }
+        sqlite
+          .query("INSERT INTO __migrations (name, applied_at) VALUES (?, ?)")
+          .run(migration.name, Date.now());
+      })();
+    } finally {
+      if (foreignKeysOff) sqlite.exec("PRAGMA foreign_keys = ON;");
+    }
     newlyApplied.push(migration.name);
   }
   return newlyApplied;

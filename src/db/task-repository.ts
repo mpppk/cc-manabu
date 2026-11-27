@@ -21,9 +21,23 @@ import {
 
 export { WikiNotFoundError };
 
-/** タスクが参照する Wiki。古い行で未設定なら、移行で作った同じ ID の Wiki。 */
-export const wikiIdOf = (task: Pick<TaskRow, "id" | "wikiId">): string =>
-  task.wikiId ?? task.id;
+/** タスクの環境が Wiki を使っていない（#232）。 */
+export class TaskWithoutWikiError extends ErrorFactory({
+  name: "TaskWithoutWikiError",
+  message: "このタスクの環境は Wiki を使っていません。",
+}) {}
+
+/** タスクが参照する Wiki。環境が Wiki を使っていなければ null（#232）。 */
+export const wikiIdOf = (task: Pick<TaskRow, "wikiId">): string | null =>
+  task.wikiId;
+
+/** タスクが参照する Wiki。環境が Wiki を使っていなければ TaskWithoutWikiError。 */
+export const requireWikiId = (
+  task: Pick<TaskRow, "wikiId">,
+): Result.Result<string, TaskWithoutWikiError> =>
+  task.wikiId === null
+    ? Result.fail(new TaskWithoutWikiError())
+    : Result.succeed(task.wikiId);
 
 /** Wiki と、それを参照しているタスクの数。 */
 export type WikiSummary = WikiRow & { taskCount: number };
