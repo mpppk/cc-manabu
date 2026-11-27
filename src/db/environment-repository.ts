@@ -23,9 +23,9 @@ export class WikiNotFoundError extends ErrorFactory({
   fields: ErrorFactory.fields<{ wikiId: string }>(),
 }) {}
 
-/** 環境と、参照する Wiki の名前、属するタスクの数。 */
+/** 環境と、参照する Wiki の名前（Wiki を使わなければ null）、属するタスクの数。 */
 export type EnvironmentSummary = EnvironmentRow & {
-  wikiName: string;
+  wikiName: string | null;
   taskCount: number;
 };
 
@@ -38,9 +38,17 @@ const wikiExists = (tx: Tx, wikiId: string): boolean =>
   tx.select({ id: wikis.id }).from(wikis).where(eq(wikis.id, wikiId)).get() !==
   undefined;
 
+/** 環境と同じ名前の Wiki を新しく作る（トランザクションの中で呼ぶ）。 */
+const insertWiki = (tx: Tx, name: string, now: Date): string => {
+  const id = crypto.randomUUID();
+  tx.insert(wikis).values({ id, name, createdAt: now, updatedAt: now }).run();
+  return id;
+};
+
 /**
  * 環境を作る（トランザクションの中で呼ぶ）。wikiId があればその Wiki を共有し、
- * 無ければ環境と同じ名前の Wiki を新しく作る。Wiki が見つからなければ undefined。
+ * null なら Wiki を使わず（#232）、無ければ環境と同じ名前の Wiki を新しく作る。
+ * Wiki が見つからなければ undefined。
  */
 export const insertEnvironment = (
   tx: Tx,
@@ -48,18 +56,15 @@ export const insertEnvironment = (
     name: string;
     directories: string[];
     description?: string;
-    wikiId?: string;
+    wikiId?: string | null;
     id?: string;
   },
   now: Date,
 ): EnvironmentRow | undefined => {
   let wikiId = input.wikiId;
   if (wikiId === undefined) {
-    wikiId = crypto.randomUUID();
-    tx.insert(wikis)
-      .values({ id: wikiId, name: input.name, createdAt: now, updatedAt: now })
-      .run();
-  } else if (!wikiExists(tx, wikiId)) {
+    wikiId = insertWiki(tx, input.name, now);
+  } else if (wikiId !== null && !wikiExists(tx, wikiId)) {
     return undefined;
   }
   return tx
@@ -102,7 +107,7 @@ export const createEnvironmentRepository = (db: Db) => {
         return db
           .select({ environment: environments, wikiName: wikis.name })
           .from(environments)
-          .innerJoin(wikis, eq(wikis.id, environments.wikiId))
+          .leftJoin(wikis, eq(wikis.id, environments.wikiId))
           .orderBy(asc(environments.createdAt))
           .all()
           .map(({ environment, wikiName }) => ({
@@ -161,7 +166,7 @@ export const createEnvironmentRepository = (db: Db) => {
       name: string;
       directories: string[];
       description?: string;
-      wikiId?: string;
+      wikiId?: string | null;
       id?: string;
     }): Result.Result<EnvironmentRow, WikiNotFoundError | DatabaseError> =>
       Result.pipe(
@@ -177,6 +182,7 @@ export const createEnvironmentRepository = (db: Db) => {
 
     /**
      * 名前・ディレクトリ・説明・参照する Wiki を変える（指定した項目だけ）。
+     * wikiId が null なら Wiki を使わなくし（#232）、newWiki なら環境と同じ名前の Wiki を新しく作って使う。
      * Wiki を変えると、属するタスクの Wiki も合わせる。元の Wiki はページごと残る。
      */
     updateEnvironment: (
@@ -185,7 +191,8 @@ export const createEnvironmentRepository = (db: Db) => {
         name?: string;
         directories?: string[];
         description?: string;
-        wikiId?: string;
+        wikiId?: string | null;
+        newWiki?: boolean;
       },
     ): Result.Result<
       EnvironmentRow,
@@ -194,10 +201,25 @@ export const createEnvironmentRepository = (db: Db) => {
       Result.pipe(
         run(() =>
           db.transaction((tx) => {
-            if (input.wikiId !== undefined && !wikiExists(tx, input.wikiId)) {
+            if (
+              input.wikiId !== undefined &&
+              input.wikiId !== null &&
+              !wikiExists(tx, input.wikiId)
+            ) {
               return { kind: "wiki-not-found" as const };
             }
             const now = new Date();
+            const current = tx
+              .select()
+              .from(environments)
+              .where(eq(environments.id, environmentId))
+              .get();
+            if (current === undefined) {
+              return { kind: "updated" as const, row: undefined };
+            }
+            const wikiId = input.newWiki
+              ? insertWiki(tx, input.name ?? current.name, now)
+              : input.wikiId;
             const row = tx
               .update(environments)
               .set({
@@ -208,15 +230,15 @@ export const createEnvironmentRepository = (db: Db) => {
                 ...(input.description === undefined
                   ? {}
                   : { description: input.description }),
-                ...(input.wikiId === undefined ? {} : { wikiId: input.wikiId }),
+                ...(wikiId === undefined ? {} : { wikiId }),
                 updatedAt: now,
               })
               .where(eq(environments.id, environmentId))
               .returning()
               .get();
-            if (row !== undefined && input.wikiId !== undefined) {
+            if (row !== undefined && wikiId !== undefined) {
               tx.update(tasks)
-                .set({ wikiId: input.wikiId })
+                .set({ wikiId })
                 .where(eq(tasks.environmentId, environmentId))
                 .run();
             }
@@ -254,13 +276,16 @@ export const createEnvironmentRepository = (db: Db) => {
               .where(eq(environments.id, environmentId))
               .returning()
               .get();
-            if (row === undefined) return { kind: "deleted" as const, row };
+            if (row === undefined || row.wikiId === null) {
+              return { kind: "deleted" as const, row };
+            }
+            const wikiId = row.wikiId;
             const shared = tx
               .select({ id: environments.id })
               .from(environments)
               .where(
                 and(
-                  eq(environments.wikiId, row.wikiId),
+                  eq(environments.wikiId, wikiId),
                   ne(environments.id, environmentId),
                 ),
               )
@@ -269,10 +294,10 @@ export const createEnvironmentRepository = (db: Db) => {
             const referenced = tx
               .select({ id: tasks.id })
               .from(tasks)
-              .where(eq(tasks.wikiId, row.wikiId))
+              .where(eq(tasks.wikiId, wikiId))
               .get();
             if (shared === undefined && referenced === undefined) {
-              tx.delete(wikis).where(eq(wikis.id, row.wikiId)).run();
+              tx.delete(wikis).where(eq(wikis.id, wikiId)).run();
             }
             return { kind: "deleted" as const, row };
           }),

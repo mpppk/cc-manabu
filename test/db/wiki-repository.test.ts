@@ -11,8 +11,8 @@ import { MIGRATIONS, runMigrations } from "../../src/db/migrate.ts";
 import * as schema from "../../src/db/schema.ts";
 import {
   createTaskRepository,
+  requireWikiId,
   type TaskRepository,
-  wikiIdOf,
 } from "../../src/db/task-repository.ts";
 import {
   createWikiRepository,
@@ -25,6 +25,10 @@ const unwrap = <T>(result: Result.Result<T, unknown>): T => {
   }
   return result.value;
 };
+
+/** 環境の Wiki（テストのタスクは Wiki のある環境に作る）。 */
+const wikiIdOf = (task: Parameters<typeof requireWikiId>[0]): string =>
+  unwrap(requireWikiId(task));
 
 let tasks: TaskRepository;
 let environments: EnvironmentRepository;
@@ -173,6 +177,7 @@ test("移行: 既存のタスクはそれぞれ同じ ID・名前の Wiki を持
     "0014_wiki_page_qas",
     "0015_wiki_history",
     "0016_goal_runs",
+    "0017_environment_without_wiki",
   ]);
   const db = drizzle(sqlite, { schema });
   const repoTasks = createTaskRepository(db);

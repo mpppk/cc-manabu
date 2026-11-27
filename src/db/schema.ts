@@ -43,15 +43,13 @@ export const wikis = sqliteTable("wikis", {
 
 /**
  * 環境。Claude Code に渡すディレクトリと、参照する Wiki をまとめる。タスクは 1 つの環境に属する。
- * Wiki はほかの環境と共有できる。
+ * Wiki はほかの環境と共有でき、使わないこともできる（#232）。
  */
 export const environments = sqliteTable("environments", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  /** 参照する Wiki。 */
-  wikiId: text("wiki_id")
-    .notNull()
-    .references(() => wikis.id),
+  /** 参照する Wiki。Wiki を使わない環境では null（#232）。 */
+  wikiId: text("wiki_id").references(() => wikis.id),
   /**
    * Claude Code に渡すディレクトリ（絶対パスの JSON 配列）。
    * 先頭が新しいスレッドの作業ディレクトリ、残りは追加のディレクトリ（--add-dir）。
@@ -86,6 +84,7 @@ export const tasks = sqliteTable(
     /**
      * 参照する Wiki。所属する環境の Wiki の写しで、環境の Wiki を変えたとき・環境を移したときに
      * リポジトリが合わせる（列を外すには表の作り直しが要るので、写しとして残している）。
+     * 環境が Wiki を使わなければ null（#232）。
      */
     wikiId: text("wiki_id").references(() => wikis.id),
     /** 回答から用語ページを自動で作るか（回答ごとに Claude を追加で呼び出す）。 */

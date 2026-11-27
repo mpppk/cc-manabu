@@ -957,14 +957,15 @@ export const Sidebar = ({
                         selected={openWikiEnvironmentId === environment.id}
                         actions={
                           <>
-                            {first !== undefined && (
-                              <RowAction
-                                label={`環境「${environment.name}」の Wiki を開く`}
-                                onClick={() => onOpenWiki(first.id)}
-                              >
-                                <BookOpen className="size-3.5" />
-                              </RowAction>
-                            )}
+                            {first !== undefined &&
+                              environment.wikiId !== null && (
+                                <RowAction
+                                  label={`環境「${environment.name}」の Wiki を開く`}
+                                  onClick={() => onOpenWiki(first.id)}
+                                >
+                                  <BookOpen className="size-3.5" />
+                                </RowAction>
+                              )}
                             <RowAction
                               label={`環境「${environment.name}」に新しいタスク`}
                               onClick={() =>

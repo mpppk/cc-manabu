@@ -10,7 +10,7 @@ DB・API の名前（`chats`, `groupId`, `branchTitle` など）は、用語を�
 
 | 用語 | 意味 | コード |
 | --- | --- | --- |
-| 環境 | Claude Code に渡すディレクトリと、参照する Wiki のまとまり | `environments` |
+| 環境 | Claude Code に渡すディレクトリと、参照する Wiki のまとまり（Wiki は使わないこともできる） | `environments` |
 | タスク | 複数のスレッドをまとめる単位。1 つの環境に属する | `tasks` |
 | ゴール | タスクの達成の条件。「実行」で Claude Code の `/goal` に渡す。以前の「次にやること」 | `tasks.nextAction` |
 | ゴールの実行 | ゴールに向けて Claude が作業する 1 回分。実行ごとにタスクのスレッドを 1 つ作る | `goalRuns`, `api.tasks.runGoal` |

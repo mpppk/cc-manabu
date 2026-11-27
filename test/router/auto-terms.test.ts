@@ -154,6 +154,24 @@ describe("回答からの用語ページの自動作成", () => {
     expect(await client.wiki.list({ taskId: task.id })).toEqual([]);
   });
 
+  test("Wiki を使わない環境のタスクでは、モデルを呼ばずページも作らない（#232）", async () => {
+    const { client, termJobs, prompts } = setup();
+    const environment = await client.environments.create({
+      name: "Wiki なし",
+      directories: [process.cwd()],
+      wikiId: null,
+    });
+    const task = await client.tasks.create({
+      name: "p",
+      environmentId: environment.id,
+    });
+    const chat = await client.chats.create({ taskId: task.id });
+    await send(client, chat.id, "関係タプルとは");
+    await Promise.all(termJobs);
+    expect(prompts).toEqual([]);
+    expect(await client.wikis.list()).toEqual([]);
+  });
+
   test("回答したタスクの環境の説明を用語抽出に渡す。Wiki を共有していても環境ごと（#160）", async () => {
     const { client, termJobs, prompts } = setup();
     const privacy = await client.environments.create({

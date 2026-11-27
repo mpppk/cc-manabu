@@ -2745,6 +2745,79 @@ test("環境に説明を付けて、設定で確かめて変えられる（#160�
   await expect(description).toHaveValue("仮名加工情報の使い方を検討する");
 });
 
+test("Wiki を使わない環境を作り、あとから Wiki を使うように変えられる（#232）", async ({
+  page,
+}) => {
+  await open(page);
+  await page.getByRole("button", { name: "新しい環境", exact: true }).click();
+  const create = page.getByRole("dialog", { name: "新しい環境" });
+  await create.getByRole("textbox", { name: "環境の名前" }).fill("下調べ");
+  await create.getByRole("button", { name: "/e2e を外す" }).click();
+  await create.getByRole("button", { name: "選ぶ" }).click();
+  await create.getByRole("radio", { name: "Wiki を使わない" }).check();
+  await create.getByRole("button", { name: "作成" }).click();
+  await expect(create).toHaveCount(0);
+  const wikiAction = environmentRow(page, "下調べ").getByRole("button", {
+    name: "環境「下調べ」の Wiki を開く",
+  });
+
+  // タスクを作るときに、Wiki を参照しないことが分かる
+  await page.getByRole("button", { name: "新しいタスク", exact: true }).click();
+  await page.getByRole("textbox", { name: "タスクの名前" }).fill("競合調査");
+  await page
+    .getByRole("combobox", { name: "タスクの環境" })
+    .selectOption({ label: "下調べ" });
+  await expect(page.getByText("Wiki は参照しません。")).toBeVisible();
+  await page.getByRole("button", { name: "作成" }).click();
+  await expect(page).toHaveURL(/\/t\/.+/);
+
+  // Wiki への入口を出さない
+  await expect(
+    page.getByRole("button", { name: "新しいスレッド", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Wiki を開く" })).toHaveCount(
+    0,
+  );
+  await environmentRow(page, "下調べ").hover();
+  await expect(wikiAction).toHaveCount(0);
+  // Wiki の URL を直接開いても、Wiki は出さない
+  await page.goto(`${new URL(page.url()).pathname}/wiki`);
+  await expect(
+    page.getByText("このタスクの環境は Wiki を使っていません。"),
+  ).toBeVisible();
+
+  // 設定で新しい Wiki を作って使うと、Wiki を開ける
+  await openEnvironmentMenu(page, "下調べ", "環境の設定");
+  const settings = page.getByRole("dialog", { name: "環境の設定" });
+  await expect(
+    settings.getByRole("radio", { name: "Wiki を使わない" }),
+  ).toBeChecked();
+  await settings.getByRole("radio", { name: "新しい Wiki を作る" }).check();
+  await settings.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  await rowAction(
+    environmentRow(page, "下調べ"),
+    "環境「下調べ」の Wiki を開く",
+  );
+  await expect(
+    page.getByRole("button", { name: "新しいノート" }),
+  ).toBeVisible();
+
+  // 使わないように戻すと、設定では既存の Wiki から選び直せる
+  await openEnvironmentMenu(page, "下調べ", "環境の設定");
+  await expect(
+    settings.getByRole("radio", { name: "既存の Wiki を使う" }),
+  ).toBeChecked();
+  await settings.getByRole("radio", { name: "Wiki を使わない" }).check();
+  await expect(
+    settings.getByText("今の Wiki とノートは消えずに残り"),
+  ).toBeVisible();
+  await settings.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  await environmentRow(page, "下調べ").hover();
+  await expect(wikiAction).toHaveCount(0);
+});
+
 test("サイドチャットの用語もサイドパネルで開き、閉じると入力途中のサイドチャットに戻る（#168）", async ({
   page,
 }) => {

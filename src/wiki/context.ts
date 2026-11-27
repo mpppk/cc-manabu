@@ -45,7 +45,10 @@ export const createWikiContextBuilder =
         onError(task.error);
         return undefined;
       }
-      const pages = wiki.listPages(wikiIdOf(task.value));
+      const wikiId = wikiIdOf(task.value);
+      // Wiki を使わない環境のタスクには参照資料を付けない（#232）
+      if (wikiId === null) return undefined;
+      const pages = wiki.listPages(wikiId);
       if (Result.isFailure(pages)) {
         onError(pages.error);
         return undefined;

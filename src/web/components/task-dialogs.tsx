@@ -142,7 +142,11 @@ const CreateTaskDialog = ({
           <span className="text-muted-foreground text-xs">
             {chosen === undefined
               ? "タスクと同じ名前の環境と Wiki を作ります。ディレクトリはあとで環境の設定から追加できます。"
-              : `${chosen.directories.join("、")} で Claude Code が動き、Wiki「${chosen.wikiName}」を参照します。`}
+              : `${chosen.directories.join("、")} で Claude Code が動き、${
+                  chosen.wikiName === null
+                    ? "Wiki は参照しません。"
+                    : `Wiki「${chosen.wikiName}」を参照します。`
+                }`}
           </span>
         </label>
         <DialogFooter>
@@ -279,8 +283,10 @@ export const TaskDialogs = ({
           </select>
           {currentEnvironment !== undefined && (
             <span className="text-muted-foreground text-xs">
-              Wiki「{currentEnvironment.wikiName}
-              」を参照します。別の環境に移すと、Wiki
+              {currentEnvironment.wikiName === null
+                ? "この環境は Wiki を使っていません。"
+                : `Wiki「${currentEnvironment.wikiName}」を参照します。`}
+              別の環境に移すと、Wiki
               も移った環境のものになります（作ったスレッドの作業ディレクトリは変わりません）。
             </span>
           )}

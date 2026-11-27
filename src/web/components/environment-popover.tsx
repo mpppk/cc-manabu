@@ -96,7 +96,9 @@ export const EnvironmentPopover = ({
             </div>
             <div className="flex flex-col gap-0.5">
               <dt className="text-muted-foreground">参照する Wiki</dt>
-              <dd className="break-words">{environment.wikiName}</dd>
+              <dd className="break-words">
+                {environment.wikiName ?? "（使わない）"}
+              </dd>
             </div>
             <div className="flex flex-col gap-0.5">
               <dt className="text-muted-foreground">ディレクトリ</dt>

@@ -139,9 +139,8 @@ describe("環境", () => {
       }),
     );
     const task = unwrap(tasks.createTask({ name: "t", environmentId: a.id }));
-    unwrap(
-      wiki.createPage({ wikiId: a.wikiId, title: "p", aliases: [], body: "" }),
-    );
+    const wikiId = a.wikiId ?? "";
+    unwrap(wiki.createPage({ wikiId, title: "p", aliases: [], body: "" }));
     expect(errorName(environments.deleteEnvironment(a.id))).toBe(
       "EnvironmentNotEmptyError",
     );
@@ -149,9 +148,9 @@ describe("環境", () => {
     unwrap(tasks.deleteTask(task.id));
     unwrap(environments.deleteEnvironment(a.id));
     // 共有している環境があるので、Wiki は残る
-    expect(unwrap(wiki.listPages(a.wikiId))).toHaveLength(1);
+    expect(unwrap(wiki.listPages(wikiId))).toHaveLength(1);
     unwrap(environments.deleteEnvironment(shared.id));
-    expect(unwrap(wiki.listPages(a.wikiId))).toEqual([]);
+    expect(unwrap(wiki.listPages(wikiId))).toEqual([]);
     expect(unwrap(tasks.listWikis())).toEqual([]);
     expect(errorName(environments.deleteEnvironment(a.id))).toBe(
       "EnvironmentNotFoundError",
@@ -217,6 +216,7 @@ describe("migration 0012_environments", () => {
       "0014_wiki_page_qas",
       "0015_wiki_history",
       "0016_goal_runs",
+      "0017_environment_without_wiki",
     ]);
     const db = drizzle(sqlite, { schema });
     const repo = createEnvironmentRepository(db);
@@ -246,5 +246,108 @@ describe("migration 0012_environments", () => {
     // 会話の無かった環境は、起動時に起動したディレクトリで埋める
     expect(unwrap(repo.fillEmptyDirectories("/launch"))).toBe(1);
     expect(unwrap(repo.directoriesOfTask("t3"))).toEqual(["/launch"]);
+  });
+});
+
+describe("Wiki を使わない環境（#232）", () => {
+  test("Wiki を作らずに作れ、タスクも Wiki を参照しない", () => {
+    const env = unwrap(
+      environments.createEnvironment({
+        name: "scratch",
+        directories: ["/s"],
+        wikiId: null,
+      }),
+    );
+    expect(env.wikiId).toBeNull();
+    expect(unwrap(tasks.listWikis())).toEqual([]);
+    const task = unwrap(tasks.createTask({ name: "t", environmentId: env.id }));
+    expect(task.wikiId).toBeNull();
+    expect(unwrap(environments.listEnvironments())).toMatchObject([
+      { id: env.id, wikiId: null, wikiName: null, taskCount: 1 },
+    ]);
+  });
+
+  test("あとから新しい Wiki を作って使え、使わなくしても Wiki は残る", () => {
+    const env = unwrap(
+      environments.createEnvironment({
+        name: "scratch",
+        directories: ["/s"],
+        wikiId: null,
+      }),
+    );
+    const task = unwrap(tasks.createTask({ name: "t", environmentId: env.id }));
+
+    const withWiki = unwrap(
+      environments.updateEnvironment(env.id, { newWiki: true }),
+    );
+    expect(withWiki.wikiId).not.toBeNull();
+    expect(unwrap(tasks.getTask(task.id)).wikiId).toBe(withWiki.wikiId);
+    expect(unwrap(tasks.listWikis())).toMatchObject([
+      { id: withWiki.wikiId, name: "scratch", taskCount: 1 },
+    ]);
+
+    unwrap(environments.updateEnvironment(env.id, { wikiId: null }));
+    expect(unwrap(tasks.getTask(task.id)).wikiId).toBeNull();
+    expect(unwrap(tasks.listWikis())).toMatchObject([
+      { id: withWiki.wikiId, taskCount: 0 },
+    ]);
+  });
+
+  test("Wiki を使わない環境も消せる", () => {
+    const env = unwrap(
+      environments.createEnvironment({
+        name: "scratch",
+        directories: ["/s"],
+        wikiId: null,
+      }),
+    );
+    unwrap(environments.deleteEnvironment(env.id));
+    expect(unwrap(environments.listEnvironments())).toEqual([]);
+  });
+
+  test("移行で環境の表を作り直しても、タスクの所属と外部キーは保たれる", () => {
+    const sqlite = new Database(":memory:");
+    sqlite.exec("PRAGMA foreign_keys = ON;");
+    runMigrations(
+      sqlite,
+      MIGRATIONS.filter((m) => m.name < "0017"),
+    );
+    sqlite.exec("INSERT INTO wikis (id, name) VALUES ('w1', '認可基盤')");
+    sqlite.exec(
+      `INSERT INTO environments (id, name, wiki_id, directories, description)
+        VALUES ('e1', '認可基盤', 'w1', '["/repo"]', '説明')`,
+    );
+    sqlite.exec(
+      "INSERT INTO tasks (id, name, environment_id, wiki_id) VALUES ('t1', '開発', 'e1', 'w1')",
+    );
+
+    expect(runMigrations(sqlite)).toEqual(["0017_environment_without_wiki"]);
+    expect(
+      sqlite.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get(),
+    ).toEqual({ foreign_keys: 1 });
+    expect(sqlite.query("PRAGMA foreign_key_check").all()).toEqual([]);
+    const repo = createEnvironmentRepository(drizzle(sqlite, { schema }));
+    expect(unwrap(repo.listEnvironments())).toMatchObject([
+      {
+        id: "e1",
+        wikiId: "w1",
+        wikiName: "認可基盤",
+        directories: ["/repo"],
+        description: "説明",
+        taskCount: 1,
+      },
+    ]);
+    // 作り直した表にも外部キーが効いている
+    expect(() =>
+      sqlite.exec(
+        "INSERT INTO environments (id, name, wiki_id) VALUES ('e2', 'x', 'missing')",
+      ),
+    ).toThrow();
+    expect(() =>
+      sqlite.exec("DELETE FROM environments WHERE id = 'e1'"),
+    ).toThrow();
+    sqlite.exec(
+      "INSERT INTO environments (id, name, wiki_id) VALUES ('e3', 'Wiki なし', NULL)",
+    );
   });
 });

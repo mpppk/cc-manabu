@@ -13,8 +13,10 @@ import * as z from "zod";
 import type { DatabaseError } from "../db/chat-repository.ts";
 import type { WikiPageRow, WikiVersionActor } from "../db/schema.ts";
 import {
+  requireWikiId,
   type TaskNotFoundError,
   type TaskRepository,
+  type TaskWithoutWikiError,
   wikiIdOf,
 } from "../db/task-repository.ts";
 import type { WikiHistoryRepository } from "../db/wiki-history-repository.ts";
@@ -40,6 +42,7 @@ export class WikiToolInputError extends ErrorFactory({
 
 export type WikiToolError =
   | WikiToolInputError
+  | TaskWithoutWikiError
   | TaskNotFoundError
   | WikiPageNotFoundError
   | DatabaseError;
@@ -140,7 +143,10 @@ const validateFields = (fields: {
  */
 export const createWikiToolHandlers = (deps: Deps, scope: WikiToolScope) => {
   const wikiId = () =>
-    Result.pipe(deps.tasks.getTask(scope.taskId), Result.map(wikiIdOf));
+    Result.pipe(
+      deps.tasks.getTask(scope.taskId),
+      Result.andThen(requireWikiId),
+    );
   const batchId = scope.batchId ?? crypto.randomUUID();
   /** 版に残す、この変更の出どころ。 */
   const changeOf = (tool: string): WikiChange => ({
@@ -479,6 +485,9 @@ export const createWikiToolServers =
   (
     scope: WikiToolScope & { pageId: string | null },
   ): Record<string, McpServerConfig> => {
+    // Wiki を使わない環境のタスクには、Wiki のツールを渡さない（#232）
+    const task = deps.tasks.getTask(scope.taskId);
+    if (Result.isSuccess(task) && wikiIdOf(task.value) === null) return {};
     const handlers = createWikiToolHandlers(deps, scope);
     const page =
       scope.pageId === null ? undefined : deps.wiki.getPage(scope.pageId);

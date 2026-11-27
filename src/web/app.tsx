@@ -332,7 +332,11 @@ export const App = ({ api }: { api: ApiClient }) => {
         : null;
 
   const task = tasks?.find((p) => p.id === taskId);
-  const showWiki = wikiRoute !== undefined && task !== undefined;
+  // Wiki を使わない環境のタスク（#232）では、Wiki の URL を開いても Wiki を出さない
+  const showWiki =
+    wikiRoute !== undefined && task !== undefined && task.wikiId !== null;
+  const wikiUnavailable =
+    wikiRoute !== undefined && task !== undefined && task.wikiId === null;
   /** ヘッダーに出す、いま開いているものの名前。 */
   const headerTitle = isTaskListPath(path)
     ? "タスク一覧"
@@ -565,7 +569,11 @@ export const App = ({ api }: { api: ApiClient }) => {
                 )}
                 onSelectBranch={select}
                 onOpenChat={select}
-                onWikiPageCreated={() => void wiki.refresh()}
+                // Wiki を使わない環境のタスクでは、回答からノートを作れない（#232）
+                {...(tasks?.find((item) => item.id === workspace.chat.taskId)
+                  ?.wikiId === null
+                  ? {}
+                  : { onWikiPageCreated: () => void wiki.refresh() })}
                 {...(focus?.chatId === workspace.chat.id
                   ? { focusMessage: focus }
                   : {})}
@@ -633,9 +641,11 @@ export const App = ({ api }: { api: ApiClient }) => {
           ) : (
             <section className="flex flex-1 items-center justify-center text-muted-foreground">
               {loadError ??
-                (selectedId === undefined
-                  ? "スレッドを選ぶか、新しいスレッドを始めてください。"
-                  : "読み込み中…")}
+                (wikiUnavailable
+                  ? "このタスクの環境は Wiki を使っていません。"
+                  : selectedId === undefined
+                    ? "スレッドを選ぶか、新しいスレッドを始めてください。"
+                    : "読み込み中…")}
             </section>
           )}
         </main>

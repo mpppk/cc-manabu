@@ -3,7 +3,7 @@ import { Result } from "@praha/byethrow";
 import { openDatabase } from "../../src/db/index.ts";
 import {
   createTaskRepository,
-  wikiIdOf,
+  requireWikiId,
 } from "../../src/db/task-repository.ts";
 import { createWikiHistoryRepository } from "../../src/db/wiki-history-repository.ts";
 import { createWikiRepository } from "../../src/db/wiki-repository.ts";
@@ -13,6 +13,10 @@ const unwrap = <T>(result: Result.Result<T, unknown>): T => {
   if (Result.isFailure(result)) throw result.error;
   return result.value;
 };
+
+/** 環境の Wiki（テストのタスクは Wiki のある環境に作る）。 */
+const wikiIdOf = (task: Parameters<typeof requireWikiId>[0]): string =>
+  unwrap(requireWikiId(task));
 
 test("Claude の書き込みは出どころ付きの版になり、回答で最初の書き込みの前にチェックポイントを作る（#166）", () => {
   const { db } = unwrap(openDatabase(":memory:"));

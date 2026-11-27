@@ -1120,15 +1120,17 @@ export const ChatView = ({
   };
   const selectedTerm = selection?.text.trim();
   const createPageBlocker =
-    taskId === null || onWikiPageCreated === undefined
-      ? "タスクの会話でだけ、ノートを作れます"
-      : selectedTerm === undefined || !isPageTerm(selectedTerm)
-        ? "1 行・2〜40 文字の語句を選ぶと、ノートを作れます"
-        : generatingTerms.some(
-              (term) => normalizeTerm(term) === normalizeTerm(selectedTerm),
-            )
-          ? "この語句のノートを作成しています"
-          : undefined;
+    environment !== undefined && environment.wikiId === null
+      ? "この環境は Wiki を使っていないので、ノートを作れません"
+      : taskId === null || onWikiPageCreated === undefined
+        ? "タスクの会話でだけ、ノートを作れます"
+        : selectedTerm === undefined || !isPageTerm(selectedTerm)
+          ? "1 行・2〜40 文字の語句を選ぶと、ノートを作れます"
+          : generatingTerms.some(
+                (term) => normalizeTerm(term) === normalizeTerm(selectedTerm),
+              )
+            ? "この語句のノートを作成しています"
+            : undefined;
   const createPageFromSelection =
     selection !== undefined &&
     selectedTerm !== undefined &&

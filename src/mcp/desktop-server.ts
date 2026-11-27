@@ -17,6 +17,7 @@ import { TASK_STATUSES } from "../db/schema.ts";
 import {
   createTaskRepository,
   TaskLinkNotFoundError,
+  TaskWithoutWikiError,
 } from "../db/task-repository.ts";
 import { createWikiRepository } from "../db/wiki-repository.ts";
 import {
@@ -77,7 +78,8 @@ const errorText = (error: DesktopToolError): string => {
     error instanceof WikiToolInputError ||
     error instanceof TaskToolInputError ||
     error instanceof DirectoryNotFoundError ||
-    error instanceof RelativeDirectoryError
+    error instanceof RelativeDirectoryError ||
+    error instanceof TaskWithoutWikiError
   ) {
     return error.message;
   }
