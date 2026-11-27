@@ -2110,19 +2110,98 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
   ).toBeVisible();
   await branches.selectOption({ label: "元の会話" });
 
-  // 生成中の回答からは分岐せず、予約にもしない
+  // 生成中は、生成が終わった最後の回答から分岐して、回答を待たずに次々と送れる。
+  // HEAD（生成中のターン）は動かさず、予約にもしない
   await mainInput.fill("ゆっくり数えて");
   await mainInput.press("Enter");
-  await expect(main.getByRole("button", { name: "停止" })).toBeVisible();
-  await mainInput.fill("生成中の分岐");
-  await mainInput.press("ControlOrMeta+Enter");
-  await expect(notice).toContainText("回答の生成中は");
-  await expect(mainInput).toHaveValue("生成中の分岐");
-  await expect(side).toHaveCount(0);
+  const stopMain = main.getByRole("button", { name: "停止" });
+  await expect(stopMain).toBeVisible();
+  for (const [index, question] of [
+    "生成中の分岐1",
+    "生成中の分岐2",
+  ].entries()) {
+    await mainInput.fill(question);
+    await mainInput.press("ControlOrMeta+Enter");
+    await expect(side.getByText(`了解: ${question}`)).toBeVisible();
+    await expect(mainInput).toHaveValue("");
+    await expect(stopMain).toBeVisible();
+    await expect(branches.locator("option")).toHaveCount(5 + index);
+  }
+  // HEAD は動かない（メインは同じ会話の末尾のまま）。予約にもしない
+  await expect(branches.locator("option:checked")).toHaveText("元の会話");
+  await expect(main.getByText("この回答の続きとして分岐します。")).toHaveCount(
+    0,
+  );
+  await expect(main.getByText("了解: 生成中の分岐1")).toHaveCount(0);
   await expect(
     page.getByRole("region", { name: "予約したメッセージ" }),
   ).toHaveCount(0);
+  await stopMain.click();
+  await idle(page);
+  // 分岐は生成が終わった最後の回答の続きで、生成中だったターンを含まない
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await branches.selectOption({ label: "生成中の分岐1（元の会話 から分岐）" });
+  await expect(main.getByText("了解: 生成中の分岐1")).toBeVisible();
+  await expect(
+    main.getByText("メインの続き", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(main.getByText("ゆっくり数えて")).toHaveCount(0);
+
+  // 最初の回答の生成中は、生成が終わった回答が無いので送らずに理由を出す
+  await newChat(page);
+  await mainInput.fill("ゆっくり数えて");
+  await mainInput.press("Enter");
+  await expect(stopMain).toBeVisible();
+  await mainInput.fill("最初の生成中の分岐");
+  await mainInput.press("ControlOrMeta+Enter");
+  await expect(notice).toContainText("生成が終わった回答がまだありません");
+  await expect(mainInput).toHaveValue("最初の生成中の分岐");
+  await expect(side).toHaveCount(0);
+  await stopMain.click();
+  await idle(page);
+});
+
+test("現在地を維持した送信が同時に生成できる数の上限を超えたら、理由を出して入力を残す（#225）", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const branches = page.getByRole("combobox", { name: "会話" });
+  await send(page, "最初の質問");
+  await idle(page);
+
+  // メインと 2 つの分岐で、同時に生成できる 3 件を使い切る
+  await mainInput.fill("ゆっくり数えて");
+  await mainInput.press("Enter");
+  for (const question of ["ゆっくり A", "ゆっくり B"]) {
+    await mainInput.fill(question);
+    await mainInput.press("ControlOrMeta+Enter");
+    await expect(
+      side.getByText(question, { exact: true }).first(),
+    ).toBeVisible();
+  }
+  await mainInput.fill("上限を超える質問");
+  await mainInput.press("ControlOrMeta+Enter");
+  await expect(main.getByRole("alert")).toContainText(
+    "同時に生成できる会話の数の上限に達しています",
+  );
+  await expect(mainInput).toHaveValue("上限を超える質問");
+
+  // 後片付け: 生成中の 3 件を止める
+  await side.getByRole("button", { name: "停止" }).click();
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
   await main.getByRole("button", { name: "停止" }).click();
+  await idle(page);
+  await branches.selectOption({ label: "ゆっくり A（元の会話 から分岐）" });
+  const stopA = main.getByRole("button", { name: "停止" });
+  if (await stopA.isVisible()) await stopA.click();
+  await idle(page);
 });
 
 test("保存済みの会話をサイドで開き直し、メインの HEAD を保って続けられる", async ({

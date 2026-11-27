@@ -1160,22 +1160,30 @@ export const ChatView = ({
     ...(text === "" ? [] : [{ type: "text" as const, text }]),
   ];
   /**
-   * 現在地を維持して送る分岐元（#225）。HEAD の回答（「ここから分岐」で選んだ回答か、会話の最後の回答）。
+   * 現在地を維持して送る分岐元（#225）。HEAD までの、生成中でない最後の回答。
+   * 生成中は、生成中のターン（最後の質問とその回答）を除いた最後の回答から分岐するので、
+   * 回答を待たずに次々と質問できる。HEAD は動かさない。
    * 送れないときは理由。メインのチャットで、分岐をサイドで開けるときだけ使う。
    */
-  const headMessage = messages[visibleCount - 1];
-  const branchSendBlocker =
+  const generatingFrom =
     busy && branchFrom === undefined
-      ? "回答の生成中は、生成中の回答から分岐できません。終わるまで待つか、「ここから分岐」で前の回答を選んでください。"
-      : headMessage === undefined || headMessage.role !== "assistant"
-        ? "分岐元の回答がまだありません。回答が届いてから送ってください。"
-        : headMessage.metadata?.claudeCode?.lastAssistantUuid === undefined
-          ? "この回答からは分岐できません。"
-          : creatingBranch
-            ? "分岐を作成しています。"
-            : undefined;
+      ? messages.findLastIndex((message) => message.role === "user")
+      : -1;
+  const branchBase = messages
+    .slice(0, generatingFrom >= 0 ? generatingFrom : visibleCount)
+    .findLast((message) => message.role === "assistant");
+  const branchSendBlocker =
+    branchBase === undefined
+      ? busy
+        ? "生成が終わった回答がまだありません。最初の回答が終わってから送ってください。"
+        : "分岐元の回答がまだありません。回答が届いてから送ってください。"
+      : branchBase.metadata?.claudeCode?.lastAssistantUuid === undefined
+        ? "この回答からは分岐できません。"
+        : creatingBranch
+          ? "分岐を作成しています。"
+          : undefined;
   const sendToBranch = async (text: string, images: ImageAttachment[]) => {
-    if (branchSendBlocker !== undefined || headMessage === undefined) {
+    if (branchSendBlocker !== undefined || branchBase === undefined) {
       return false;
     }
     if (onOpenSideBranch === undefined) return false;
@@ -1187,7 +1195,7 @@ export const ChatView = ({
       const { model, effort } = settingsRef.current;
       await api.chat.branch({
         parentId: chat.id,
-        messageId: headMessage.id,
+        messageId: branchBase.id,
         branchId,
         message: {
           id: crypto.randomUUID(),
@@ -1204,7 +1212,12 @@ export const ChatView = ({
       return true;
     } catch (failure) {
       setBranchError(
-        failure instanceof Error ? failure.message : "分岐できませんでした。",
+        (failure as { code?: unknown } | undefined)?.code ===
+          "TOO_MANY_REQUESTS"
+          ? "同時に生成できる会話の数の上限に達しています。どれかの回答が終わってから送ってください（入力した内容はそのまま残ります）。"
+          : failure instanceof Error
+            ? failure.message
+            : "分岐できませんでした。",
       );
       return false;
     } finally {
