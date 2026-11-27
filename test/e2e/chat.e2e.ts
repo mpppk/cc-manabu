@@ -2660,6 +2660,58 @@ test("Wiki ページから始めたスレッドに、最初の回答のあとで
   ).toBeVisible();
 });
 
+test("ノートから質問したスレッドを開くと、元のノートを示し、そこから開ける", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "元のノートの検証");
+  await openWiki(page, "元のノートの検証");
+  await page.getByRole("button", { name: "新しいノート" }).click();
+  await page
+    .getByRole("textbox", { name: "ノートのタイトル" })
+    .fill("データ保持方針");
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("保持期間は 3 年。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "データ保持方針" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "このノートについて質問" }).click();
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const composer = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  await composer.fill("保持期間は？");
+  await composer.press("Enter");
+  await expect(
+    side.getByRole("button", { name: "送信", exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
+  // サイドチャットには出さない（見出しにノート名がある）
+  await expect(side.getByRole("note", { name: "元のノート" })).toHaveCount(0);
+
+  // スレッドのタイトルが変わっても、メインで開くと元のノートが分かる
+  const threads = taskItem(page, "元のノートの検証");
+  await expect(threads.getByText("保持期間は？ の論点")).toBeVisible({
+    timeout: 10_000,
+  });
+  await threads.getByText("保持期間は？ の論点").click();
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const source = main.getByRole("note", { name: "元のノート" });
+  await expect(source).toContainText(
+    "ノート データ保持方針 から質問したスレッド",
+  );
+
+  // 押すと右側のペインでノートを開く
+  await source.getByRole("button", { name: "ノートを開く" }).click();
+  const pane = page.getByRole("complementary", { name: "ノート" });
+  await expect(pane.getByText("保持期間は 3 年。")).toBeVisible();
+
+  // ふつうのスレッドには出さない
+  await newChat(page);
+  await expect(main.getByRole("note", { name: "元のノート" })).toHaveCount(0);
+});
+
 test("環境に説明を付けて、設定で確かめて変えられる（#160）", async ({
   page,
 }) => {

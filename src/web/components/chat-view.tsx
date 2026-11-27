@@ -1,6 +1,7 @@
 import { useChat } from "@ai-sdk/react";
 import type { ModelInfo } from "@anthropic-ai/claude-agent-sdk";
 import {
+  BookOpen,
   ChevronRight,
   Folder,
   GitBranch,
@@ -456,6 +457,81 @@ export const QuoteBlock = ({ text }: { text: string }) => (
     {text}
   </blockquote>
 );
+
+/**
+ * ノートから質問して始めたスレッドで、元のノートを示す。
+ * スレッドのタイトルは最初の回答のあとで付け直す（#161）ので、どのノートからかはここで分かるようにする。
+ */
+const WikiSourceNote = ({
+  api,
+  pageId,
+  onOpen,
+}: {
+  api: ApiClient;
+  pageId: string;
+  /** 元のノートを開く。タスクから外れたスレッドなど、開けなければ undefined。 */
+  onOpen: (() => void) | undefined;
+}) => {
+  const [state, setState] = useState<
+    | { status: "loading" }
+    | { status: "ready"; title: string }
+    | { status: "missing" }
+  >({ status: "loading" });
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: "loading" });
+    api.wiki
+      .get({ id: pageId })
+      .then((page) => {
+        if (!cancelled) setState({ status: "ready", title: page.title });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ status: "missing" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, pageId]);
+  return (
+    <div
+      role="note"
+      aria-label="元のノート"
+      className="flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm"
+    >
+      <BookOpen aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+      {state.status === "missing" ? (
+        <span className="text-muted-foreground">
+          このスレッドを始めたノートは削除されました。
+        </span>
+      ) : (
+        <>
+          <span className="min-w-0 flex-1 truncate">
+            <span className="text-muted-foreground">ノート </span>
+            {state.status === "ready" ? (
+              <span className="font-medium" title={state.title}>
+                {state.title}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">…</span>
+            )}
+            <span className="text-muted-foreground"> から質問したスレッド</span>
+          </span>
+          {onOpen !== undefined && state.status === "ready" && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              onClick={onOpen}
+            >
+              ノートを開く
+            </Button>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
 
 /** 同じスレッドの会話を切り替えるメニュー（#76）。 */
 const BranchSwitcher = ({
@@ -1385,6 +1461,21 @@ export const ChatView = ({
       <div ref={root} className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div ref={transcript} className="flex-1 overflow-y-auto">
           <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
+            {!side && chat.wikiPageId !== null && (
+              <WikiSourceNote
+                api={api}
+                pageId={chat.wikiPageId}
+                onOpen={
+                  chat.taskId === null || openWikiPage === undefined
+                    ? undefined
+                    : () => {
+                        if (chat.taskId !== null && chat.wikiPageId !== null) {
+                          openWikiPage(chat.taskId, chat.wikiPageId);
+                        }
+                      }
+                }
+              />
+            )}
             {!side && branches.length > 1 && (
               <BranchSwitcher
                 current={chat}
