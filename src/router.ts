@@ -1179,6 +1179,12 @@ export const router = {
       return { chat: toChatDto(chat), messages: messages.map(toMessageDto) };
     }),
     /** 会話の回答の要約（メッセージ id → 要約）。回答のあとに作られるので取り直して使う。 */
+    /** 会話の中の分岐点と、そこから分岐した同じスレッドの会話（#235）。 */
+    forkPoints: base
+      .input(chatId)
+      .handler(async ({ context, input }) =>
+        unwrapForOrpc(context.chats.listForkPoints(input.id), ERROR_CODES),
+      ),
     summaries: base
       .input(chatId)
       .handler(async ({ context, input }) =>

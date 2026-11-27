@@ -450,6 +450,85 @@ export const createChatRepository = (db: Db) => {
         return summaries;
       }),
 
+    /**
+     * 会話の中の分岐点（#235）。同じスレッドのほかの会話が、この会話のどの回答から分岐したか。
+     * 分岐した会話は分岐元の履歴を新しい id で写すので、id ではなく、写しても変わらない
+     * 作成日時・役割・SDK の uuid が同じメッセージを同じ回答とみなす。
+     * 分岐元をあとで編集・再生成して、分岐点の回答が無くなった会話は含めない。
+     */
+    listForkPoints: (
+      chatId: string,
+    ): Result.Result<
+      { messageId: string; chatIds: string[] }[],
+      ChatNotFoundError | DatabaseError
+    > =>
+      Result.pipe(
+        run(() => db.select().from(chats).where(eq(chats.id, chatId)).get()),
+        Result.andThen((row) => requireChat(row, chatId)),
+        Result.andThen((chat) =>
+          run(() => {
+            const own = db
+              .select()
+              .from(messages)
+              .where(eq(messages.chatId, chat.id))
+              .orderBy(asc(messages.seq))
+              .all();
+            const others = db
+              .select()
+              .from(chats)
+              .where(eq(chats.groupId, chat.groupId))
+              .orderBy(asc(chats.createdAt))
+              .all()
+              .filter((other) => other.id !== chat.id);
+            // 祖先の会話はこの会話と同じ流れなので、祖先の分岐点では分かれていない
+            const byId = new Map(others.map((other) => [other.id, other]));
+            const ancestors = new Set<string>();
+            for (
+              let parentId = chat.parentId;
+              parentId !== null && !ancestors.has(parentId);
+              parentId = byId.get(parentId)?.parentId ?? null
+            ) {
+              ancestors.add(parentId);
+            }
+            const points = new Map<string, string[]>();
+            for (const other of others) {
+              if (
+                other.parentId === null ||
+                other.inheritedCount === 0 ||
+                ancestors.has(other.id)
+              ) {
+                continue;
+              }
+              // 分岐点の回答は、分岐した会話が写した最後のメッセージ。分岐元を編集して
+              // 元の回答が消えていても、写しから分かる
+              const fork = db
+                .select()
+                .from(messages)
+                .where(
+                  and(
+                    eq(messages.chatId, other.id),
+                    eq(messages.seq, other.inheritedCount - 1),
+                  ),
+                )
+                .get();
+              if (fork === undefined) continue;
+              const match = own.find(
+                (message) =>
+                  message.role === fork.role &&
+                  message.sdkUuid === fork.sdkUuid &&
+                  message.createdAt.getTime() === fork.createdAt.getTime(),
+              );
+              if (match === undefined) continue;
+              points.set(match.id, [...(points.get(match.id) ?? []), other.id]);
+            }
+            return [...points].map(([messageId, chatIds]) => ({
+              messageId,
+              chatIds,
+            }));
+          }),
+        ),
+      ),
+
     /** seq 以降のメッセージを消す（再生成・編集で使う）。消した件数を返す。 */
     deleteMessagesFrom: (
       chatId: string,

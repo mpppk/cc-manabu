@@ -1776,6 +1776,62 @@ const selectAnswerParagraph = (answer: Locator) =>
 const selectLastAnswerParagraph = (page: Page) =>
   selectAnswerParagraph(page.locator("[data-assistant-message]").last());
 
+test("分岐点の回答から、そこで分岐した会話を開け、引き継いだ履歴の区切りから分岐元に戻れる（#235）", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("main");
+  const branches = branchMenu(page);
+  const forkButton = main.getByRole("button", { name: /この回答から分岐 \d/ });
+  const forkPopup = page.getByRole("dialog", {
+    name: "この回答から分岐した会話",
+  });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+
+  await newChat(page);
+  await send(page, "分岐点の設計案は？");
+  await idle(page);
+  await send(page, "そのまま進めて");
+  await idle(page);
+  // 分岐が無いうちは出さない
+  await expect(forkButton).toHaveCount(0);
+
+  // 最初の回答から分岐する
+  await main.getByRole("button", { name: "回答を開く" }).click();
+  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await send(page, "別案だと？");
+  await idle(page);
+  await expect(branches.trigger).toContainText("別案だと？");
+
+  // 引き継いだ履歴の区切りから、分岐元に戻れる
+  await main.getByRole("button", { name: "元の会話", exact: true }).click();
+  await expect(branches.trigger).toContainText("元の会話");
+  await expect(main.getByText("了解: そのまま進めて")).toBeVisible();
+
+  // 分岐点の回答（閉じていても）から、そこで分岐した会話が分かり、開ける
+  await expect(forkButton).toHaveCount(1);
+  await expect(forkButton).toHaveText(/この回答から分岐 1/);
+  await forkButton.click();
+  await expect(
+    forkPopup.getByRole("button", { name: "別案だと？（元の会話 から分岐）" }),
+  ).toBeVisible();
+  // サイドで開く
+  await forkPopup
+    .getByRole("button", { name: "「別案だと？」をサイドで開く" })
+    .click();
+  await expect(side.getByText("了解: 別案だと？")).toBeVisible();
+  await expect(branches.trigger).toContainText("元の会話");
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+
+  // メインで開く
+  await forkButton.click();
+  await forkPopup
+    .getByRole("button", { name: "別案だと？（元の会話 から分岐）" })
+    .click();
+  await expect(branches.trigger).toContainText("別案だと？");
+  await expect(forkPopup).toHaveCount(0);
+});
+
 test("回答の選択範囲を引用して質問すると、引用付きの会話ができる", async ({
   page,
 }) => {
