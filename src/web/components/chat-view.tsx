@@ -19,6 +19,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { resolveChatDefaults } from "../../chat/chat-defaults.ts";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
 import {
@@ -47,6 +48,7 @@ import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { cn } from "../lib/utils.ts";
 import { AnswerWikiUndo, changedWiki } from "./answer-wiki-undo.tsx";
 import { ApprovalCard } from "./approval-card.tsx";
+import { BranchMenu } from "./branch-menu.tsx";
 import { Composer } from "./composer.tsx";
 import { EnvironmentPopover } from "./environment-popover.tsx";
 import { Markdown, type WikiLinks } from "./markdown.tsx";
@@ -533,93 +535,6 @@ const WikiSourceNote = ({
   );
 };
 
-/** 同じスレッドの会話を切り替えるメニュー（#76）。 */
-const BranchSwitcher = ({
-  current,
-  branches,
-  disabled,
-  onSelect,
-  onOpenSide,
-}: {
-  current: ChatDto;
-  branches: ChatDto[];
-  disabled: boolean;
-  onSelect: (chatId: string) => void;
-  onOpenSide?: (chatId: string) => void;
-}) => {
-  const sidePicker = useRef<HTMLDetailsElement>(null);
-  const sorted = [...branches].sort(
-    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-  );
-  const labelOf = (chat: ChatDto) => {
-    const parent = branches.find((b) => b.id === chat.parentId);
-    return parent === undefined
-      ? branchLabel(chat)
-      : `${branchLabel(chat)}（${branchLabel(parent)} から分岐）`;
-  };
-  return (
-    <div className="flex flex-col gap-1 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-      <label className="flex items-center gap-2">
-        <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-        <span className="shrink-0 text-muted-foreground">会話</span>
-        <select
-          className="min-w-0 flex-1 rounded-md border bg-background px-2 py-1"
-          aria-label="会話"
-          value={current.id}
-          disabled={disabled}
-          onChange={(event) => onSelect(event.target.value)}
-        >
-          {sorted.map((branch) => (
-            <option key={branch.id} value={branch.id}>
-              {labelOf(branch)}
-            </option>
-          ))}
-        </select>
-      </label>
-      {onOpenSide !== undefined && (
-        <details ref={sidePicker} className="group">
-          <summary className="flex w-fit cursor-pointer list-none items-center gap-1 rounded-md px-1 py-1 text-muted-foreground text-xs hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring">
-            <ChevronRight
-              aria-hidden
-              className="size-3.5 transition-transform group-open:rotate-90"
-            />
-            サイドで開く
-          </summary>
-          <ul
-            aria-label="サイドで開く会話"
-            className="max-h-48 overflow-y-auto rounded-md border bg-background p-1"
-          >
-            {sorted
-              .filter((branch) => branch.id !== current.id)
-              .map((branch) => (
-                <li key={branch.id}>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    className="h-auto w-full justify-start whitespace-normal py-1.5 text-left"
-                    onClick={() => {
-                      if (sidePicker.current !== null) {
-                        sidePicker.current.open = false;
-                        sidePicker.current.querySelector("summary")?.focus();
-                      }
-                      onOpenSide(branch.id);
-                    }}
-                  >
-                    {labelOf(branch)}
-                  </Button>
-                </li>
-              ))}
-          </ul>
-        </details>
-      )}
-      <span className="text-muted-foreground text-xs">
-        履歴は会話ごとに分かれますが、ファイルへの変更はスレッド内のすべての会話で共有されます。
-      </span>
-    </div>
-  );
-};
-
 /** 分岐元から引き継いだ履歴と、この会話で書いた履歴の境目。 */
 const InheritedDivider = ({ parent }: { parent: ChatDto | undefined }) => (
   <div className="flex items-center gap-2 text-muted-foreground text-xs">
@@ -811,7 +726,13 @@ export type ChatViewProps = {
   environment?: EnvironmentDto | undefined;
   /** 入力欄の下にサブスクリプションの利用枠を出す（メインのチャットだけ。#170）。 */
   showRateLimit?: boolean;
+  /** 会話の切り替えを出す、画面上部のヘッダーの領域（メインのチャットだけ。#234）。 */
+  headerSlot?: HTMLElement | null | undefined;
+  /** 新しい回答の印が付いた会話（#234）。 */
+  unreadChatIds?: ReadonlySet<string>;
 };
+
+const NO_UNREAD: ReadonlySet<string> = new Set();
 
 /** 1 つの会話を表示し、その会話の ID で送信・再接続する。 */
 export const ChatView = ({
@@ -834,6 +755,8 @@ export const ChatView = ({
   cwd,
   environment,
   showRateLimit = false,
+  headerSlot,
+  unreadChatIds = NO_UNREAD,
 }: ChatViewProps) => {
   const chatDefaults = useContext(ChatDefaultsContext);
   /**
@@ -1442,8 +1365,26 @@ export const ChatView = ({
     </Fragment>
   );
 
+  // 会話の切り替えは、画面上部のヘッダーに出す（#234）
+  const branchMenu =
+    !side &&
+    headerSlot != null &&
+    branches.length > 1 &&
+    createPortal(
+      <BranchMenu
+        current={chat}
+        branches={branches}
+        unread={unreadChatIds}
+        disabled={branchFrom !== undefined}
+        onSelect={(id) => onSelectBranch?.(id)}
+        onOpenSide={onOpenSideBranch}
+      />,
+      headerSlot,
+    );
+
   return (
     <WikiTermsContext.Provider value={wikiTerms}>
+      {branchMenu}
       {selection !== undefined && selectedAnswer !== undefined && (
         <SelectionPopup
           selection={selection}
@@ -1476,17 +1417,6 @@ export const ChatView = ({
                         }
                       }
                 }
-              />
-            )}
-            {!side && branches.length > 1 && (
-              <BranchSwitcher
-                current={chat}
-                branches={branches}
-                disabled={branchFrom !== undefined}
-                onSelect={(id) => onSelectBranch?.(id)}
-                {...(onOpenSideBranch === undefined
-                  ? {}
-                  : { onOpenSide: onOpenSideBranch })}
               />
             )}
             {turns

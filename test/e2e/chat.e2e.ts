@@ -418,6 +418,65 @@ const taskItem = (page: Page, name: string) =>
     .filter({ has: rowMatching(page, `「${name}」の概要を開く`) })
     .last();
 
+/** 画面上部のヘッダーにある、会話の切り替え（#234）。 */
+const branchMenu = (page: Page) => {
+  const trigger = page.getByRole("button", { name: "会話を切り替える" });
+  const popup = page.getByRole("dialog", { name: "会話" });
+  const rows = popup.locator("button[data-branch-row]");
+  const open = async () => {
+    if (!(await popup.isVisible())) await trigger.click();
+    await expect(popup).toBeVisible();
+  };
+  const close = async () => {
+    if (await popup.isVisible()) await popup.press("Escape");
+    await expect(popup).toHaveCount(0);
+  };
+  return {
+    trigger,
+    popup,
+    open,
+    close,
+    /** 会話の名前（作った順）。分岐した会話は「名前（分岐元 から分岐）」。 */
+    expectLabels: async (labels: string[]) => {
+      await open();
+      await expect
+        .poll(() =>
+          rows.evaluateAll((buttons) =>
+            buttons.map((button) => button.getAttribute("aria-label")),
+          ),
+        )
+        .toEqual(labels);
+      await close();
+    },
+    expectCount: async (count: number) => {
+      await open();
+      await expect(rows).toHaveCount(count);
+      await close();
+    },
+    /** 開いている会話。 */
+    expectCurrent: async (label: string) => {
+      await open();
+      await expect(
+        popup.locator('button[data-branch-row][aria-current="true"]'),
+      ).toHaveAttribute("aria-label", label);
+      await close();
+    },
+    select: async (label: string) => {
+      await open();
+      await popup.getByRole("button", { name: label, exact: true }).click();
+      await expect(popup).toHaveCount(0);
+    },
+    /** メインはそのままで、サイドで開く。name は分岐元を含まない会話の名前。 */
+    openSide: async (name: string) => {
+      await open();
+      await popup
+        .getByRole("button", { name: `「${name}」をサイドで開く` })
+        .click();
+      await expect(popup).toHaveCount(0);
+    },
+  };
+};
+
 /** 環境の行と、その下のタスク。 */
 const environmentItem = (page: Page, name: string) =>
   sidebarTree(page)
@@ -1603,7 +1662,7 @@ test("回答から分岐し、同じスレッドの中で会話を切り替え�
   await open(page);
   const list = page.getByRole("navigation", { name: "スレッド一覧" });
   const main = page.getByRole("main");
-  const branchSelect = page.getByRole("combobox", { name: "会話" });
+  const branchSelect = branchMenu(page);
   const branchButtons = main.getByRole("button", { name: "ここから分岐" });
 
   await newChat(page);
@@ -1619,7 +1678,7 @@ test("回答から分岐し、同じスレッドの中で会話を切り替え�
   await expect(main.getByText("了解: 同期で進めて")).toHaveCount(0);
   await main.getByRole("button", { name: "取り消す" }).click();
   await expect(main.getByText("了解: 同期で進めて")).toBeVisible();
-  await expect(branchSelect).toHaveCount(0);
+  await expect(branchSelect.trigger).toHaveCount(0);
 
   // 最初の回答から分岐する
   const rootUrl = page.url();
@@ -1631,29 +1690,31 @@ test("回答から分岐し、同じスレッドの中で会話を切り替え�
   await expect(main.getByText("了解: 分岐の設計案は？")).toBeHidden();
   await expect(main.getByText("了解: 同期で進めて")).toHaveCount(0);
   await expect(main.getByText(/から引き継いだ履歴/)).toBeVisible();
-  await expect(branchSelect.locator("option")).toHaveText([
+  await branchSelect.expectLabels([
     "元の会話",
     "非同期だと？（元の会話 から分岐）",
   ]);
+  await branchSelect.open();
   await expect(
-    main.getByText("ファイルへの変更はスレッド内のすべての会話で共有"),
+    branchSelect.popup.getByText(
+      "ファイルへの変更はスレッド内のすべての会話で共有",
+    ),
   ).toBeVisible();
+  await branchSelect.close();
   // サイドバーの会話は 1 つのまま
   await expect(
     list.locator("li:not(:has(li))").filter({ hasText: "分岐の設計案は？" }),
   ).toHaveCount(1);
 
   // 元の会話に切り替えて続ける
-  await branchSelect.selectOption({ label: "元の会話" });
+  await branchSelect.select("元の会話");
   await expect(main.getByText("了解: 同期で進めて")).toBeVisible();
   await send(page, "元の続き");
   await expect(main.getByText("了解: 元の続き")).toBeVisible();
   await idle(page);
 
   // 分岐した会話に戻って続ける
-  await branchSelect.selectOption({
-    label: "非同期だと？（元の会話 から分岐）",
-  });
+  await branchSelect.select("非同期だと？（元の会話 から分岐）");
   await expect(main.getByText("了解: 非同期だと？")).toBeVisible();
   await send(page, "分岐の続き");
   await expect(main.getByText("了解: 分岐の続き")).toBeVisible();
@@ -1666,13 +1727,13 @@ test("回答から分岐し、同じスレッドの中で会話を切り替え�
   await send(page, "さらに分岐");
   await expect(main.getByText("了解: さらに分岐")).toBeVisible();
   await idle(page);
-  await expect(branchSelect.locator("option")).toHaveCount(3);
+  await branchSelect.expectCount(3);
   await expect(
     list.locator("li:not(:has(li))").filter({ hasText: "分岐の設計案は？" }),
   ).toHaveCount(1);
 
   // 元の会話を編集しても、分岐した会話の履歴は残る
-  await branchSelect.selectOption({ label: "元の会話" });
+  await branchSelect.select("元の会話");
   await main.getByText("分岐の設計案は？").first().hover();
   await main.getByRole("button", { name: "この発話を編集" }).first().click();
   await page
@@ -1681,9 +1742,7 @@ test("回答から分岐し、同じスレッドの中で会話を切り替え�
   await page.getByRole("button", { name: "送信", exact: true }).first().click();
   await expect(main.getByText("了解: 書き直した質問")).toBeVisible();
   await idle(page);
-  await branchSelect.selectOption({
-    label: "非同期だと？（元の会話 から分岐）",
-  });
+  await branchSelect.select("非同期だと？（元の会話 から分岐）");
   await expect(main.getByText("了解: 分岐の設計案は？")).toBeHidden();
   await main.getByRole("button", { name: "回答を開く" }).first().click();
   await expect(main.getByText("了解: 分岐の設計案は？")).toBeVisible();
@@ -1691,18 +1750,14 @@ test("回答から分岐し、同じスレッドの中で会話を切り替え�
 
   // リロードしても、最後に選んだ会話が開く。サイドバーから開いても同じ
   await page.reload();
-  await expect(branchSelect).toHaveValue(/.+/);
-  await expect(branchSelect.locator("option:checked")).toHaveText(
-    "非同期だと？（元の会話 から分岐）",
-  );
+  await expect(branchSelect.trigger).toBeVisible();
+  await branchSelect.expectCurrent("非同期だと？（元の会話 から分岐）");
   await newChat(page);
   await list
     .locator("li:not(:has(li))")
     .filter({ hasText: "分岐の設計案は？" })
     .click();
-  await expect(branchSelect.locator("option:checked")).toHaveText(
-    "非同期だと？（元の会話 から分岐）",
-  );
+  await branchSelect.expectCurrent("非同期だと？（元の会話 から分岐）");
 });
 
 /** 最後の回答の最初の段落を選択する（マウス・タッチ・キーボードでの選択の代わり）。 */
@@ -1802,7 +1857,7 @@ test("回答の選択範囲を引用して質問すると、引用付きの会�
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
   await expect(mainInput).toBeFocused();
   await expect(mainInput).toHaveValue("メインの続き");
-  await expect(page.getByRole("combobox", { name: "会話" })).toHaveCount(0);
+  await expect(branchMenu(page).trigger).toHaveCount(0);
 
   // 閉じて開き直しても入力欄にフォーカスが移り、クリックせずに書き始められる。
   // 送ると、引用付きの会話ができ、モデルには引用と質問が区別して届く
@@ -1838,27 +1893,23 @@ test("回答の選択範囲を引用して質問すると、引用付きの会�
   await expect(main.getByText("許可されました", { exact: true })).toHaveCount(
     0,
   );
-  await expect(page.getByRole("combobox", { name: "会話" })).toBeVisible();
-  await expect(
-    page.getByRole("combobox", { name: "会話" }).locator("option"),
-  ).toHaveCount(2);
+  await expect(branchMenu(page).trigger).toBeVisible();
+  await branchMenu(page).expectCount(2);
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
   await expect(side).toHaveCount(0);
 
   // リロードしても引用と質問が残り、元の会話もそのまま
   await page.reload();
-  const branches = page.getByRole("combobox", { name: "会話" });
-  await expect(branches.locator("option:checked")).toHaveText("元の会話");
-  await branches.selectOption({
-    label: "失敗時はどう復旧する？（元の会話 から分岐）",
-  });
+  const branches = branchMenu(page);
+  await branches.expectCurrent("元の会話");
+  await branches.select("失敗時はどう復旧する？（元の会話 から分岐）");
   await expect(main.locator("blockquote").first()).toContainText(
     "方式A と 方式B の比較",
   );
   await expect(
     main.getByText("失敗時はどう復旧する？", { exact: true }).first(),
   ).toBeVisible();
-  await branches.selectOption({ label: "元の会話" });
+  await branches.select("元の会話");
   await expect(main.locator("blockquote")).toHaveCount(0);
 });
 
@@ -1876,7 +1927,7 @@ test("回答を引用して質問するとき、メイン・サイドチャッ�
   const sideInput = side.getByRole("textbox", {
     name: "サイドチャットのメッセージ",
   });
-  const branches = page.getByRole("combobox", { name: "会話" });
+  const branches = branchMenu(page);
   const sideIdle = () =>
     expect(side.getByRole("button", { name: "送信", exact: true })).toBeVisible(
       { timeout: 15_000 },
@@ -1921,7 +1972,7 @@ test("回答を引用して質問するとき、メイン・サイドチャッ�
   ).toBeVisible();
   await idle(page);
   // 新しい会話はできず、引用は送ったメッセージに残る
-  await expect(branches).toHaveCount(0);
+  await expect(branches.trigger).toHaveCount(0);
   await expect(mainQuote).toHaveText("了解: 最初の質問");
 
   // 新しいサイドチャットで質問する
@@ -1934,7 +1985,7 @@ test("回答を引用して質問するとき、メイン・サイドチャッ�
     side.getByText("サイドの質問", { exact: true }).first(),
   ).toBeVisible();
   await sideIdle();
-  await expect(branches.locator("option")).toHaveCount(2);
+  await branches.expectCount(2);
 
   // サイドチャット: 表示中のサイドチャットで続けるか、別の会話に分岐するかを選べる
   const sideAnswer = () =>
@@ -1961,7 +2012,7 @@ test("回答を引用して質問するとき、メイン・サイドチャッ�
     side.getByText("サイドの続き", { exact: true }).first(),
   ).toBeVisible();
   await sideIdle();
-  await expect(branches.locator("option")).toHaveCount(2);
+  await branches.expectCount(2);
 
   // 別の会話に分岐して質問する: 送信前なら取り消せて、会話は増えない
   const branchNotice = side.getByText(
@@ -1988,10 +2039,10 @@ test("回答を引用して質問するとき、メイン・サイドチャッ�
   ).toBeVisible();
   await sideIdle();
   await expect(side.getByText("サイドの続き", { exact: true })).toHaveCount(0);
-  await expect(branches.locator("option")).toHaveCount(3);
+  await branches.expectCount(3);
 
   // 分岐元の会話は、会話の切り替えから再び開ける
-  await branches.selectOption({ label: "サイドの質問（元の会話 から分岐）" });
+  await branches.select("サイドの質問（元の会話 から分岐）");
   await expect(
     main.getByText("サイドの続き", { exact: true }).first(),
   ).toBeVisible();
@@ -2008,7 +2059,7 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
     exact: true,
   });
   const side = page.getByRole("complementary", { name: "サイドチャット" });
-  const branches = page.getByRole("combobox", { name: "会話" });
+  const branches = branchMenu(page);
   const notice = main.getByRole("status").filter({
     hasText: "現在地を維持して送信できません",
   });
@@ -2061,8 +2112,8 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
   await expect(mainInput).toHaveValue("");
   await expect(main.getByText("了解: 分岐の質問")).toHaveCount(0);
   await expect(page).toHaveURL(chatUrl);
-  await expect(branches.locator("option")).toHaveCount(2);
-  await expect(branches.locator("option:checked")).toHaveText("元の会話");
+  await branches.expectCount(2);
+  await branches.expectCurrent("元の会話");
 
   // サイドチャットを閉じて通常送信すると、元の現在地から続く
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
@@ -2071,7 +2122,7 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
   await expect(main.getByText("了解: メインの続き")).toBeVisible();
   await idle(page);
   await expect(page).toHaveURL(chatUrl);
-  await expect(branches.locator("option")).toHaveCount(2);
+  await branches.expectCount(2);
 
   // 送信ボタン横のメニューにも置き、ショートカットを確かめられる
   const menuButton = main.getByRole("button", { name: "送信のメニュー" });
@@ -2086,7 +2137,7 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
   await item.click();
   await expect(side.getByText("了解: メニューから分岐")).toBeVisible();
   await sideIdle();
-  await expect(branches.locator("option")).toHaveCount(3);
+  await branches.expectCount(3);
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
 
   // 「ここから分岐」で選んだ現在地も維持する
@@ -2099,16 +2150,16 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
   await expect(side.getByText("了解: 前の回答から")).toBeVisible();
   await sideIdle();
   await expect(headNotice).toBeVisible();
-  await expect(branches.locator("option")).toHaveCount(4);
+  await branches.expectCount(4);
   // 作った分岐は、会話の切り替えから開き直せる（現在地を末尾に戻してから）
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
   await main.getByRole("button", { name: "取り消す" }).click();
   await expect(headNotice).toHaveCount(0);
-  await branches.selectOption({ label: "分岐の質問（元の会話 から分岐）" });
+  await branches.select("分岐の質問（元の会話 から分岐）");
   await expect(
     main.getByText("了解: 分岐の質問", { exact: true }),
   ).toBeVisible();
-  await branches.selectOption({ label: "元の会話" });
+  await branches.select("元の会話");
 
   // 生成中は、生成が終わった最後の回答から分岐して、回答を待たずに次々と送れる。
   // HEAD（生成中のターン）は動かさず、予約にもしない
@@ -2125,10 +2176,10 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
     await expect(side.getByText(`了解: ${question}`)).toBeVisible();
     await expect(mainInput).toHaveValue("");
     await expect(stopMain).toBeVisible();
-    await expect(branches.locator("option")).toHaveCount(5 + index);
+    await branches.expectCount(5 + index);
   }
   // HEAD は動かない（メインは同じ会話の末尾のまま）。予約にもしない
-  await expect(branches.locator("option:checked")).toHaveText("元の会話");
+  await branches.expectCurrent("元の会話");
   await expect(main.getByText("この回答の続きとして分岐します。")).toHaveCount(
     0,
   );
@@ -2140,7 +2191,7 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
   await idle(page);
   // 分岐は生成が終わった最後の回答の続きで、生成中だったターンを含まない
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
-  await branches.selectOption({ label: "生成中の分岐1（元の会話 から分岐）" });
+  await branches.select("生成中の分岐1（元の会話 から分岐）");
   await expect(main.getByText("了解: 生成中の分岐1")).toBeVisible();
   await expect(
     main.getByText("メインの続き", { exact: true }).first(),
@@ -2172,7 +2223,7 @@ test("現在地を維持した送信が同時に生成できる数の上限を�
     exact: true,
   });
   const side = page.getByRole("complementary", { name: "サイドチャット" });
-  const branches = page.getByRole("combobox", { name: "会話" });
+  const branches = branchMenu(page);
   await send(page, "最初の質問");
   await idle(page);
 
@@ -2198,10 +2249,73 @@ test("現在地を維持した送信が同時に生成できる数の上限を�
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
   await main.getByRole("button", { name: "停止" }).click();
   await idle(page);
-  await branches.selectOption({ label: "ゆっくり A（元の会話 から分岐）" });
+  await branches.select("ゆっくり A（元の会話 から分岐）");
   const stopA = main.getByRole("button", { name: "停止" });
   if (await stopA.isVisible()) await stopA.click();
   await idle(page);
+});
+
+test("ヘッダーで会話を切り替え、ほかの会話の回答中・新しい回答が分かる（#234）", async ({
+  page,
+}) => {
+  await open(page);
+  await newChat(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const branches = branchMenu(page);
+  await send(page, "最初の質問");
+  await idle(page);
+  await expect(branches.trigger).toHaveCount(0);
+
+  // 現在地を保ったまま分岐に送り、サイドチャットを閉じて裏で回答させる
+  await mainInput.fill("ゆっくり分岐");
+  await mainInput.press("ControlOrMeta+Enter");
+  await expect(
+    side.getByText("ゆっくり分岐", { exact: true }).first(),
+  ).toBeVisible();
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+
+  // 切り替えはヘッダーにあり、ほかの会話が回答中だと分かる
+  await expect(
+    page.locator("header").getByRole("button", { name: "会話を切り替える" }),
+  ).toBeVisible();
+  await expect(branches.trigger).toContainText("元の会話");
+  await expect(branches.trigger).toContainText("回答中 1");
+  await branches.open();
+  await expect(
+    branches.popup
+      .getByRole("listitem")
+      .filter({ hasText: "ゆっくり分岐" })
+      .getByLabel("生成中"),
+  ).toBeVisible();
+  await branches.close();
+
+  // 回答し終えると「新しい回答」の印が付き、再読み込みしても残る
+  await expect(branches.trigger).toContainText("新しい回答 1", {
+    timeout: 15_000,
+  });
+  await expect(branches.trigger).not.toContainText("回答中");
+  await page.reload();
+  await expect(branches.trigger).toContainText("新しい回答 1");
+  await branches.open();
+  await expect(
+    branches.popup.getByRole("listitem").filter({ hasText: "ゆっくり分岐" }),
+  ).toContainText("新しい回答");
+  await branches.close();
+
+  // 開くと印が外れる
+  await branches.select("ゆっくり分岐（元の会話 から分岐）");
+  await expect(
+    main.getByText("ゆっくり分岐", { exact: true }).first(),
+  ).toBeVisible();
+  await expect(branches.trigger).toContainText("ゆっくり分岐");
+  await branches.select("元の会話");
+  await expect(branches.trigger).toContainText("元の会話");
+  await expect(branches.trigger).not.toContainText("新しい回答");
 });
 
 test("保存済みの会話をサイドで開き直し、メインの HEAD を保って続けられる", async ({
@@ -2230,13 +2344,9 @@ test("保存済みの会話をサイドで開き直し、メインの HEAD を�
       await expect(mainInput).toBeFocused();
     },
   };
-  const branchSelect = main.getByRole("combobox", { name: "会話" });
+  const branchSelect = branchMenu(page);
   const openSavedBranch = async () => {
-    await main.getByText("サイドで開く", { exact: true }).press("Enter");
-    await main
-      .getByRole("list", { name: "サイドで開く会話" })
-      .getByRole("button", { name: "あとで再開する質問（元の会話 から分岐）" })
-      .click();
+    await branchSelect.openSide("あとで再開する質問");
   };
 
   const firstQuestion = `保存分岐の起点 ${testInfo.repeatEachIndex}`;
@@ -2257,7 +2367,7 @@ test("保存済みの会話をサイドで開き直し、メインの HEAD を�
   await idle(page);
 
   await page.reload();
-  await expect(branchSelect.locator("option:checked")).toHaveText("元の会話");
+  await branchSelect.expectCurrent("元の会話");
   await main.getByRole("button", { name: "回答を開く" }).click();
   await main.getByRole("button", { name: "ここから分岐" }).first().click();
   await mainInput.fill("メインで編集中の下書き");
@@ -2267,7 +2377,14 @@ test("保存済みの会話をサイドで開き直し、メインの HEAD を�
     sideAnswers.getByText("あとで再開する質問", { exact: true }),
   ).toBeVisible();
   await expect(mainInput).toHaveValue("メインで編集中の下書き");
-  await expect(branchSelect).toBeDisabled();
+  // HEAD を動かしている間は、状態は見られるが切り替えられない
+  await branchSelect.open();
+  await expect(
+    branchSelect.popup.getByRole("button", {
+      name: "あとで再開する質問（元の会話 から分岐）",
+    }),
+  ).toBeDisabled();
+  await branchSelect.close();
   await expect(page).toHaveURL(rootUrl);
   await sideInput.fill("承認が必要な操作をして");
   await sideInput.press("Enter");
@@ -2286,7 +2403,7 @@ test("保存済みの会話をサイドで開き直し、メインの HEAD を�
   await expect(
     main.getByText("この回答の続きとして分岐します。"),
   ).toBeVisible();
-  await expect(branchSelect.locator("option")).toHaveCount(2);
+  await branchSelect.expectCount(2);
   await expect(page).toHaveURL(rootUrl);
 
   await newChat(page);

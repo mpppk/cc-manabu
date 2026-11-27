@@ -12,7 +12,6 @@ import {
   LayoutDashboard,
   LayoutList,
   ListPlus,
-  Loader2,
   MessageSquarePlus,
   MessagesSquare,
   PackagePlus,
@@ -49,6 +48,7 @@ import {
   TASK_STATUS_ORDER,
 } from "../lib/task-status.ts";
 import { cn } from "../lib/utils.ts";
+import { ChatStatusBadge } from "./chat-status-badge.tsx";
 import {
   type EnvironmentDialog,
   EnvironmentDialogs,
@@ -68,32 +68,6 @@ import {
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 import { DropdownMenu } from "./ui/dropdown-menu.tsx";
-
-const StatusBadge = ({ status }: { status: ChatDto["status"] }) => {
-  switch (status) {
-    case "running":
-      return (
-        <Loader2
-          className="size-3.5 shrink-0 animate-spin text-muted-foreground"
-          aria-label="生成中"
-        />
-      );
-    case "awaiting_approval":
-      return (
-        <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] text-amber-700 dark:text-amber-400">
-          承認待ち
-        </span>
-      );
-    case "error":
-      return (
-        <span className="shrink-0 rounded bg-destructive/15 px-1.5 py-0.5 text-[10px] text-destructive">
-          エラー
-        </span>
-      );
-    default:
-      return null;
-  }
-};
 
 const ChatItem = ({
   chat,
@@ -195,7 +169,7 @@ const ChatItem = ({
             {branchCount}
           </span>
         )}
-        <StatusBadge status={chat.status} />
+        <ChatStatusBadge status={chat.status} />
       </button>
       <div className="hidden shrink-0 group-hover:flex group-focus-within:flex">
         <Button
