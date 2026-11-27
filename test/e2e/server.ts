@@ -23,6 +23,10 @@ import {
 } from "../../src/chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
+
+/** E2E のサーバで同時に生成できる会話の数。 */
+const E2E_MAX_CONCURRENT = 3;
+
 import { createTaskContextBuilder } from "../../src/chat/task-context.ts";
 import {
   createWikiThreadTitler,
@@ -154,7 +158,8 @@ const writePageQa = createPageQaWriter({
   generate: async (prompt) =>
     (await generateText({ model: pageQaModel, prompt })).text,
 });
-const registry = new RunnerRegistry();
+// 同時に生成できる数の上限の表示を確かめるため、E2E では既定（10）より少なくする
+const registry = new RunnerRegistry({ maxConcurrent: E2E_MAX_CONCURRENT });
 const chatService = createChatService({
   chats,
   registry,

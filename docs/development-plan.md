@@ -113,7 +113,7 @@ AI SDK 7 / `LanguageModelV4` を実装します（[spike](spikes/ai-sdk-spec.md)
 - クライアントが切断しても生成は止めません（`consumeStream` 相当）。止めるのは `chat.stop` が呼ばれたときだけです。
 - `chat.reconnect` は進行中の Runner があればバッファを先頭から再送し、その後のチャンクを流します。Runner がなければ何も流さずに終わります。transport の `reconnectToStream` にこれを割り当てます。
 - 完了時（成功・中断・エラーのいずれも）に UIMessage を DB に保存し、`sessionId` と SDK の uuid を更新します。
-- 同時に生成できる数の上限は設定で持ちます（既定値は要決定）。
+- 同時に生成できる数の上限は設定で持ちます（既定値は 10。生成中でも「現在地を維持して送信」で次々と質問できるように多めにしている）。
 
 ### 2.4 承認フロー
 
