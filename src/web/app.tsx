@@ -1,13 +1,24 @@
-import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import {
+  FolderPlus,
+  LayoutList,
+  MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { resolveChatDefaults } from "../chat/chat-defaults.ts";
 import type { ChatUIMessage } from "../chat/chat-service.ts";
 import type { ChatDto, EnvironmentDto, TaskDto, WikiDto } from "../router.ts";
 import { ChatWorkspace } from "./components/chat-workspace.tsx";
+import {
+  type CommandItem,
+  CommandPalette,
+} from "./components/command-palette.tsx";
 import type { EnvironmentInput } from "./components/environment-dialogs.tsx";
 import { PaneResizer } from "./components/pane-resizer.tsx";
 import { GeneralSettingsDialog } from "./components/settings-dialog.tsx";
-import { Sidebar } from "./components/sidebar.tsx";
+import { Sidebar, type SidebarRequest } from "./components/sidebar.tsx";
 import { ArchivedTaskList, TaskList } from "./components/task-list.tsx";
 import { TaskOverview } from "./components/task-overview.tsx";
 import { Button } from "./components/ui/button.tsx";
@@ -35,7 +46,7 @@ import {
   taskIdFromPath,
   wikiFromPath,
 } from "./lib/route.ts";
-import { USE_COMMAND_SHORTCUT } from "./lib/shortcut.ts";
+import { hasShortcutModifier, USE_COMMAND_SHORTCUT } from "./lib/shortcut.ts";
 import {
   SIDE_BY_SIDE_MIN_VIEWPORT,
   useReservedMainWidth,
@@ -158,6 +169,30 @@ export const App = ({ api }: { api: ApiClient }) => {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [toggleSidebar]);
+  // コマンドパレット（#243）。⌘K（Ctrl+K）で開閉する。入力欄にフォーカスがあっても開く
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        hasShortcutModifier(event) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        !event.isComposing &&
+        event.key.toLowerCase() === "k"
+      ) {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+  /** コマンドパレットからサイドバーに頼む操作（検索欄を開く・タスクを作る）。 */
+  const [sidebarRequest, setSidebarRequest] = useState<SidebarRequest>();
+  const requestSidebar = (kind: SidebarRequest["kind"]) =>
+    setSidebarRequest((prev) => ({ kind, nonce: (prev?.nonce ?? 0) + 1 }));
+  /** 開いたらメインの入力欄にフォーカスする会話（コマンドパレットの「新しいスレッド」）。 */
+  const [focusComposerOf, setFocusComposerOf] = useState<string>();
   const [chats, setChats] = useState<ChatDto[]>([]);
   const [tasks, setTasks] = useState<TaskDto[]>();
   const [path, setPath] = useState(() => window.location.pathname);
@@ -395,14 +430,17 @@ export const App = ({ api }: { api: ApiClient }) => {
       threadCounts.set(owner, (threadCounts.get(owner) ?? 0) + 1);
   }
 
-  /** 同じタスクにまだ何も送っていない会話があれば、新しく作らずにそれを開く。 */
-  const newChat = async (owner: string | null) => {
+  /**
+   * 同じタスクにまだ何も送っていない会話があれば、新しく作らずにそれを開く。
+   * 開いた会話の id を返す。
+   */
+  const newChat = async (owner: string | null): Promise<string> => {
     const blank = chats.find(
       (chat) => chat.taskId === owner && isBlankChat(chat),
     );
     if (blank !== undefined) {
       select(blank.id);
-      return;
+      return blank.id;
     }
     const chat = await api.chats.create({
       taskId: owner,
@@ -410,7 +448,71 @@ export const App = ({ api }: { api: ApiClient }) => {
     });
     await refreshChats();
     select(chat.id);
+    return chat.id;
   };
+
+  // コマンドパレットの「新しいスレッド」で開いた会話は、表示できたら入力欄に移る
+  const shownChatId =
+    current?.chat.id === chatViewId && !showWiki ? chatViewId : undefined;
+  useEffect(() => {
+    if (focusComposerOf === undefined || shownChatId !== focusComposerOf) {
+      return;
+    }
+    setFocusComposerOf(undefined);
+    requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLTextAreaElement>(
+          'section[aria-label="メインのチャット"] textarea[aria-label="メッセージ"]:not([disabled])',
+        )
+        ?.focus();
+    });
+  }, [focusComposerOf, shownChatId]);
+
+  /** コマンドパレットの操作（#243）。どれも画面にある同じ操作と同じ処理を使う。 */
+  const commands: CommandItem[] = [
+    {
+      id: "new-thread",
+      label: "新しいスレッド",
+      keywords: [
+        "スレッド",
+        "会話",
+        "チャット",
+        "新規",
+        "作成",
+        "new",
+        "thread",
+        "chat",
+      ],
+      icon: <MessageSquarePlus />,
+      run: () => {
+        void newChat(taskId).then(setFocusComposerOf);
+      },
+    },
+    {
+      id: "search-threads",
+      label: "スレッドを検索",
+      keywords: ["検索", "探す", "スレッド", "会話", "search", "find"],
+      icon: <Search />,
+      run: () => {
+        setSidebarOpen(true);
+        requestSidebar("search");
+      },
+    },
+    {
+      id: "task-list",
+      label: "タスク一覧",
+      keywords: ["タスク", "一覧", "カンバン", "進捗", "tasks", "kanban"],
+      icon: <LayoutList />,
+      run: () => navigate(TASK_LIST_PATH),
+    },
+    {
+      id: "new-task",
+      label: "新しいタスク",
+      keywords: ["タスク", "新規", "作成", "new", "task"],
+      icon: <FolderPlus />,
+      run: () => requestSidebar("createTask"),
+    },
+  ];
 
   /** environmentId を渡すとその環境に、無ければ同じ名前の環境を新しく作って入れる。 */
   const createTask = async (name: string, environmentId?: string) => {
@@ -536,6 +638,7 @@ export const App = ({ api }: { api: ApiClient }) => {
           onOpenGeneralSettings={() => setSettingsOpen(true)}
           onSearch={searchChats}
           onOpenSearchHit={openSearchHit}
+          request={sidebarRequest}
         />
         {sidebarOpen && (
           <PaneResizer
@@ -692,6 +795,11 @@ export const App = ({ api }: { api: ApiClient }) => {
           )}
         </main>
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        commands={commands}
+      />
       <GeneralSettingsDialog
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
