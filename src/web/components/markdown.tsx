@@ -17,9 +17,11 @@ import {
 } from "../../chat/citations.ts";
 import { pageIdFromHref } from "../../wiki/citations.ts";
 import type { TermMatch } from "../../wiki/term-matcher.ts";
+import { linkServiceOf } from "../lib/link-service.ts";
 import { rehypeCosenseLinks } from "../lib/rehype-cosense-links.ts";
 import { isPendingTermId, rehypeWikiTerms } from "../lib/rehype-wiki-terms.ts";
 import { CitationBadge } from "./citation-badge.tsx";
+import { ServiceIcon } from "./service-icon.tsx";
 import { WikiTerm } from "./wiki-term.tsx";
 
 const plugins = { code, math, mermaid, cjk };
@@ -100,81 +102,80 @@ export const Markdown = ({
   linksRef.current = wikiLinks;
   const citationsRef = useRef(citations);
   citationsRef.current = citations;
-  const hasLinks = wikiLinks !== undefined;
   const hasTerms = termMatcher !== undefined;
-  const hasCitations = citations !== undefined && citations.length > 0;
-  const components = useMemo<Components | undefined>(() => {
-    if (!hasLinks && !hasTerms && !cosenseLinks && !hasCitations) {
-      return undefined;
-    }
+  const components = useMemo<Components>(() => {
     return {
-      ...(hasLinks || cosenseLinks || hasCitations
-        ? {
-            a: (
-              props: ComponentProps<"a"> & { "data-cosense-link"?: boolean },
-            ) => {
-              if (
-                cosenseLinks &&
-                props["data-cosense-link"] &&
-                props.href?.startsWith("https://cosen.se/")
-              ) {
-                return (
-                  <a
-                    href={props.href}
-                    className="wrap-anywhere font-medium text-primary underline"
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    {props.children}
-                  </a>
-                );
-              }
-              if (
-                cosenseLinks &&
-                props.href === "streamdown:incomplete-link" &&
-                typeof props.children === "string" &&
-                /^\/[\w-]+\//.test(props.children)
-              ) {
-                return `[${props.children}`;
-              }
-              const n = citationNumberFromHref(props.href);
-              const source =
-                n === undefined
-                  ? undefined
-                  : citationsRef.current?.find((item) => item.n === n);
-              if (source !== undefined) {
-                return (
-                  <CitationBadge
-                    source={source}
-                    wikiHref={linksRef.current?.href}
-                    onOpenWiki={(pageId) => linksRef.current?.onOpen(pageId)}
-                  />
-                );
-              }
-              const pageId = pageIdFromHref(props.href);
-              const links = linksRef.current;
-              if (pageId === undefined || links === undefined) {
-                return <DefaultLink {...props} />;
-              }
-              return (
-                <a
-                  href={links.href(pageId)}
-                  data-wiki-page={pageId}
-                  className="font-medium text-primary underline decoration-dotted"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    linksRef.current?.onOpen(pageId);
-                  }}
-                >
-                  {props.children}
-                </a>
-              );
-            },
-          }
-        : {}),
+      // Cosense・Slack のリンクには、いつも先頭にサービスのアイコンを付ける（#275）
+      a: (props: ComponentProps<"a"> & { "data-cosense-link"?: boolean }) => {
+        if (
+          cosenseLinks &&
+          props["data-cosense-link"] &&
+          props.href?.startsWith("https://cosen.se/")
+        ) {
+          return (
+            <a
+              href={props.href}
+              className="wrap-anywhere font-medium text-primary underline"
+              target="_blank"
+              rel="noreferrer"
+            >
+              <ServiceIcon service="cosense" />
+              {props.children}
+            </a>
+          );
+        }
+        if (
+          cosenseLinks &&
+          props.href === "streamdown:incomplete-link" &&
+          typeof props.children === "string" &&
+          /^\/[\w-]+\//.test(props.children)
+        ) {
+          return `[${props.children}`;
+        }
+        const n = citationNumberFromHref(props.href);
+        const source =
+          n === undefined
+            ? undefined
+            : citationsRef.current?.find((item) => item.n === n);
+        if (source !== undefined) {
+          return (
+            <CitationBadge
+              source={source}
+              wikiHref={linksRef.current?.href}
+              onOpenWiki={(pageId) => linksRef.current?.onOpen(pageId)}
+            />
+          );
+        }
+        const pageId = pageIdFromHref(props.href);
+        const links = linksRef.current;
+        if (pageId === undefined || links === undefined) {
+          const service = linkServiceOf(props.href);
+          return service === undefined ? (
+            <DefaultLink {...props} />
+          ) : (
+            <DefaultLink {...props}>
+              <ServiceIcon service={service} />
+              {props.children}
+            </DefaultLink>
+          );
+        }
+        return (
+          <a
+            href={links.href(pageId)}
+            data-wiki-page={pageId}
+            className="font-medium text-primary underline decoration-dotted"
+            onClick={(event) => {
+              event.preventDefault();
+              linksRef.current?.onOpen(pageId);
+            }}
+          >
+            {props.children}
+          </a>
+        );
+      },
       ...(hasTerms ? { span: TermSpan } : {}),
     };
-  }, [cosenseLinks, hasLinks, hasTerms, hasCitations]);
+  }, [cosenseLinks, hasTerms]);
   const rehypePlugins = useMemo(
     () =>
       termMatcher === undefined && !cosenseLinks
@@ -195,7 +196,7 @@ export const Markdown = ({
       plugins={plugins}
       remarkPlugins={remarkPlugins}
       isAnimating={streaming}
-      {...(components === undefined ? {} : { components })}
+      components={components}
       {...(rehypePlugins === undefined ? {} : { rehypePlugins })}
     >
       {text}
