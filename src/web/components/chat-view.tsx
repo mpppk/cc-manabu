@@ -51,6 +51,7 @@ import { pendingTermId } from "../lib/rehype-wiki-terms.ts";
 import { pathForWiki } from "../lib/route.ts";
 import { describeSteps, groupSteps } from "../lib/steps.ts";
 import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
+import { useSessionSync } from "../lib/use-session-sync.ts";
 import { cn } from "../lib/utils.ts";
 import { AnswerWikiUndo, changedWiki } from "./answer-wiki-undo.tsx";
 import { ApprovalCard } from "./approval-card.tsx";
@@ -69,6 +70,11 @@ import {
   SelectionPopup,
   useTextSelection,
 } from "./selection-popup.tsx";
+import {
+  DesktopNotice,
+  OpenInDesktopButton,
+  UnimportedNotice,
+} from "./session-sync.tsx";
 import { StepGroup } from "./step-group.tsx";
 import { isDenied, ToolCard } from "./tool-card.tsx";
 import { Button } from "./ui/button.tsx";
@@ -1717,20 +1723,82 @@ export const ChatView = ({
     });
   };
 
+  // 表示中の会話を Claude Desktop で開き、外で足された発言を知らせる（#244）
+  const liveChat = branches.find((branch) => branch.id === chat.id) ?? chat;
+  const chatBusy =
+    busy ||
+    liveChat.status === "running" ||
+    liveChat.status === "awaiting_approval";
+  const sessionSync = useSessionSync(api, side ? undefined : chat.id, chatBusy);
+  /** Claude Desktop で開いた結果。開いた会話のときだけ出す。 */
+  const [desktopResult, setDesktopResult] = useState<{
+    chatId: string;
+    kind: "info" | "error";
+    text: string;
+  }>();
+  const desktopNotice =
+    desktopResult?.chatId === chat.id ? desktopResult : undefined;
+  const setDesktopNotice = (
+    notice: { kind: "info" | "error"; text: string } | undefined,
+  ) =>
+    setDesktopResult(
+      notice === undefined ? undefined : { ...notice, chatId: chat.id },
+    );
+  const [openingDesktop, setOpeningDesktop] = useState(false);
+  const desktopBlocker = !liveChat.hasSession
+    ? "この会話にはまだ Claude Code のセッションがありません。最初のメッセージを送ってから開けます。"
+    : liveChat.status === "awaiting_approval"
+      ? "承認待ちの会話は Claude Desktop で開けません。承認か拒否をしてから開いてください。"
+      : chatBusy
+        ? "生成中の会話は Claude Desktop で開けません。回答が終わってから開いてください。"
+        : undefined;
+  const openInDesktop = async () => {
+    setOpeningDesktop(true);
+    setDesktopNotice(undefined);
+    try {
+      await api.chats.openInDesktop({ id: chat.id });
+      setDesktopNotice({
+        kind: "info",
+        text: "Claude Desktop でこの会話を開きました。Desktop で続けた発言は Monet には表示されません。",
+      });
+    } catch (error) {
+      setDesktopNotice({
+        kind: "error",
+        text:
+          error instanceof Error
+            ? error.message
+            : "Claude Desktop で開けませんでした。",
+      });
+    } finally {
+      setOpeningDesktop(false);
+    }
+  };
+
   // 会話の切り替えは、画面上部のヘッダーに出す（#234）
   const branchMenu =
     !side &&
     headerSlot != null &&
-    branches.length > 1 &&
     createPortal(
-      <BranchMenu
-        current={chat}
-        branches={branches}
-        unread={unreadChatIds}
-        disabled={branchFrom !== undefined}
-        onSelect={(id) => onSelectBranch?.(id)}
-        onOpenSide={onOpenSideBranch}
-      />,
+      <>
+        <OpenInDesktopButton
+          blocker={desktopBlocker}
+          opening={openingDesktop}
+          onOpen={() => void openInDesktop()}
+          onBlocked={(reason) =>
+            setDesktopNotice({ kind: "error", text: reason })
+          }
+        />
+        {branches.length > 1 && (
+          <BranchMenu
+            current={chat}
+            branches={branches}
+            unread={unreadChatIds}
+            disabled={branchFrom !== undefined}
+            onSelect={(id) => onSelectBranch?.(id)}
+            onOpenSide={onOpenSideBranch}
+          />
+        )}
+      </>,
       headerSlot,
     );
 
@@ -1930,6 +1998,19 @@ export const ChatView = ({
               <p className="text-destructive text-sm" role="alert">
                 {branchError}
               </p>
+            )}
+            {!side && sessionSync.unimported > 0 && (
+              <UnimportedNotice
+                prompts={sessionSync.unimported}
+                checking={sessionSync.checking}
+                onRecheck={() => void sessionSync.check()}
+              />
+            )}
+            {!side && desktopNotice !== undefined && (
+              <DesktopNotice
+                notice={desktopNotice}
+                onClose={() => setDesktopNotice(undefined)}
+              />
             )}
             {error !== undefined && (
               <p className="text-destructive text-sm" role="alert">

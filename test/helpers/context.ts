@@ -9,6 +9,7 @@ import {
 } from "../../src/chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
+import { createSessionSync } from "../../src/chat/session-sync.ts";
 import { createTaskContextBuilder } from "../../src/chat/task-context.ts";
 import { createClaudeStatus } from "../../src/claude/status.ts";
 import { createChatRepository } from "../../src/db/chat-repository.ts";
@@ -37,6 +38,7 @@ import {
 } from "../../src/wiki/context.ts";
 import { createWikiPageGenerator } from "../../src/wiki/page-generation.ts";
 import { createWikiToolServers } from "../../src/wiki/tools.ts";
+import { createFakeSessions } from "./fake-sessions.ts";
 
 /**
  * インメモリ DB と、差し替えた query() を使うルータのコンテキストを作る。
@@ -193,6 +195,7 @@ export const createTestContext = (
         }),
     },
   );
+  const sessions = createFakeSessions(chats);
   const context: RouterContext = {
     chats,
     tasks,
@@ -223,6 +226,11 @@ export const createTestContext = (
     pickDirectory:
       options.pickDirectory ??
       (async () => Result.succeed<string | null>(null)),
+    sessionSync: createSessionSync({
+      chats,
+      reader: sessions.reader,
+      launchDesktop: sessions.launchDesktop,
+    }),
   };
   return {
     context,
@@ -238,6 +246,7 @@ export const createTestContext = (
     registry,
     chatService,
     approvals,
+    sessions,
     sqlite: opened.value.sqlite,
   };
 };
