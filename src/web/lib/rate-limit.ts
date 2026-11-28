@@ -120,43 +120,48 @@ export const describeRateLimit = (
   };
 };
 
-/** 週間（7 日間）の枠。 */
-const WEEKLY_TYPES = ["seven_day", "seven_day_overage_included"];
+/** 時刻（端末のタイムゾーン、24 時間表記の HH:mm）。 */
+export const formatClock = (at: number): string => {
+  const date = new Date(at);
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+/** 取れていない値の表示。 */
+const MISSING = "—";
 
 /**
- * メインの入力欄の下に出す利用枠（#170）。週間（7 日間）の枠の利用率とリセット時刻を優先して出す。
- * 5 時間枠などが上限に近いときは、その枠も添えて注意を促す。週間の枠が無ければ describeRateLimit と同じ。
+ * メインの入力欄の下に出す利用枠（#278）。5 時間枠の利用率と次のリセット時刻を「57% 17:00」の形で出す。
+ * 取れていない値（リセット時刻を過ぎて古くなった値を含む）は「—」にする。
+ * 上限に達していれば赤、どれかの枠が上限に近ければ黄色にする（詳細は押して開く）。
  */
-export const describeWeeklyRateLimit = (
+export const describeFiveHourRateLimit = (
   snapshot: RateLimitSnapshot,
   now: number,
 ): RateLimitView => {
   const overall = describeRateLimit(snapshot, now);
-  if (overall.tone === "danger") return overall;
-  const current = snapshot.windows.filter(
-    (w) => isCurrent(w, now) && w.utilization !== null,
+  const window = snapshot.windows.find((w) => w.type === "five_hour");
+  const current = window !== undefined && isCurrent(window, now);
+  const used =
+    current && window.utilization !== null
+      ? percent(window.utilization)
+      : MISSING;
+  const reset =
+    current && window.resetsAt !== null
+      ? formatClock(window.resetsAt)
+      : MISSING;
+  const warning = snapshot.windows.some(
+    (w) =>
+      isCurrent(w, now) &&
+      ((w.utilization ?? 0) >= WARNING_UTILIZATION ||
+        w.status === "allowed_warning" ||
+        w.status === "rejected"),
   );
-  const weekly = current.find((w) => WEEKLY_TYPES.includes(w.type));
-  if (weekly === undefined || weekly.utilization === null) return overall;
-  const isWarning = (w: RateLimitWindow) =>
-    (w.utilization ?? 0) >= WARNING_UTILIZATION ||
-    w.status === "allowed_warning" ||
-    w.status === "rejected";
-  const others = current.filter((w) => w !== weekly && isWarning(w));
   return {
-    label: `${windowLabel(weekly.type)}枠 ${percent(weekly.utilization)}${
-      weekly.resetsAt === null
-        ? ""
-        : `・${formatResetTime(weekly.resetsAt, now)} にリセット`
-    }${others
-      .map((w) => `（${windowLabel(w.type)}枠 ${percent(w.utilization ?? 0)}）`)
-      .join("")}`,
-    short: `週 ${percent(weekly.utilization)}${
-      weekly.resetsAt === null
-        ? ""
-        : `・${formatResetTime(weekly.resetsAt, now)} リセット`
-    }${others.length > 0 ? "（注意）" : ""}`,
-    tone: isWarning(weekly) || others.length > 0 ? "warning" : "normal",
+    short: `${used} ${reset}`,
+    label: `5 時間枠 ${used === MISSING ? "利用率不明" : used}・${
+      reset === MISSING ? "リセット時刻不明" : `${reset} にリセット`
+    }`,
+    tone: overall.tone === "danger" ? "danger" : warning ? "warning" : "normal",
     details: overall.details,
   };
 };

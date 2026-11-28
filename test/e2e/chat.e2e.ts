@@ -3878,7 +3878,7 @@ test("スレッドをタイトルと本文で検索し、一致した発言へ�
   ).toBeFocused();
 });
 
-test("回答のあとに、週間の利用枠とリセット時刻をメインの入力欄の下に出す（#170）", async ({
+test("回答のあとに、5 時間枠の利用率とリセット時刻をメインの入力欄の下に 1 行で出す（#170、#278）", async ({
   page,
 }) => {
   await open(page);
@@ -3888,7 +3888,15 @@ test("回答のあとに、週間の利用枠とリセット時刻をメイン�
   // ヘッダーではなく、メインのチャットの入力欄の下に出す
   const mainChat = page.getByRole("region", { name: "メインのチャット" });
   const badge = mainChat.getByTestId("rate-limit");
-  await expect(badge).toHaveText(/7 日間枠 67%・\d+\/\d+ \d+:\d\d にリセット/);
+  await expect(badge).toHaveText(/^62% \d\d:\d\d$/);
+  await expect(badge).toHaveAccessibleName(
+    /^利用枠: 5 時間枠 62%・\d\d:\d\d にリセット$/,
+  );
+  // 狭い画面でも同じ 1 行の表示
+  const viewport = page.viewportSize();
+  await page.setViewportSize({ width: 700, height: 740 });
+  await expect(badge).toHaveText(/^62% \d\d:\d\d$/);
+  if (viewport !== null) await page.setViewportSize(viewport);
   await expect(
     page.locator("main header").getByTestId("rate-limit"),
   ).toHaveCount(0);
