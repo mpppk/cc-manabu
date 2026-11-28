@@ -362,6 +362,7 @@ export const BranchMenu = (props: MenuProps) => {
 
 /**
  * 回答の「ここから分岐」（#242）。新しい分岐を作る操作と、その回答から分岐した会話（#235）をまとめる。
+ * ボタンは分岐のアイコンだけを出す（#266）。
  * 分岐が無ければ押すとすぐに新しい分岐を作り始め、あればメニューから既存の分岐を開くか、新しく作るかを選ぶ。
  * 閉じたターンの見出しのように複数の回答をまとめて出すときは、メニューを回答ごとに分ける。
  */
@@ -378,30 +379,24 @@ export const BranchFromHere = ({
   const creatable = points.filter((point) => point.onCreate !== undefined);
   const [only] = points;
   if (forks.length === 0 && creatable.length === 0) return null;
-  const buttonClass = "h-7 gap-1 px-2 text-muted-foreground text-xs";
+  // 分岐の操作はアイコンだけにする（読み上げ名は「ここから分岐」。#266）
+  const buttonClass = "size-7 text-muted-foreground";
   // 分岐がまだ無い回答 1 つだけなら、メニューを挟まずに新しい分岐を作り始める
   if (forks.length === 0 && points.length === 1 && only?.onCreate) {
     return (
       <Button
         type="button"
         variant="ghost"
-        size="sm"
+        size="icon"
         className={buttonClass}
-        title="この回答の続きとして、新しい会話を作る"
+        aria-label="ここから分岐"
+        title="ここから分岐（この回答の続きとして、新しい会話を作る）"
         onClick={only.onCreate}
       >
-        <GitBranch className="size-3.5" />
-        ここから分岐
+        <GitBranch aria-hidden className="size-3.5" />
       </Button>
     );
   }
-  const active = forks.some(
-    (chat) => chat.status === "running" || chat.status === "awaiting_approval",
-  );
-  const unread = forks.some(
-    (chat) => chat.status === "idle" && props.unread.has(chat.id),
-  );
-  const quoted = points.some((point) => point.quoted && point.forks.length > 0);
   const several = points.length > 1;
   return (
     <BranchPopover
@@ -439,30 +434,18 @@ export const BranchFromHere = ({
       label="この回答から分岐した会話"
       listLabel="この回答から分岐した会話"
       align="left"
-      {...(quoted
-        ? {
-            note: (
-              <p className="flex items-center gap-1.5 px-2 pt-1 text-muted-foreground text-xs">
-                <span
-                  aria-hidden
-                  className="w-5 shrink-0 border-violet-500 border-b-2 border-dashed dark:border-violet-400"
-                />
-                本文の紫の破線は、サイドで質問した箇所です。押すとその会話を開きます。
-              </p>
-            ),
-          }
-        : {})}
       trigger={({ ref, open, popupId, toggle }) => (
         <Button
           ref={ref}
           type="button"
           variant="ghost"
-          size="sm"
+          size="icon"
           className={buttonClass}
+          aria-label="ここから分岐"
           title={
             forks.length === 0
-              ? "分岐を作る回答を選ぶ"
-              : `この回答から分岐した会話（${forks.length} 件）を開くか、新しい分岐を作る`
+              ? "ここから分岐（分岐を作る回答を選ぶ）"
+              : `ここから分岐（この回答から分岐した会話 ${forks.length} 件を開くか、新しい分岐を作る）`
           }
           aria-haspopup="dialog"
           aria-expanded={open}
@@ -470,27 +453,7 @@ export const BranchFromHere = ({
           data-fork-count={forks.length}
           onClick={toggle}
         >
-          <GitBranch className="size-3.5" />
-          ここから分岐
-          {forks.length > 0 && (
-            <span className="rounded-full bg-muted px-1.5 text-[10px] tabular-nums">
-              {forks.length}
-            </span>
-          )}
-          {active && (
-            <Loader2
-              className="size-3 animate-spin"
-              aria-label="回答中の会話があります"
-            />
-          )}
-          {!active && unread && (
-            <span
-              className="size-2 rounded-full bg-sky-500"
-              role="img"
-              aria-label="新しい回答があります"
-            />
-          )}
-          <ChevronDown aria-hidden className="size-3" />
+          <GitBranch aria-hidden className="size-3.5" />
         </Button>
       )}
     />
