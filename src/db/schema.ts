@@ -7,6 +7,27 @@ import {
   uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
+/** 会話のコンテキストの使用量（#245）。getContextUsage({ detail: "summary" }) の答えから、表示に使う部分。 */
+export type ContextUsage = {
+  /** 使っているトークン数（会話全体の累計ではなく、いまのコンテキストの量）。 */
+  totalTokens: number;
+  /** コンテキストの上限。 */
+  maxTokens: number;
+  /** 上限に対する割合（0〜100）。 */
+  percentage: number;
+  /** 使用量を数えたモデル。 */
+  model: string;
+  /** カテゴリ別の内訳。summary では一部が概算。 */
+  categories: {
+    id?: string;
+    name: string;
+    tokens: number;
+    kind: "used" | "free" | "buffer" | "deferred";
+  }[];
+  /** 取った日時（ISO 8601）。 */
+  capturedAt: string;
+};
+
 export const CHAT_STATUSES = [
   "idle",
   "running",
@@ -154,6 +175,11 @@ export const chats = sqliteTable(
     forkFromUuid: text("fork_from_uuid"),
     /** 最後にこの会話を開いた日時（スレッドを開き直したときに表示する会話）。 */
     lastSelectedAt: integer("last_selected_at", { mode: "timestamp_ms" }),
+    /**
+     * 最後に取れたコンテキストの使用量（#245）。回答のあとに Agent SDK の getContextUsage で取る。
+     * まだ取れていなければ null。
+     */
+    contextUsage: text("context_usage", { mode: "json" }).$type<ContextUsage>(),
     /** 予約したメッセージの送信を止めているか（停止・エラーのあと。#102）。 */
     queuePaused: integer("queue_paused", { mode: "boolean" })
       .notNull()

@@ -5,6 +5,7 @@ import {
   ChevronRight,
   Folder,
   GitBranch,
+  Info,
   Loader2,
   LocateFixed,
   Pencil,
@@ -789,6 +790,9 @@ export type ChatViewProps = {
   showRateLimit?: boolean;
   /** 会話の切り替えを出す、画面上部のヘッダーの領域（メインのチャットだけ。#234）。 */
   headerSlot?: HTMLElement | null | undefined;
+  /** セッション詳細（#245）を開いているか。onToggleDetails があればヘッダーに開閉のボタンを出す。 */
+  detailsOpen?: boolean | undefined;
+  onToggleDetails?: (() => void) | undefined;
   /** 新しい回答の印が付いた会話（#234）。 */
   unreadChatIds?: ReadonlySet<string>;
   /**
@@ -838,6 +842,8 @@ export const ChatView = ({
   environment,
   showRateLimit = false,
   headerSlot,
+  detailsOpen = false,
+  onToggleDetails,
   unreadChatIds = NO_UNREAD,
   onLocateQuoteElsewhere,
   quoteFocus,
@@ -1788,6 +1794,22 @@ export const ChatView = ({
             setDesktopNotice({ kind: "error", text: reason })
           }
         />
+        {onToggleDetails !== undefined && (
+          <Button
+            type="button"
+            variant={detailsOpen ? "secondary" : "outline"}
+            size="sm"
+            className="gap-1.5 px-2"
+            data-session-details-toggle
+            aria-pressed={detailsOpen}
+            title="コンテキストの使用量・環境・タスクを右側に表示します"
+            onClick={onToggleDetails}
+          >
+            <Info className="size-4 text-muted-foreground" />
+            <span className="hidden sm:inline">セッション詳細</span>
+            <span className="sr-only sm:hidden">セッション詳細</span>
+          </Button>
+        )}
         {branches.length > 1 && (
           <BranchMenu
             current={chat}

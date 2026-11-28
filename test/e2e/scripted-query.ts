@@ -189,7 +189,9 @@ export const createScriptedQuery = (): QueryFunction => {
     const wikiToolCall = (name: string, args: Record<string, unknown>) =>
       toolCall("wiki", name, args);
 
-    return (async function* (): AsyncGenerator<SDKMessage> {
+    const turn = (turnsBySession.get(sessionId) ?? 0) + 1;
+    turnsBySession.set(sessionId, turn);
+    const generator = (async function* (): AsyncGenerator<SDKMessage> {
       // 画像付きの発話は、content ブロックを持つユーザーメッセージで届く
       let text = typeof prompt === "string" ? prompt : "";
       let images = 0;
@@ -197,8 +199,13 @@ export const createScriptedQuery = (): QueryFunction => {
       /** タスクと環境の参照情報（#186）。 */
       let taskContext = "";
       if (typeof prompt !== "string") {
-        for await (const message of prompt as AsyncIterable<SDKUserMessage>) {
+        // 実物と同じく、最初の発話だけを読む。入力は回答のあとまで開いていることがある（#245）
+        const first = await (prompt as AsyncIterable<SDKUserMessage>)
+          [Symbol.asyncIterator]()
+          .next();
+        for (const message of first.done === true ? [] : [first.value]) {
           const { content } = message.message;
+          if (typeof content === "string") text += content;
           for (const item of typeof content === "string" ? [] : content) {
             if (item.type === "image") images++;
             if (item.type === "text") {
@@ -427,5 +434,63 @@ export const createScriptedQuery = (): QueryFunction => {
         uuid: crypto.randomUUID(),
       } as unknown as SDKMessage;
     })();
+    // コンテキストの使用量（#245）。セッションのターンが進むほど増える
+    return Object.assign(generator, {
+      getContextUsage: async () => contextUsageFor(turn),
+    });
+  };
+};
+
+/** セッションごとのターン数（コンテキストの使用量の作り分けに使う）。 */
+const turnsBySession = new Map<string, number>();
+
+const contextUsageFor = (turn: number) => {
+  const messages = 1500 * turn;
+  const systemPrompt = 3000;
+  const tools = 12000;
+  const totalTokens = systemPrompt + tools + messages;
+  const maxTokens = 200_000;
+  return {
+    categories: [
+      {
+        id: "system_prompt",
+        name: "System prompt",
+        tokens: systemPrompt,
+        color: "",
+        kind: "used",
+      },
+      {
+        id: "system_tools",
+        name: "System tools",
+        tokens: tools,
+        color: "",
+        kind: "used",
+      },
+      {
+        id: "messages",
+        name: "Messages",
+        tokens: messages,
+        color: "",
+        kind: "used",
+      },
+      {
+        id: "free_space",
+        name: "Free space",
+        tokens: maxTokens - totalTokens,
+        color: "",
+        kind: "free",
+      },
+    ],
+    totalTokens,
+    maxTokens,
+    rawMaxTokens: maxTokens,
+    percentage: (totalTokens / maxTokens) * 100,
+    gridRows: [],
+    model: "mock",
+    memoryFiles: [],
+    mcpTools: [],
+    agents: [],
+    isAutoCompactEnabled: true,
+    apiUsage: null,
   };
 };

@@ -4,6 +4,7 @@ import type {
   Options,
   PermissionMode,
   Query,
+  SDKControlGetContextUsageResponse,
   SDKMessage,
   SDKRateLimitInfo,
   SDKUserMessage,
@@ -47,6 +48,12 @@ export type ClaudeCodeProviderSettings = {
   env?: Record<string, string | undefined>;
   /** サブスクリプションの利用枠の情報が届いたとき（rate_limit_event、#116）。 */
   onRateLimit?: (info: SDKRateLimitInfo) => void;
+  /**
+   * 回答（result）のあとに、Agent SDK の getContextUsage({ detail: "summary" }) で取れた
+   * コンテキストの使用量（#245）。指定すると、取り終えるまで入力を開けておく（streaming input）。
+   * スラッシュコマンドの送信では取らない。取れなければ呼ばない。
+   */
+  onContextUsage?: (usage: SDKControlGetContextUsageResponse) => void;
   /** Agent SDK の query() の差し替え（テスト用）。 */
   query?: QueryFunction;
 };

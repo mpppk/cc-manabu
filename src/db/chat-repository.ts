@@ -11,6 +11,7 @@ import type { Db } from "./index.ts";
 import {
   type ChatRow,
   type ChatStatus,
+  type ContextUsage,
   chats,
   type MessageRow,
   messages,
@@ -351,6 +352,18 @@ export const createChatRepository = (db: Db) => {
         ),
         Result.andThen((row) => requireChat(row, chatId)),
       ),
+
+    /** 最後に取れたコンテキストの使用量を残す（#245）。一覧の並びは変えない。 */
+    setContextUsage: (
+      chatId: string,
+      usage: ContextUsage,
+    ): Result.Result<void, DatabaseError> =>
+      run(() => {
+        db.update(chats)
+          .set({ contextUsage: usage })
+          .where(eq(chats.id, chatId))
+          .run();
+      }),
 
     setStatus: (
       chatId: string,

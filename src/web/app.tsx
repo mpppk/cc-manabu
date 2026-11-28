@@ -712,6 +712,8 @@ export const App = ({ api }: { api: ApiClient }) => {
                   navigate(pathForWiki(taskId, pageId), { returnTo: path })
                 }
                 headerSlot={showWiki ? null : headerActions}
+                task={tasks?.find((item) => item.id === workspace.chat.taskId)}
+                onOpenTask={(id) => navigate(pathForTask(id))}
                 unreadChatIds={unreadChatIds}
                 onSideChatChange={setSideChatId}
               />

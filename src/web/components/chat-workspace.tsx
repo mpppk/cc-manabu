@@ -6,7 +6,7 @@ import {
 } from "../../chat/chat-defaults.ts";
 import type { ChatUIMessage } from "../../chat/chat-service.ts";
 import type { AnswerQuote, WikiPageQuote } from "../../chat/quote.ts";
-import type { ChatDto } from "../../router.ts";
+import type { ChatDto, TaskDto } from "../../router.ts";
 import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import type { SendSettings } from "../lib/chat-transport.ts";
 import { branchLabel } from "../lib/groups.ts";
@@ -24,6 +24,7 @@ import { ChatView, type ChatViewProps, QuoteBlock } from "./chat-view.tsx";
 import { Composer } from "./composer.tsx";
 import { ModelPicker } from "./model-picker.tsx";
 import { PaneResizer } from "./pane-resizer.tsx";
+import { SessionDetails } from "./session-details.tsx";
 import { Button } from "./ui/button.tsx";
 import { WikiPane } from "./wiki-pane.tsx";
 
@@ -406,6 +407,8 @@ export const ChatWorkspace = ({
   loading,
   onOpenChat,
   onSideChatChange,
+  task,
+  onOpenTask,
   ...props
 }: ChatViewProps & {
   /** 右側のペインで開いている会話が変わったとき（#234）。 */
@@ -413,7 +416,16 @@ export const ChatWorkspace = ({
   loading: boolean;
   /** 別のスレッドの会話を開く（Wiki ページの「元の回答を開く」）。 */
   onOpenChat?: (chatId: string) => void;
+  /** 会話が属するタスク（セッション詳細に出す。#245）。 */
+  task?: TaskDto | undefined;
+  /** タスクの概要を開く（セッション詳細から。#245）。 */
+  onOpenTask?: ((taskId: string) => void) | undefined;
 }) => {
+  /**
+   * セッション詳細（#245）。右側のペインのいちばん上に重ねて開く。サイドチャットは消さずに隠すので、
+   * 閉じると入力途中のまま戻る。ほかのものを右側のペインに開くと閉じる。
+   */
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [side, setSide] = useState<
     BranchRequest | PageRequest | (WikiRequest & { id: string })
   >();
@@ -439,6 +451,7 @@ export const ChatWorkspace = ({
       }
     });
   const openSide = (next: NonNullable<typeof side>) => {
+    setDetailsOpen(false);
     setOverlay(undefined);
     setSide(next);
   };
@@ -496,6 +509,7 @@ export const ChatWorkspace = ({
   };
   /** 用語・引用の Wiki ページを右側のペインで開く。サイドチャットがあれば、その上に重ねる。 */
   const openWikiPane = useCallback((taskId: string, pageId: string) => {
+    setDetailsOpen(false);
     const active = document.activeElement;
     const request: PageRequest = {
       kind: "page",
@@ -535,7 +549,19 @@ export const ChatWorkspace = ({
   // 右側のペインの幅（#209）。メインと並べる領域の幅に収める
   const row = useRef<HTMLDivElement>(null);
   const sidePanel = useSidePanelWidth(useElementWidth(row));
-  const sideOpen = page !== undefined || side !== undefined;
+  const sideOpen = page !== undefined || side !== undefined || detailsOpen;
+  const closeDetails = () => {
+    setDetailsOpen(false);
+    requestAnimationFrame(() => {
+      const toggle = main.current?.ownerDocument.querySelector<HTMLElement>(
+        "[data-session-details-toggle]",
+      );
+      if (toggle?.isConnected) toggle.focus();
+      else focusComposer();
+    });
+  };
+  const liveChat =
+    props.branches?.find((branch) => branch.id === props.chat.id) ?? props.chat;
   useReserveMainWidth(sideOpen ? MIN_SIDE_PANEL_WIDTH : 0);
 
   return (
@@ -545,7 +571,7 @@ export const ChatWorkspace = ({
         aria-label="メインのチャット"
         className={cn(
           "flex min-h-0 min-w-0 flex-1 flex-col",
-          side !== undefined && "max-lg:hidden",
+          (side !== undefined || detailsOpen) && "max-lg:hidden",
         )}
       >
         {loading ? (
@@ -567,6 +593,10 @@ export const ChatWorkspace = ({
             onOpenSideBranch={(id) => openSide({ kind: "branch", id })}
             onOpenWikiPane={openWikiPane}
             showRateLimit
+            detailsOpen={detailsOpen}
+            onToggleDetails={() =>
+              detailsOpen ? closeDetails() : setDetailsOpen(true)
+            }
             quoteFocus={quoteFocus}
             onQuoteFocusResult={onQuoteFocusResult}
           />
@@ -581,7 +611,19 @@ export const ChatWorkspace = ({
           onCommit={sidePanel.commit}
         />
       )}
-      {page !== undefined && (
+      {detailsOpen && (
+        <SessionDetails
+          api={props.api}
+          chat={liveChat}
+          task={task}
+          environment={props.environment}
+          width={sidePanel.width}
+          onClose={closeDetails}
+          onOpenTask={onOpenTask}
+          onOpenWikiPage={openWikiPane}
+        />
+      )}
+      {page !== undefined && !detailsOpen && (
         <WikiPane
           key={page.id}
           api={props.api}
@@ -618,7 +660,7 @@ export const ChatWorkspace = ({
           request={side}
           api={props.api}
           models={props.models}
-          hidden={overlay !== undefined}
+          hidden={overlay !== undefined || detailsOpen}
           width={sidePanel.width}
           onConversation={onSideChatChange}
           onLocateQuoteElsewhere={locateInMain}
