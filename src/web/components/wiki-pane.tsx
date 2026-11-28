@@ -338,6 +338,7 @@ export const WikiPane = ({
   onAskSelection,
   onWikiPageCreated,
   revision = 0,
+  onTitle,
 }: {
   api: ApiClient;
   /** ページを開いた会話のタスク（選択範囲からのページ作成に使う）。 */
@@ -359,6 +360,8 @@ export const WikiPane = ({
    * 表示中のページは読み込み中の表示にせず、そのまま差し替える。
    */
   revision?: number;
+  /** ノートのタイトルが分かったとき（経路の切り替えに出す。#254）。 */
+  onTitle?: ((title: string) => void) | undefined;
 }) => {
   const [state, setState] = useState<State>({ status: "loading" });
   const panel = useRef<HTMLElement>(null);
@@ -411,6 +414,9 @@ export const WikiPane = ({
   }, [api, pageId, revision]);
 
   const title = state.status === "ready" ? state.page.title : undefined;
+  useEffect(() => {
+    if (title !== undefined) onTitle?.(title);
+  }, [title, onTitle]);
 
   return (
     <aside

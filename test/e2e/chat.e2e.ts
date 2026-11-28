@@ -1077,6 +1077,41 @@ test("ノートの本文の用語から、説明と同じ Wiki の別のノー�
   await expect(
     pane.first().getByRole("heading", { name: "認可" }),
   ).toBeVisible();
+
+  // Wiki 画面でも、開いた元のすぐ右に開き、途中を閉じるとその右も閉じる（#254）
+  await openWiki(page, "本文の用語");
+  await page
+    .getByRole("navigation", { name: "ノート一覧" })
+    .getByRole("button", { name: "認可", exact: true })
+    .click();
+  await page.getByRole("button", { name: "このノートについて質問" }).click();
+  const wikiSide = page.getByRole("complementary", { name: "サイドチャット" });
+  const wikiSideInput = wikiSide.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  await wikiSideInput.fill("ロール とは");
+  await wikiSideInput.press("Enter");
+  const sideRole = wikiSide.locator("button[data-wiki-term]", {
+    hasText: "ロール",
+  });
+  await expect(sideRole.first()).toBeVisible({ timeout: 15_000 });
+  await wikiSideInput.fill("Wiki の下書き");
+  await sideRole.first().click();
+  await expect(pane).toHaveCount(1);
+  await expect(pane.getByRole("heading", { name: "ロール" })).toBeVisible();
+  await pane
+    .locator("[data-wiki-page-body] button[data-wiki-term]", {
+      hasText: "権限",
+    })
+    .first()
+    .click();
+  await expect(pane).toHaveCount(2);
+  await expect(page.locator("[data-column-stack] > [data-column]")).toHaveCount(
+    4,
+  );
+  await pane.first().getByRole("button", { name: "ノートを閉じる" }).click();
+  await expect(pane).toHaveCount(0);
+  await expect(wikiSideInput).toHaveValue("Wiki の下書き");
 });
 
 test("回答中の用語・引用をクリックすると、右側のペインで Wiki ページを開く", async ({
@@ -1149,17 +1184,16 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   await expect(page).toHaveURL(chatUrl);
   await expectNoteScroll();
 
-  // 別の用語をクリックすると右端のカラムに足し（#248）、Escape で閉じると用語にフォーカスが戻る
+  // 別の用語をクリックすると、メインのすぐ右に開き、前のノートは別の経路として隠す（#254）。
+  // Escape で閉じると用語にフォーカスが戻り、前のノートの経路が出る
   await model.click();
-  await expect(pane).toHaveCount(2);
-  await expect(
-    pane.last().getByRole("heading", { name: "認可モデル" }),
-  ).toBeVisible();
-  await expect(
-    pane.first().getByRole("heading", { name: "関係タプル" }),
-  ).toBeVisible();
-  await page.keyboard.press("Escape");
   await expect(pane).toHaveCount(1);
+  await expect(pane.getByRole("heading", { name: "認可モデル" })).toBeVisible();
+  await expect(page.locator("[data-path-switcher]")).toContainText(
+    "経路 2 / 2",
+  );
+  await page.keyboard.press("Escape");
+  await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
   await expect(model).toBeFocused();
   await expect(mainInput).toHaveValue("書きかけの質問");
   await pane.getByRole("button", { name: "ノートを閉じる" }).click();
@@ -1185,24 +1219,25 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   await expect(mainInput).toHaveValue("書きかけの質問");
   await pane.getByRole("button", { name: "ノートを閉じる" }).click();
 
-  // サイドチャットを開いていても、用語のノートは右端のカラムに足す（#248）
+  // サイドチャットを開いていても、メインの用語のノートはメインのすぐ右に開く。
+  // サイドチャットは別の経路として隠す（#254）
   const side = page.getByRole("complementary", { name: "サイドチャット" });
   await selectLastAnswerParagraph(page);
   await askSelectionIn(main);
   await expect(side).toBeVisible();
   await model.click();
   await expect(pane.getByRole("heading", { name: "認可モデル" })).toBeVisible();
-  await expect(side).toBeVisible();
+  await expect(side).toHaveCount(0);
 
-  // ノートの本文を選んで質問すると、そのノートについてのサイドチャットを右端に足す
+  // ノートの本文を選んで質問すると、そのノートについてのサイドチャットをノートの右に開く
   await selectAnswerText(pane.locator("[data-wiki-page-body]"), "権限を決める");
   await page
     .getByRole("toolbar", { name: "選択範囲の操作" })
     .getByRole("button", { name: "質問", exact: true })
     .click();
-  await expect(side).toHaveCount(2);
+  await expect(side).toHaveCount(1);
   await expect(pane).toHaveCount(1);
-  const noteChat = side.last();
+  const noteChat = side;
   await expect(noteChat).toContainText("認可モデル");
   await expect(noteChat.locator("blockquote")).toHaveText("権限を決める");
   const sideInput = noteChat.getByRole("textbox", {
@@ -1213,12 +1248,12 @@ test("回答中の用語・引用をクリックすると、右側のペイン�
   await sideInput.press("Enter");
   await expect(noteChat.getByText("具体例は？", { exact: true })).toBeVisible();
   await expect(mainInput).toHaveValue("書きかけの質問");
-  // 途中のカラムを閉じても、そこから開いたカラムは残る
+  // 途中のカラム（ノート）を閉じると、そこから開いたサイドチャットも閉じ、
+  // 同じところから開いた別の経路（最初のサイドチャット）が出る
   await pane.getByRole("button", { name: "ノートを閉じる" }).click();
-  await expect(side).toHaveCount(2);
-  await expect(
-    noteChat.getByText("具体例は？", { exact: true }).first(),
-  ).toBeVisible();
+  await expect(pane).toHaveCount(0);
+  await expect(side).toHaveCount(1);
+  await expect(side.getByText("具体例は？", { exact: true })).toHaveCount(0);
   while ((await side.count()) > 0) {
     await side
       .first()
@@ -2470,14 +2505,20 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
   ].entries()) {
     await mainInput.fill(question);
     await mainInput.press("ControlOrMeta+Enter");
-    // 送るたびに右端のカラムに足していく（#248）
-    await expect(side).toHaveCount(index + 1);
-    await expect(side.last().getByText(`了解: ${question}`)).toBeVisible();
+    // 送るたびにメインから開いた別の経路になり、最新の分岐だけを出す（#254）
+    await expect(side).toHaveCount(1);
+    await expect(side.getByText(`了解: ${question}`)).toBeVisible();
     await expect(mainInput).toHaveValue("");
     await expect(stopMain).toBeVisible();
     await branches.expectCount(5 + index);
   }
-  await expect(side.first().getByText("了解: 生成中の分岐1")).toBeVisible();
+  // 前に送った分岐は、経路の切り替えから開ける
+  await expect(page.locator("[data-path-switcher]")).toContainText(
+    "経路 2 / 2",
+  );
+  await page.getByRole("button", { name: "別の経路に切り替える" }).click();
+  await page.getByRole("menuitem", { name: /生成中の分岐1/ }).click();
+  await expect(side.getByText("了解: 生成中の分岐1")).toBeVisible();
   // HEAD は動かない（メインは同じ会話の末尾のまま）。予約にもしない
   await branches.expectCurrent("元の会話");
   await expect(main.getByText("この回答の続きとして分岐します。")).toHaveCount(
@@ -2487,11 +2528,8 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
   await expect(
     page.getByRole("region", { name: "予約したメッセージ" }),
   ).toHaveCount(0);
-  // 途中のカラムを閉じても、ほかのカラムは残る
-  await side
-    .first()
-    .getByRole("button", { name: "サイドチャットを閉じる" })
-    .click();
+  // 閉じると、同じところから開いたもう 1 本の経路が出る
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
   await expect(side).toHaveCount(1);
   await expect(side.getByText("了解: 生成中の分岐2")).toBeVisible();
   await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
@@ -2551,8 +2589,8 @@ test("現在地を維持した送信が同時に生成できる数の上限を�
   );
   await expect(mainInput).toHaveValue("上限を超える質問");
 
-  // 後片付け: 生成中の 3 件を止める（分岐はそれぞれのカラムに開いている。#248）
-  await expect(side).toHaveCount(2);
+  // 後片付け: 生成中の 3 件を止める（分岐は別の経路として開いている。#254）
+  await expect(side).toHaveCount(1);
   while ((await side.count()) > 0) {
     const column = side.first();
     const stop = column.getByRole("button", { name: "停止" });
@@ -4718,14 +4756,33 @@ test("サイドチャットと Wiki ノートを複数カラムで開き、横�
   await expect(highlighted).toHaveCount(1);
   await expect(highlighted).toContainText("サイドチャット");
 
-  // 途中のカラムを閉じても、そこから開いたカラムは残る。下書きと読んでいる内容も残る
-  await notes.first().getByRole("button", { name: "ノートを閉じる" }).click();
-  await expect(notes).toHaveCount(1);
-  await expect(notes.getByRole("heading", { name: "ロール" })).toBeVisible();
+  // 途中のカラム（ここではメイン）から開くと、そのすぐ右に開き、それより右は別の経路として隠す（#254）
+  await selectAnswerParagraph(main.locator("[data-assistant-message]").last());
+  await askSelectionIn(main);
+  await expect(side).toHaveCount(1);
+  await expect(sideInput).toHaveValue("");
+  await expect(notes).toHaveCount(0);
+  await expect(columns).toHaveCount(2);
+  const switcher = page.locator("[data-path-switcher]");
+  await expect(switcher).toContainText("経路 2 / 2");
+
+  // 経路を切り替えると、サイドチャット → ノート A → ノート B が下書きや表示ごと戻る
+  await page.getByRole("button", { name: "別の経路に切り替える" }).click();
+  await page.getByRole("menuitem", { name: /^1\. / }).click();
+  await expect(side).toHaveCount(1);
+  await expect(notes).toHaveCount(2);
+  await expect(columns).toHaveCount(4);
   await expect(sideInput).toHaveValue("サイドの下書き");
   await expect(side.locator("[data-assistant-message]").last()).toContainText(
     "とは",
   );
+  await expect(switcher).toContainText("経路 1 / 2");
+
+  // 途中のカラムを閉じると、それより右のカラムも閉じる
+  await notes.first().getByRole("button", { name: "ノートを閉じる" }).click();
+  await expect(notes).toHaveCount(0);
+  await expect(columns).toHaveCount(2);
+  await expect(sideInput).toHaveValue("サイドの下書き");
 
   // 「メインに戻る」で 1 列目へ
   const backToMain = page.getByRole("button", { name: "メインに戻る" });
@@ -4733,15 +4790,13 @@ test("サイドチャットと Wiki ノートを複数カラムで開き、横�
   await expect.poll(() => inView(columns.first())).toBe(true);
   await expect(mainInput).toHaveValue("メインの下書き");
 
-  // 狭い画面: 1 列ずつ画面の幅で表示し、スクロールですべてのカラムに移り、メインに戻れる
+  // 狭い画面: 1 列ずつ画面の幅で表示し、スクロールでカラムに移り、メインに戻れる
   await page.setViewportSize({ width: 700, height: 740 });
   await expect.poll(() => inView(columns.first())).toBe(true);
   await expect.poll(() => inView(columns.nth(1))).toBe(false);
-  for (const index of [1, 2]) {
-    await columns.nth(index).scrollIntoViewIfNeeded();
-    await expect.poll(() => inView(columns.nth(index))).toBe(true);
-  }
-  await expectOnlyColumn(page, notes, main);
+  await columns.nth(1).scrollIntoViewIfNeeded();
+  await expect.poll(() => inView(columns.nth(1))).toBe(true);
+  await expectOnlyColumn(page, side, main);
   await backToMain.click();
   await expect.poll(() => inView(columns.first())).toBe(true);
   await expect(mainInput).toHaveValue("メインの下書き");
