@@ -8,8 +8,10 @@ import {
   Info,
   Loader2,
   LocateFixed,
+  MessageSquarePlus,
   Pencil,
   RotateCcw,
+  Square,
   X,
 } from "lucide-react";
 import {
@@ -18,6 +20,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -50,6 +53,7 @@ import {
   ORIGIN_COLORS,
   quoteHighlightName,
 } from "../lib/column-origin.ts";
+import { composerInitiallyOpen, markComposing } from "../lib/composer-open.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
@@ -882,6 +886,15 @@ const SideQuotePreview = ({
   );
 };
 
+/** 入力欄にフォーカスする。フォーカスできたか（閉じていて隠れているとできない）を返す。 */
+const focusComposerIn = (area: { current: HTMLElement | null }): boolean => {
+  const textarea = area.current?.querySelector<HTMLTextAreaElement>(
+    "textarea:not([disabled])",
+  );
+  textarea?.focus();
+  return textarea != null && document.activeElement === textarea;
+};
+
 /** 1 つの会話を表示し、その会話の ID で送信・再接続する。 */
 export const ChatView = ({
   api,
@@ -1072,6 +1085,28 @@ export const ChatView = ({
     true,
   );
   const selectedMessageId = selection?.sourceId;
+  /**
+   * 入力欄を開いているか（#272）。読むために開いた会話では閉じておき、「メッセージを追加」で開く。
+   * 閉じても Composer は描画したままにし、下書き・添付・引用を残す。
+   */
+  const [composerOpen, setComposerOpen] = useState(() =>
+    composerInitiallyOpen(chat.id, initialMessages.length),
+  );
+  /** 閉じていた入力欄を開いたら、描画した直後にフォーカスする。 */
+  const focusAfterOpen = useRef(false);
+  useLayoutEffect(() => {
+    if (!composerOpen || !focusAfterOpen.current) return;
+    focusAfterOpen.current = false;
+    focusComposerIn(composerArea);
+  }, [composerOpen]);
+  /** 入力欄を開いてフォーカスする。 */
+  const openComposer = () => {
+    if (focusComposerIn(composerArea)) return;
+    focusAfterOpen.current = true;
+    setComposerOpen(true);
+  };
+  const openComposerRef = useRef(openComposer);
+  openComposerRef.current = openComposer;
   const cancelBranch = () => {
     setBranchFrom(undefined);
     setBranchError(undefined);
@@ -1274,6 +1309,8 @@ export const ChatView = ({
       });
       cancelBranch();
       onActivity?.();
+      // 分岐して送った先の会話でも、続けて書けるよう入力欄を開いておく（#272）
+      markComposing(branchId);
       onSelectBranch?.(branchId);
       return true;
     } catch (error) {
@@ -1369,6 +1406,8 @@ export const ChatView = ({
       // メインの会話と現在地（HEAD）はそのまま。回答はサイドチャットに出す
       quoteSent();
       onActivity?.();
+      // 送った先のサイドチャットでも、続けて書けるよう入力欄を開いておく（#272）
+      markComposing(branchId);
       // 起点は HEAD の回答で、押したボタンではないので強調しない
       onOpenSideBranch(branchId, null);
       return true;
@@ -1413,6 +1452,7 @@ export const ChatView = ({
     if (branchFrom !== undefined) {
       return createBranch(branchFrom, parts);
     }
+    markComposing(chat.id);
     void sendMessage({ parts }).then(() => onActivity?.());
     // タイトルと状態（生成中）をすぐ一覧に反映する
     setTimeout(() => onActivity?.(), 300);
@@ -1424,15 +1464,12 @@ export const ChatView = ({
   const composerArea = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (branchFrom === undefined) return;
-    composerArea.current
-      ?.querySelector<HTMLTextAreaElement>("textarea:not([disabled])")
-      ?.focus();
+    openComposerRef.current();
   }, [branchFrom]);
   useEffect(() => {
     if (quote === undefined) return;
-    root.current
-      ?.querySelector<HTMLTextAreaElement>("textarea:not([disabled])")
-      ?.focus();
+    // 引用して質問するときは、入力欄を開いてそこまで進める（#272）
+    openComposerRef.current();
   }, [quote]);
 
   const onStop = async () => {
@@ -1476,22 +1513,82 @@ export const ChatView = ({
    * 分岐できる回答（分岐元の位置が分かる回答）と、すでに分岐した会話のある回答を起点にする。
    */
   const branchControl = (answers: readonly ChatUIMessage[]) => {
-    if (side) return undefined;
+    const add = addMessageControl(answers);
+    if (side) return add;
+    const tailId = messages.at(-1)?.id;
+    // 既存の分岐を開く操作と、末尾の回答から明示的に新しい分岐を作る操作は、別のメニューに出す（#272）。
+    // 途中の回答から新しい分岐を作るのは「メッセージを追加」で足りる
     const points = branchPointsOf(answers, {
       forksOf: (id) => forksOf([id]),
       onCreate: createBlocker === undefined ? startBranch : undefined,
-    });
-    return points.length === 0 ? undefined : (
-      <BranchFromHere
-        points={points}
-        createBlocker={createBlocker}
-        current={chat}
-        branches={branches}
-        unread={unreadChatIds}
-        disabled={branchFrom !== undefined}
-        onSelect={(id) => onSelectBranch?.(id)}
-        onOpenSide={onOpenSideBranch}
-      />
+    }).filter((point) => point.forks.length > 0 || point.messageId === tailId);
+    const branch =
+      points.length === 0 ? undefined : (
+        <BranchFromHere
+          points={points}
+          createBlocker={createBlocker}
+          current={chat}
+          branches={branches}
+          unread={unreadChatIds}
+          disabled={branchFrom !== undefined}
+          onSelect={(id) => onSelectBranch?.(id)}
+          onOpenSide={onOpenSideBranch}
+        />
+      );
+    return add === undefined && branch === undefined ? undefined : (
+      <>
+        {add}
+        {branch}
+      </>
+    );
+  };
+  /**
+   * 回答の「メッセージを追加」（#272）。入力欄を開いてフォーカスする。会話の末尾の回答なら続きを送り、
+   * 途中の回答ならその回答を起点にして、送るときに新しい分岐を作る（「起点の回答」の案内を出す）。
+   */
+  const addMessageControl = (answers: readonly ChatUIMessage[]) => {
+    const answer = answers.findLast((message) => message.role === "assistant");
+    if (answer === undefined) return undefined;
+    const tail = messages.at(-1)?.id === answer.id;
+    // サイドチャットでは分岐を作らないので、末尾の回答だけに出す
+    if (side && !tail) return undefined;
+    const branchable =
+      answer.metadata?.claudeCode?.lastAssistantUuid !== undefined;
+    const blocker = tail
+      ? undefined
+      : busy
+        ? "生成中は途中の回答から分岐できません。生成が終わってから選んでください。"
+        : !branchable
+          ? "この回答からは分岐できません。"
+          : undefined;
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="size-7 text-muted-foreground"
+        aria-label="メッセージを追加"
+        data-add-message={tail ? "continue" : "branch"}
+        title={
+          blocker ??
+          (tail
+            ? "メッセージを追加（この会話の続きを書く）"
+            : "メッセージを追加（この回答を起点に、新しい分岐として書く）")
+        }
+        disabled={blocker !== undefined}
+        onClick={() => {
+          if (tail) {
+            if (branchFrom !== undefined) cancelBranch();
+            openComposer();
+          } else {
+            setBranchError(undefined);
+            setBranchFrom(answer.id);
+            openComposer();
+          }
+        }}
+      >
+        <MessageSquarePlus aria-hidden className="size-3.5" />
+      </Button>
     );
   };
 
@@ -2209,7 +2306,36 @@ export const ChatView = ({
               )}
             </div>
           )}
+          {!composerOpen && (
+            <div className="mx-auto flex max-w-3xl items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 rounded-full"
+                data-testid="open-composer"
+                data-busy={busy ? "" : undefined}
+                title="入力欄を開いて、この会話の続きを書く"
+                onClick={openComposer}
+              >
+                <MessageSquarePlus aria-hidden className="size-4" />
+                メッセージを追加
+              </Button>
+              {busy && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 rounded-full"
+                  onClick={() => void onStop()}
+                >
+                  <Square aria-hidden className="size-3 fill-current" />
+                  停止
+                </Button>
+              )}
+            </div>
+          )}
           <Composer
+            hidden={!composerOpen}
+            onCollapse={() => setComposerOpen(false)}
             busy={busy}
             pending={creatingBranch}
             messageLabel={side ? "サイドチャットのメッセージ" : "メッセージ"}

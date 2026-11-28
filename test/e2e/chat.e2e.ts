@@ -35,8 +35,39 @@ const newChat = async (page: Page) => {
 
 const send = async (page: Page, text: string) => {
   const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  await openComposer(page);
   await box.fill(text);
   await box.press("Enter");
+};
+
+/**
+ * メインの入力欄が閉じていれば、「メッセージを追加」で開く（#272）。
+ * 読むために開いた会話では入力欄を閉じている。
+ */
+const openComposer = async (page: Page) => {
+  const box = page.getByRole("textbox", { name: "メッセージ", exact: true });
+  const opener = page
+    .getByRole("region", { name: "メインのチャット" })
+    .getByTestId("open-composer");
+  // 会話を読み込み終えて、入力欄か「メッセージを追加」が出るまで待つ
+  await expect(box.or(opener).first()).toBeVisible();
+  // 入力欄が自分で開くこともある（分岐の起点を選んだときなど）ので、間に合わなくてもよい
+  if (!(await box.isVisible())) {
+    await opener.click({ timeout: 3_000 }).catch(() => {});
+  }
+  await expect(box).toBeVisible();
+};
+
+/** サイドチャットの入力欄が閉じていれば開く（#272）。 */
+const openSideComposer = async (side: Locator) => {
+  const box = side.getByRole("textbox", { name: "サイドチャットのメッセージ" });
+  const opener = side.getByTestId("open-composer");
+  await expect(box.or(opener).first()).toBeVisible();
+  // 入力欄が自分で開くこともある（分岐の起点を選んだときなど）ので、間に合わなくてもよい
+  if (!(await box.isVisible())) {
+    await opener.click({ timeout: 3_000 }).catch(() => {});
+  }
+  await expect(box).toBeVisible();
 };
 
 /** モデル選択のボタン（#183）。`data-model` に選択中のモデル ID を持つ。 */
@@ -54,10 +85,14 @@ const pickModel = async (scope: Page | Locator, name: string) => {
   await item.click();
 };
 
+/** 生成が終わるまで待つ（入力欄を閉じていれば、「メッセージを追加」が生成中でなくなるまで。#272）。 */
 const idle = (page: Page) =>
-  expect(page.getByRole("button", { name: "送信", exact: true })).toBeVisible({
-    timeout: 15_000,
-  });
+  expect(
+    page
+      .getByRole("button", { name: "送信", exact: true })
+      .or(page.locator('[data-testid="open-composer"]:not([data-busy])'))
+      .first(),
+  ).toBeVisible({ timeout: 15_000 });
 
 test("トークンを URL から消し、送信した発話に回答がストリーミングされる", async ({
   page,
@@ -1902,7 +1937,7 @@ test("回答から分岐し、同じスレッドの中で会話を切り替え�
   const list = page.getByRole("navigation", { name: "スレッド一覧" });
   const main = page.getByRole("main");
   const branchSelect = branchMenu(page);
-  const branchButtons = main.getByRole("button", { name: "ここから分岐" });
+  const branchButtons = main.getByRole("button", { name: "メッセージを追加" });
 
   await newChat(page);
   await send(page, "分岐の設計案は？");
@@ -2073,7 +2108,7 @@ test("分岐点の回答から、そこで分岐した会話を開け、引き�
 
   // 最初の回答から分岐する
   await main.getByRole("button", { name: "回答を開く" }).click();
-  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await main.getByRole("button", { name: "メッセージを追加" }).first().click();
   await send(page, "別案だと？");
   await idle(page);
   await expect(branches.trigger).toContainText("別案だと？");
@@ -2134,9 +2169,9 @@ test("「ここから分岐」で新しい分岐を作り、分岐があれば�
   const headBadge = main.getByText("HEAD", { exact: true });
   await expect(headBadge).toHaveCount(0);
 
-  // 閉じた回答からも、分岐が無ければすぐに新しい分岐を作り始め、入力欄に移る。起点が分かる
+  // 閉じた回答の「メッセージを追加」から、新しい分岐を作り始め、入力欄に移る。起点が分かる（#272）
   await main
-    .getByRole("button", { name: "ここから分岐", exact: true })
+    .getByRole("button", { name: "メッセージを追加", exact: true })
     .first()
     .click();
   await expect(notice).toBeVisible();
@@ -2570,7 +2605,7 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
   await main.getByRole("button", { name: "回答を開く" }).first().click();
   await startBranch(
     page,
-    main.getByRole("button", { name: "ここから分岐" }).first(),
+    main.getByRole("button", { name: "メッセージを追加" }).first(),
   );
   const headNotice = main.getByText("この回答の続きとして分岐します。");
   await expect(headNotice).toBeVisible();
@@ -2820,7 +2855,7 @@ test("保存済みの会話をサイドで開き直し、メインの HEAD を�
   await main.getByRole("button", { name: "回答を開く" }).click();
   await startBranch(
     page,
-    main.getByRole("button", { name: "ここから分岐" }).first(),
+    main.getByRole("button", { name: "メッセージを追加" }).first(),
   );
   await mainInput.fill("メインで編集中の下書き");
 
@@ -2838,6 +2873,7 @@ test("保存済みの会話をサイドで開き直し、メインの HEAD を�
   ).toBeDisabled();
   await branchSelect.close();
   await expect(page).toHaveURL(rootUrl);
+  await openSideComposer(side);
   await sideInput.fill("承認が必要な操作をして");
   await sideInput.press("Enter");
   const approval = side.getByRole("region", { name: "ツール実行の承認" });
@@ -2920,7 +2956,7 @@ test("過去の回答をサイドで質問し、狭い画面でもメインの H
   const rootUrl = page.url();
   await startBranch(
     page,
-    main.getByRole("button", { name: "ここから分岐" }).first(),
+    main.getByRole("button", { name: "メッセージを追加" }).first(),
   );
   await selectAnswerParagraph(main.locator("[data-assistant-message]").first());
   await askSelectionIn(main);
@@ -3006,6 +3042,8 @@ test("プロンプトキャッシュの推定残り時間を表示し、モデ�
   await page.reload();
   await expect(cache).toHaveText(/^(59|60):\d\d$/);
 
+  // 読むために開いた会話は入力欄を閉じているので、開いてからモデルを選ぶ（#272）
+  await openComposer(page);
   await pickModel(page, "Haiku");
   await expect(cache).toHaveText("不明");
   await expect(cache).toHaveAccessibleName(/プロンプトキャッシュ/);
@@ -3057,6 +3095,7 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
 
   // 既存のスレッドは、そのスレッドの設定を表示する。開いただけでは初期値を変えない
   await page.goto(first);
+  await openComposer(page);
   await expect(model).toHaveAttribute("data-model", "default");
   await expect(effort).toHaveValue("high");
   await newChat(page);
@@ -3082,6 +3121,7 @@ test("最後に選んだモデルと effort を、新規スレッドの初期値
 
   // ほかのテストのために既定に戻す
   await page.goto(first);
+  await openComposer(page);
   await effort.selectOption("");
   await expect(effort).toHaveValue("");
 });
@@ -3150,6 +3190,7 @@ test("モデル選択の最初の階層にシリーズを並べ、残りは「�
 
   // 開き直しても、選んだバージョン指定のモデル名を表示する
   await page.reload();
+  await openComposer(page);
   await expect(model).toHaveText("Opus 4.1");
   await expect(effort).toHaveValue("max");
 
@@ -4013,7 +4054,7 @@ test("サイドチャットの引用からメインの引用元へ移れ、メ�
 
   // 引用元より前から分岐した会話をメインで開いていると、引用元の会話を開けるよう知らせる
   await main.getByRole("button", { name: "回答を開く" }).first().click();
-  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await main.getByRole("button", { name: "メッセージを追加" }).first().click();
   await send(page, "別の流れ");
   await idle(page);
   await expect(branches.trigger).toContainText("別の流れ");
@@ -4187,6 +4228,7 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
   });
   const close = side.getByRole("button", { name: "サイドチャットを閉じる" });
   const send = async (text: string) => {
+    await openSideComposer(side);
     await composer.fill(text);
     await composer.press("Enter");
   };
@@ -4631,6 +4673,7 @@ test("会話を Claude Desktop で開き、Desktop で足した発言がある�
   // 開き直しても、再確認しても知らせ続ける。Monet の履歴と入力中の内容は変わらない
   await page.reload();
   await expect(unimported).toBeVisible();
+  await openComposer(page);
   await mainInput.fill("入力中の下書き");
   await unimported.getByRole("button", { name: "再確認" }).click();
   await expect(unimported).toBeVisible();
@@ -4738,7 +4781,7 @@ test("セッション詳細で、会話のコンテキスト使用量・環境�
 
   // 分岐を切り替えると、その会話の値に切り替わる
   await main.getByRole("button", { name: "回答を開く" }).first().click();
-  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await main.getByRole("button", { name: "メッセージを追加" }).first().click();
   await send(page, "分岐で質問");
   await expect(main.getByText("了解: 分岐で質問")).toBeVisible();
   await idle(page);
@@ -4773,6 +4816,7 @@ test("セッション詳細で、会話のコンテキスト使用量・環境�
 
   // 狭い画面でも開閉でき（1 列で表示し、閉じるとメインに戻る）、タスクの概要を開ける
   await page.setViewportSize({ width: 800, height: 900 });
+  await openComposer(page);
   await mainInput.fill("狭い画面の下書き");
   await toggle.click();
   await expect(details).toBeVisible();
@@ -5563,4 +5607,94 @@ test("開いているカラムの起点を、元のカラムの中でカラム�
   await expect
     .poll(() => highlightTexts(page, "monet-origin-quote-1"))
     .toEqual([]);
+});
+
+test("入力欄は読むために開いた会話では閉じておき、「メッセージを追加」から開く（#272）", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const composer = main.getByRole("region", { name: "入力欄" });
+  const box = main.getByRole("textbox", { name: "メッセージ", exact: true });
+  const opener = main.getByTestId("open-composer");
+  const notice = main.getByText("この回答の続きとして分岐します。");
+
+  // 新しい空の会話では、最初のメッセージを書けるよう開いている
+  await newChat(page);
+  await expect(box).toBeVisible();
+  await expect(opener).toHaveCount(0);
+  await send(page, "最初の質問");
+  await idle(page);
+  await send(page, "二つ目の質問");
+  await idle(page);
+
+  // 開き直すと、入力欄は閉じている。回答がまだなくても「メッセージを追加」で開ける
+  await page.reload();
+  await expect(main.getByText("了解: 二つ目の質問")).toBeVisible();
+  await expect(composer).toBeHidden();
+  await expect(opener).toBeVisible();
+  await opener.click();
+  await expect(box).toBeFocused();
+
+  // 閉じて開き直しても、下書きは残る
+  await box.fill("書きかけ");
+  await main.getByRole("button", { name: "入力欄を閉じる" }).click();
+  await expect(composer).toBeHidden();
+  await opener.click();
+  await expect(box).toHaveValue("書きかけ");
+  await main.getByRole("button", { name: "入力欄を閉じる" }).click();
+
+  // 末尾の回答の「メッセージを追加」は、この会話の続きを書く（アイコンだけ）
+  const lastAnswer = main.locator("[data-assistant-message]").last();
+  const addToLast = lastAnswer.getByRole("button", {
+    name: "メッセージを追加",
+  });
+  await expect(addToLast).toHaveText("");
+  await addToLast.click();
+  await expect(box).toBeFocused();
+  await expect(box).toHaveValue("書きかけ");
+  await expect(notice).toHaveCount(0);
+  await box.fill("続きの質問");
+  await box.press("Enter");
+  await expect(main.getByText("了解: 続きの質問")).toBeVisible();
+  await idle(page);
+  await expect(branchMenu(page).trigger).toHaveCount(0);
+
+  // 途中の回答の「メッセージを追加」は、その回答を起点に新しい分岐として書く。取り消せる
+  await page.reload();
+  await expect(composer).toBeHidden();
+  await main
+    .getByRole("button", { name: "メッセージを追加", exact: true })
+    .first()
+    .click();
+  await expect(notice).toBeVisible();
+  await expect(main.getByTestId("branch-origin")).toContainText(
+    "了解: 最初の質問",
+  );
+  await expect(box).toBeFocused();
+  await main.getByRole("button", { name: "取り消す" }).click();
+  await expect(notice).toHaveCount(0);
+  await main
+    .getByRole("button", { name: "メッセージを追加", exact: true })
+    .first()
+    .click();
+  await box.fill("途中から分岐");
+  await box.press("Enter");
+  await expect(main.getByText("了解: 途中から分岐")).toBeVisible();
+  await idle(page);
+  await expect(branchMenu(page).trigger).toContainText("途中から分岐");
+
+  // 既存の分岐は、分岐のメニューから開ける
+  await branchMenu(page).select("元の会話");
+  await main.getByRole("button", { name: "回答を開く" }).first().click();
+  await main
+    .locator("[data-assistant-message]")
+    .first()
+    .getByRole("button", { name: "ここから分岐" })
+    .click();
+  await expect(
+    page
+      .getByRole("dialog", { name: "この回答から分岐した会話" })
+      .getByRole("button", { name: "途中から分岐（元の会話 から分岐）" }),
+  ).toBeVisible();
 });
