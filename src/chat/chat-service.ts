@@ -487,11 +487,7 @@ export const createChatService = (deps: {
               sdkUuid: metadata.claudeCode?.lastAssistantUuid ?? null,
             });
           }
-          if (
-            !isAborted &&
-            !failed &&
-            responseMessage.parts.length > 0
-          ) {
+          if (!isAborted && !failed && responseMessage.parts.length > 0) {
             try {
               deps.onAnswerSaved?.({
                 chatId: params.chatId,
