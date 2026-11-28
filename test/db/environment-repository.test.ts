@@ -217,6 +217,7 @@ describe("migration 0012_environments", () => {
       "0015_wiki_history",
       "0016_goal_runs",
       "0017_environment_without_wiki",
+      "0018_task_archive",
     ]);
     const db = drizzle(sqlite, { schema });
     const repo = createEnvironmentRepository(db);
@@ -321,7 +322,10 @@ describe("Wiki を使わない環境（#232）", () => {
       "INSERT INTO tasks (id, name, environment_id, wiki_id) VALUES ('t1', '開発', 'e1', 'w1')",
     );
 
-    expect(runMigrations(sqlite)).toEqual(["0017_environment_without_wiki"]);
+    expect(runMigrations(sqlite)).toEqual([
+      "0017_environment_without_wiki",
+      "0018_task_archive",
+    ]);
     expect(
       sqlite.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get(),
     ).toEqual({ foreign_keys: 1 });

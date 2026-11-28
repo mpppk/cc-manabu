@@ -1,6 +1,7 @@
+import { Archive, ArchiveRestore } from "lucide-react";
 import { useState } from "react";
 import type { TaskStatus } from "../../db/schema.ts";
-import type { TaskDto } from "../../router.ts";
+import type { EnvironmentDto, TaskDto } from "../../router.ts";
 import {
   formatDateTime,
   isTaskStatus,
@@ -9,24 +10,61 @@ import {
   TASK_STATUS_ORDER,
 } from "../lib/task-status.ts";
 import { cn } from "../lib/utils.ts";
+import { Button } from "./ui/button.tsx";
 
 const DRAG_TYPE = "application/x-monet-task";
+
+/** タスク一覧の見出しと、通常の一覧・アーカイブ済みの切り替え（#241）。 */
+const TaskListHeader = ({
+  view,
+  archivedCount,
+  onOpenView,
+}: {
+  view: "active" | "archived";
+  archivedCount: number;
+  onOpenView: (view: "active" | "archived") => void;
+}) => (
+  <div className="flex flex-wrap items-center justify-between gap-2">
+    <h1 className="font-bold text-2xl">
+      {view === "active" ? "タスク一覧" : "アーカイブ済みのタスク"}
+    </h1>
+    {view === "active" ? (
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => onOpenView("archived")}
+      >
+        <Archive className="size-4" />
+        アーカイブ済み（{archivedCount}）
+      </Button>
+    ) : (
+      <Button size="sm" variant="outline" onClick={() => onOpenView("active")}>
+        タスク一覧に戻る
+      </Button>
+    )}
+  </div>
+);
 
 /**
  * タスク一覧（`/tasks`）。進捗の状態ごとの列に並べるカンバン（#195）。
  * カードを別の列へドラッグ＆ドロップするか、カードの「状態」で選ぶと、その状態を保存する。
- * 保存に失敗したら元の列に戻し、理由を出す。
+ * 保存に失敗したら元の列に戻し、理由を出す。アーカイブしたタスク（#241）は出さない。
  */
 export const TaskList = ({
-  tasks,
+  tasks: allTasks,
   onOpen,
   onMove,
+  onOpenView,
 }: {
+  /** すべてのタスク（アーカイブしたものを含む）。 */
   tasks: TaskDto[];
   onOpen: (taskId: string) => void;
   /** 状態を保存する（保存後の一覧の取り直しまで）。失敗したら reject する。 */
   onMove: (taskId: string, status: TaskStatus) => Promise<void>;
+  /** 通常の一覧・アーカイブ済みの一覧を開く。 */
+  onOpenView: (view: "active" | "archived") => void;
 }) => {
+  const tasks = allTasks.filter((task) => task.archivedAt === null);
   /** 保存中の移動。保存が終わるまで、移動先の列に出しておく。 */
   const [moving, setMoving] = useState<Record<string, TaskStatus>>({});
   const [error, setError] = useState<string>();
@@ -56,7 +94,11 @@ export const TaskList = ({
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-6">
-        <h1 className="font-bold text-2xl">タスク一覧</h1>
+        <TaskListHeader
+          view="active"
+          archivedCount={allTasks.length - tasks.length}
+          onOpenView={onOpenView}
+        />
         {error !== undefined && (
           <p role="alert" className="text-destructive text-sm">
             {error}
@@ -200,6 +242,132 @@ export const TaskList = ({
             })}
           </div>
         </div>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * アーカイブしたタスクの一覧（`/tasks/archived`、#241）。新しくアーカイブした順に並べる。
+ * 概要（スレッド・進捗・リンク）を開いて見返したり、復元して通常の一覧に戻したりできる。
+ */
+export const ArchivedTaskList = ({
+  tasks: allTasks,
+  environments,
+  threadCounts,
+  onOpen,
+  onRestore,
+  onOpenView,
+}: {
+  /** すべてのタスク（アーカイブしていないものを含む）。 */
+  tasks: TaskDto[];
+  environments: EnvironmentDto[];
+  /** タスクごとのスレッドの数。 */
+  threadCounts: ReadonlyMap<string, number>;
+  onOpen: (taskId: string) => void;
+  /** 復元する。失敗したら reject する。 */
+  onRestore: (taskId: string) => Promise<void>;
+  onOpenView: (view: "active" | "archived") => void;
+}) => {
+  const [error, setError] = useState<string>();
+  const [restoring, setRestoring] = useState<string>();
+  const archived = allTasks
+    .filter((task) => task.archivedAt !== null)
+    .sort(
+      (a, b) =>
+        new Date(b.archivedAt ?? 0).getTime() -
+        new Date(a.archivedAt ?? 0).getTime(),
+    );
+
+  const restore = (task: TaskDto) => {
+    setError(undefined);
+    setRestoring(task.id);
+    onRestore(task.id)
+      .catch((cause: unknown) => {
+        setError(
+          `「${task.name}」を復元できませんでした: ${
+            cause instanceof Error ? cause.message : String(cause)
+          }`,
+        );
+      })
+      .finally(() => setRestoring(undefined));
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
+        <TaskListHeader
+          view="archived"
+          archivedCount={archived.length}
+          onOpenView={onOpenView}
+        />
+        {error !== undefined && (
+          <p role="alert" className="text-destructive text-sm">
+            {error}
+          </p>
+        )}
+        {archived.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            アーカイブしたタスクはありません。サイドバーのタスクのメニューからアーカイブできます。
+          </p>
+        ) : (
+          <ul
+            aria-label="アーカイブ済みのタスク"
+            className="flex flex-col gap-2"
+          >
+            {archived.map((task) => (
+              <li
+                key={task.id}
+                data-archived-task={task.id}
+                className="flex flex-col gap-1.5 rounded-md border bg-background p-3 text-sm"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <button
+                    type="button"
+                    className="min-w-0 text-left font-medium text-primary hover:underline"
+                    onClick={() => onOpen(task.id)}
+                  >
+                    {task.name}
+                  </button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="shrink-0"
+                    disabled={restoring === task.id}
+                    aria-label={`「${task.name}」を復元`}
+                    onClick={() => restore(task)}
+                  >
+                    <ArchiveRestore className="size-4" />
+                    復元
+                  </Button>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
+                  <span
+                    className={cn(
+                      "rounded-full px-2 py-0.5",
+                      TASK_STATUS_CLASSES[task.status],
+                    )}
+                  >
+                    {TASK_STATUS_LABELS[task.status]}
+                  </span>
+                  <span>
+                    環境:{" "}
+                    {environments.find((e) => e.id === task.environmentId)
+                      ?.name ?? "—"}
+                  </span>
+                  <span>スレッド {threadCounts.get(task.id) ?? 0} 件</span>
+                  <span>アーカイブ: {formatDateTime(task.archivedAt)}</span>
+                </div>
+                {task.nextAction !== "" && (
+                  <p className="whitespace-pre-wrap break-words text-xs">
+                    <span className="text-muted-foreground">ゴール: </span>
+                    {task.nextAction}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );

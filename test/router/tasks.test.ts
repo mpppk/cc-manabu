@@ -48,6 +48,66 @@ describe("tasks", () => {
   });
 });
 
+describe("アーカイブ（#241）", () => {
+  test("アーカイブして復元しても、状態・環境・ゴール・リンク・スレッドの所属が残る", async () => {
+    const { client } = await setup();
+    const task = await client.tasks.create({ name: "認可基盤" });
+    await client.tasks.updateProgress({
+      id: task.id,
+      status: "on_hold",
+      progressNote: "レビュー待ち",
+      nextAction: "PR を出す",
+    });
+    await client.links.create({
+      taskId: task.id,
+      url: "https://example.com",
+      label: "設計資料",
+    });
+    const chat = await client.chats.create({ taskId: task.id });
+
+    const archived = await client.tasks.setArchived({
+      id: task.id,
+      archived: true,
+    });
+    expect(archived.archivedAt).toBeInstanceOf(Date);
+    // 一覧には残り（直接のリンクから開けるように）、アーカイブ済みと分かる
+    expect(
+      (await client.tasks.list()).find((t) => t.id === task.id)?.archivedAt,
+    ).toEqual(archived.archivedAt);
+    // もう一度アーカイブしても日時は変わらない
+    expect(
+      (await client.tasks.setArchived({ id: task.id, archived: true }))
+        .archivedAt,
+    ).toEqual(archived.archivedAt);
+
+    const restored = await client.tasks.setArchived({
+      id: task.id,
+      archived: false,
+    });
+    expect(restored).toMatchObject({
+      archivedAt: null,
+      status: "on_hold",
+      progressNote: "レビュー待ち",
+      nextAction: "PR を出す",
+      environmentId: task.environmentId,
+      wikiId: task.wikiId,
+    });
+    expect(
+      (await client.links.list({ taskId: task.id })).map((l) => l.label),
+    ).toEqual(["設計資料"]);
+    expect(
+      (await client.chats.list()).find((c) => c.id === chat.id)?.taskId,
+    ).toBe(task.id);
+  });
+
+  test("存在しないタスクは NOT_FOUND", async () => {
+    const { client } = await setup();
+    expect(
+      client.tasks.setArchived({ id: "missing", archived: true }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
 describe("会話の所属", () => {
   test("タスクに会話を作ると、一覧で taskId が分かる", async () => {
     const { client } = await setup();

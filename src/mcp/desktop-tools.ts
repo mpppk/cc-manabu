@@ -69,7 +69,7 @@ const statusText = (status: TaskStatus) =>
   `${TASK_STATUS_LABELS[status]}（${status}）`;
 
 const taskLine = (task: TaskRow, environmentName: string | undefined) =>
-  `- ${task.name}（task_id: ${task.id}、状態: ${statusText(task.status)}、環境: ${environmentName ?? "（不明）"}）`;
+  `- ${task.name}（task_id: ${task.id}、状態: ${statusText(task.status)}${task.archivedAt === null ? "" : "、アーカイブ済み"}、環境: ${environmentName ?? "（不明）"}）`;
 
 const environmentLine = (environment: EnvironmentSummary) =>
   `- ${environment.name}（environment_id: ${environment.id}、Wiki: ${environment.wikiName ?? "（使わない）"}、タスク ${environment.taskCount} 件、ディレクトリ: ${environment.directories.join(", ") || "（なし）"}）`;

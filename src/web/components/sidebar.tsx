@@ -1,4 +1,5 @@
 import {
+  Archive,
   BookOpen,
   Boxes,
   Check,
@@ -532,6 +533,7 @@ export const Sidebar = ({
   onRenameWiki,
   onRenameTask,
   onDeleteTask,
+  onArchiveTask,
   onSetTask,
   onSetAutoTerms,
   onSetTaskEnvironment,
@@ -547,6 +549,7 @@ export const Sidebar = ({
   width?: number;
   /** すべての会話。 */
   chats: ChatDto[];
+  /** すべてのタスク。アーカイブしたタスク（#241）は一覧に出さない。 */
   tasks: TaskDto[];
   /** 環境。サイドバーでは環境 → タスク → スレッドの順に入れ子にする。 */
   environments: EnvironmentDto[];
@@ -583,6 +586,8 @@ export const Sidebar = ({
   onRenameWiki: (wikiId: string, name: string) => Promise<void>;
   onRenameTask: (taskId: string, name: string) => Promise<void>;
   onDeleteTask: (taskId: string) => Promise<void>;
+  /** タスクをアーカイブする（#241）。 */
+  onArchiveTask: (taskId: string) => Promise<void>;
   /** スレッドの所属を変える（null で未所属に戻す）。 */
   onSetTask: (chatId: string, taskId: string | null) => Promise<void>;
   onSetAutoTerms: (taskId: string, enabled: boolean) => Promise<void>;
@@ -616,7 +621,9 @@ export const Sidebar = ({
     setStatusFilter(next);
     saveStatusFilter(next);
   };
-  const visibleTasks = filterTasksByStatus(tasks, statusFilter);
+  // アーカイブしたタスクは、タスク一覧の「アーカイブ済み」から開く（#241）
+  const activeTasks = tasks.filter((item) => item.archivedAt === null);
+  const visibleTasks = filterTasksByStatus(activeTasks, statusFilter);
   const searchId = useId();
   const searchButton = useRef<HTMLButtonElement>(null);
   const closeSearch = (restoreFocus: boolean) => {
@@ -761,6 +768,12 @@ export const Sidebar = ({
                       setTaskDialog({ kind: "rename", taskId: item.id }),
                   },
                   {
+                    label: "アーカイブ",
+                    icon: <Archive />,
+                    onSelect: () => void onArchiveTask(item.id),
+                    separatorBefore: true,
+                  },
+                  {
                     label: "タスクを削除",
                     icon: <Trash2 />,
                     onSelect: () =>
@@ -780,7 +793,7 @@ export const Sidebar = ({
   const openWikiEnvironmentId = tasks.find(
     (p) => p.id === openWikiTaskId,
   )?.environmentId;
-  const orphans = tasks.filter(
+  const orphans = activeTasks.filter(
     (p) =>
       !environments.some((environment) => environment.id === p.environmentId),
   );
@@ -907,9 +920,11 @@ export const Sidebar = ({
                 environments.map((environment) => {
                   const key = `env:${environment.id}`;
                   const open = isExpanded(expanded, key);
-                  const first = tasks.find(
-                    (p) => p.environmentId === environment.id,
-                  );
+                  // 環境の Wiki は、アーカイブしたタスクしか無い環境でも開ける
+                  const first =
+                    activeTasks.find(
+                      (p) => p.environmentId === environment.id,
+                    ) ?? tasks.find((p) => p.environmentId === environment.id);
                   const members = visibleTasks.filter(
                     (p) => p.environmentId === environment.id,
                   );
