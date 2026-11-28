@@ -39,6 +39,7 @@ import {
   type TermMatch,
 } from "../../wiki/term-matcher.ts";
 import { isPageTerm, normalizeTerm } from "../../wiki/terms.ts";
+import { branchPointsOf, snippetOf } from "../lib/branch-points.ts";
 import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import { OrpcChatTransport, type SendSettings } from "../lib/chat-transport.ts";
 import { branchLabel } from "../lib/groups.ts";
@@ -53,7 +54,7 @@ import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { cn } from "../lib/utils.ts";
 import { AnswerWikiUndo, changedWiki } from "./answer-wiki-undo.tsx";
 import { ApprovalCard } from "./approval-card.tsx";
-import { BranchMenu, ForkPointBranches } from "./branch-menu.tsx";
+import { BranchFromHere, BranchMenu } from "./branch-menu.tsx";
 import { Composer } from "./composer.tsx";
 import { EnvironmentPopover } from "./environment-popover.tsx";
 import { Markdown, type WikiLinks } from "./markdown.tsx";
@@ -225,8 +226,7 @@ const MessageView = ({
   onRegenerate,
   onOpenWikiPage,
   termMatcher,
-  onBranch,
-  forks,
+  branch,
   wikiUndo,
   locateQuote,
 }: {
@@ -245,10 +245,8 @@ const MessageView = ({
   onOpenWikiPage?: (taskId: string, pageId: string) => void;
   /** 本文の用語を Wiki の用語ページに結び付ける（タスクの会話だけ）。 */
   termMatcher?: (text: string) => TermMatch[];
-  /** この回答から分岐する（完了した回答だけ）。 */
-  onBranch?: () => void;
-  /** この回答から分岐した会話の一覧（分岐点の回答だけ。#235）。 */
-  forks?: ReactNode;
+  /** 「ここから分岐」（新しい分岐の作成と、この回答から分岐した会話。#242）。 */
+  branch?: ReactNode;
   /** 回答で Claude が Wiki に加えた変更を元に戻す（タスクの会話だけ。#166）。 */
   wikiUndo?: { api: ApiClient; onChanged: () => void };
   /** 発話の引用の引用元を示す動き。示せない引用では undefined（#239）。 */
@@ -426,18 +424,7 @@ const MessageView = ({
             再生成
           </Button>
         )}
-        {canAct && onBranch !== undefined && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-muted-foreground text-xs"
-            onClick={onBranch}
-          >
-            <GitBranch className="size-3.5" />
-            ここから分岐
-          </Button>
-        )}
-        {forks}
+        {branch}
         {!streaming && wikiUndo !== undefined && changedWiki(message) && (
           <AnswerWikiUndo
             api={wikiUndo.api}
@@ -1164,6 +1151,7 @@ export const ChatView = ({
       ? -1
       : messages.findIndex((message) => message.id === branchFrom);
   const visibleCount = branchIndex < 0 ? messages.length : branchIndex + 1;
+  const branchOrigin = branchIndex < 0 ? undefined : messages[branchIndex];
   const firstVisible = side ? chat.inheritedCount : 0;
 
   // 検索結果から開いた発言へ移動し、しばらく強調する
@@ -1355,6 +1343,14 @@ export const ChatView = ({
 
   // 引用を添えたら、続けて質問を書けるよう入力欄に移る
   const root = useRef<HTMLDivElement>(null);
+  // 「ここから分岐」で起点を選んだら、最初のメッセージを書けるよう入力欄に移る（#242）
+  const composerArea = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (branchFrom === undefined) return;
+    composerArea.current
+      ?.querySelector<HTMLTextAreaElement>("textarea:not([disabled])")
+      ?.focus();
+  }, [branchFrom]);
   useEffect(() => {
     if (quote === undefined) return;
     root.current
@@ -1388,15 +1384,34 @@ export const ChatView = ({
     messageIds
       .flatMap((id) => forkPoints.get(id) ?? [])
       .flatMap((id) => branches.filter((branch) => branch.id === id));
-  const forkMenu = (messageIds: readonly string[]) => {
-    const forks = forksOf(messageIds);
-    return side || forks.length === 0 ? undefined : (
-      <ForkPointBranches
-        forks={forks}
-        quoted={forkPointList.some(
-          (point) =>
-            messageIds.includes(point.messageId) && point.quotes.length > 0,
-        )}
+  /** 「ここから分岐」で、この回答から新しい分岐を作り始める（#242）。HEAD をこの回答に移す。 */
+  const startBranch = (messageId: string) => {
+    setBranchError(undefined);
+    setBranchFrom(messageId);
+  };
+  const createBlocker = busy
+    ? "生成中は新しい分岐を作れません。生成が終わってから作ってください。"
+    : branchFrom !== undefined
+      ? "分岐の起点を選んでいます。取り消してから選び直してください。"
+      : undefined;
+  /**
+   * 回答の「ここから分岐」（#242）。閉じたターンの見出しでは、そのターンの回答をまとめて渡す。
+   * 分岐できる回答（分岐元の位置が分かる回答）と、すでに分岐した会話のある回答を起点にする。
+   */
+  const branchControl = (answers: readonly ChatUIMessage[]) => {
+    if (side) return undefined;
+    const points = branchPointsOf(answers, {
+      forksOf: (id) => forksOf([id]),
+      quoted: (id) =>
+        forkPointList.some(
+          (point) => point.messageId === id && point.quotes.length > 0,
+        ),
+      onCreate: createBlocker === undefined ? startBranch : undefined,
+    });
+    return points.length === 0 ? undefined : (
+      <BranchFromHere
+        points={points}
+        createBlocker={createBlocker}
         current={chat}
         branches={branches}
         unread={unreadChatIds}
@@ -1421,8 +1436,12 @@ export const ChatView = ({
       )}
       <div
         data-message-id={message.id}
+        {...(branchFrom === message.id ? { "data-branch-origin": "" } : {})}
         className={cn(
           "rounded-lg transition-shadow",
+          // 新しい分岐の起点の回答（#242）
+          branchFrom === message.id &&
+            "outline-2 outline-sky-500/60 outline-dashed outline-offset-4",
           highlighted?.messageId === message.id &&
             "ring-2 ring-amber-400 ring-offset-4 ring-offset-background",
         )}
@@ -1444,21 +1463,9 @@ export const ChatView = ({
           canAct={!busy && branchFrom === undefined}
           isLast={index === messages.length - 1}
           {...(() => {
-            const menu = forkMenu([message.id]);
-            return menu === undefined ? {} : { forks: menu };
+            const control = branchControl([message]);
+            return control === undefined ? {} : { branch: control };
           })()}
-          {...(!side &&
-          message.role === "assistant" &&
-          message.metadata?.claudeCode?.lastAssistantUuid !== undefined
-            ? {
-                onBranch: () => {
-                  setBranchError(undefined);
-                  setBranchFrom(
-                    message.id === messages.at(-1)?.id ? undefined : message.id,
-                  );
-                },
-              }
-            : {})}
           onEdit={(messageId, text) => {
             // 画像はサーバでもそのまま送られる。表示からも消えないように付け直す
             const files = imagePartsOf(message);
@@ -1817,8 +1824,8 @@ export const ChatView = ({
                   >
                     {question !== undefined && renderMessage(question, start)}
                     <div className="flex items-center justify-end gap-2 empty:hidden">
-                      {/* 閉じている回答でも、そこから分岐した会話は見せる（#235） */}
-                      {!open && forkMenu(answers.map((answer) => answer.id))}
+                      {/* 閉じている回答からも分岐を作り、そこから分岐した会話を開ける（#235、#242） */}
+                      {!open && branchControl(answers)}
                       {current && (
                         <span
                           className="rounded-md bg-muted px-2 py-1 text-muted-foreground text-xs"
@@ -1889,11 +1896,24 @@ export const ChatView = ({
                 role="status"
                 className="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2 text-sm"
               >
-                <span className="flex items-center gap-2">
-                  <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-                  {side
-                    ? "この回答の続きとして分岐します。入力欄から送信すると、同じスレッドに新しい会話ができます。"
-                    : "この回答の続きとして分岐します。メインの入力欄から送信すると、新しい会話ができます。"}
+                <span className="flex min-w-0 items-start gap-2">
+                  <GitBranch className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span>
+                      {side
+                        ? "この回答の続きとして分岐します。入力欄から送信すると、同じスレッドに新しい会話ができます。"
+                        : "この回答の続きとして分岐します。メインの入力欄から送信すると、新しい会話ができます。"}
+                    </span>
+                    {branchOrigin !== undefined && (
+                      <span
+                        className="truncate text-muted-foreground text-xs"
+                        data-testid="branch-origin"
+                      >
+                        起点の回答:{" "}
+                        {snippetOf(branchOrigin, 60) || "（本文なし）"}
+                      </span>
+                    )}
+                  </span>
                 </span>
                 <Button
                   variant="ghost"
@@ -1918,7 +1938,7 @@ export const ChatView = ({
             )}
           </div>
         </div>
-        <div className="px-4 pt-2 pb-3">
+        <div ref={composerArea} className="px-4 pt-2 pb-3">
           {queueState !== undefined && (
             <QueuePanel
               state={queueState}

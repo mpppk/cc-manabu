@@ -1864,13 +1864,30 @@ const selectAnswerParagraph = (answer: Locator) =>
 const selectLastAnswerParagraph = (page: Page) =>
   selectAnswerParagraph(page.locator("[data-assistant-message]").last());
 
+/**
+ * 「ここから分岐」で新しい分岐を作り始める（#242）。その回答から分岐した会話があれば
+ * メニューが開くので、「新しい分岐を作成」を選ぶ。
+ */
+const startBranch = async (page: Page, button: Locator) => {
+  const hasMenu = (await button.getAttribute("aria-haspopup")) === "dialog";
+  await button.click();
+  if (hasMenu) {
+    await page
+      .getByRole("dialog", { name: "この回答から分岐した会話" })
+      .getByRole("button", { name: /新しい分岐を作成$/ })
+      .first()
+      .click();
+  }
+};
+
 test("分岐点の回答から、そこで分岐した会話を開け、引き継いだ履歴の区切りから分岐元に戻れる（#235）", async ({
   page,
 }) => {
   await open(page);
   const main = page.getByRole("main");
   const branches = branchMenu(page);
-  const forkButton = main.getByRole("button", { name: /この回答から分岐 \d/ });
+  // 分岐した会話のある回答の「ここから分岐」には、その数を出す（#242）
+  const forkButton = main.getByRole("button", { name: /^ここから分岐\s*\d+/ });
   const forkPopup = page.getByRole("dialog", {
     name: "この回答から分岐した会話",
   });
@@ -1898,7 +1915,7 @@ test("分岐点の回答から、そこで分岐した会話を開け、引き�
 
   // 分岐点の回答（閉じていても）から、そこで分岐した会話が分かり、開ける
   await expect(forkButton).toHaveCount(1);
-  await expect(forkButton).toHaveText(/この回答から分岐 1/);
+  await expect(forkButton).toHaveText(/ここから分岐\s*1/);
   await forkButton.click();
   await expect(
     forkPopup.getByRole("button", { name: "別案だと？（元の会話 から分岐）" }),
@@ -1918,6 +1935,89 @@ test("分岐点の回答から、そこで分岐した会話を開け、引き�
     .click();
   await expect(branches.trigger).toContainText("別案だと？");
   await expect(forkPopup).toHaveCount(0);
+});
+
+test("「ここから分岐」で新しい分岐を作り、分岐があればメニューから既存の分岐を開くか新しく作れる（#242）", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("main");
+  const branches = branchMenu(page);
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  const notice = main.getByText("この回答の続きとして分岐します。");
+  const origin = main.getByTestId("branch-origin");
+  const lastAnswer = main.locator("[data-assistant-message]").last();
+  const forkPopup = page.getByRole("dialog", {
+    name: "この回答から分岐した会話",
+  });
+
+  await newChat(page);
+  await send(page, "起点の質問");
+  await idle(page);
+  await send(page, "末尾の質問");
+  await idle(page);
+
+  // 閉じた回答からも、分岐が無ければすぐに新しい分岐を作り始め、入力欄に移る。起点が分かる
+  await main
+    .getByRole("button", { name: "ここから分岐", exact: true })
+    .first()
+    .click();
+  await expect(notice).toBeVisible();
+  await expect(origin).toContainText("了解: 起点の質問");
+  await expect(mainInput).toBeFocused();
+  await expect(main.getByText("了解: 末尾の質問")).toHaveCount(0);
+  // 送信前に取り消すと、元の会話に戻る
+  await main.getByRole("button", { name: "取り消す" }).click();
+  await expect(notice).toHaveCount(0);
+  await expect(main.getByText("了解: 末尾の質問")).toBeVisible();
+  await expect(branches.trigger).toHaveCount(0);
+
+  // 会話の末尾の回答からも新しい分岐を作れる
+  await lastAnswer.getByRole("button", { name: "ここから分岐" }).click();
+  await expect(notice).toBeVisible();
+  await expect(origin).toContainText("了解: 末尾の質問");
+  await expect(main.locator("[data-branch-origin]")).toHaveCount(1);
+  await expect(mainInput).toBeFocused();
+  await send(page, "末尾から分岐");
+  await expect(main.getByText("了解: 末尾から分岐")).toBeVisible();
+  await idle(page);
+  await branches.expectLabels([
+    "元の会話",
+    "末尾から分岐（元の会話 から分岐）",
+  ]);
+
+  // 分岐があれば、メニューから既存の分岐を開くか、新しい分岐を作るかを選べる
+  await branches.select("元の会話");
+  const forkButton = lastAnswer.getByRole("button", { name: /^ここから分岐/ });
+  await expect(forkButton).toHaveText(/ここから分岐\s*1/);
+  await forkButton.click();
+  await expect(
+    forkPopup.getByRole("button", {
+      name: "末尾から分岐（元の会話 から分岐）",
+    }),
+  ).toBeVisible();
+  await forkPopup.getByRole("button", { name: "新しい分岐を作成" }).click();
+  await expect(forkPopup).toHaveCount(0);
+  await expect(notice).toBeVisible();
+  await expect(origin).toContainText("了解: 末尾の質問");
+  await expect(mainInput).toBeFocused();
+  await send(page, "末尾から二つ目");
+  await expect(main.getByText("了解: 末尾から二つ目")).toBeVisible();
+  await idle(page);
+  await branches.expectCount(3);
+
+  // 同じメニューから既存の分岐をメインで開ける
+  await branches.select("元の会話");
+  await expect(forkButton).toHaveText(/ここから分岐\s*2/);
+  await forkButton.click();
+  await forkPopup
+    .getByRole("button", { name: "末尾から分岐（元の会話 から分岐）" })
+    .click();
+  await expect(branches.trigger).toContainText("末尾から分岐");
+  await expect(main.getByText("了解: 末尾から分岐")).toBeVisible();
 });
 
 test("回答の選択範囲を引用して質問すると、引用付きの会話ができる", async ({
@@ -1951,11 +2051,17 @@ test("回答の選択範囲を引用して質問すると、引用付きの会�
     exact: true,
   });
   await mainInput.fill("メインの続き");
-  // 末尾を HEAD にしても、次の送信先はこの会話のまま。
+  // 末尾の回答からも新しい分岐を作り始められる（#242）。取り消すとこの会話に戻り、入力は残る
   await main.getByRole("button", { name: "ここから分岐" }).click();
+  await expect(
+    main.getByText("この回答の続きとして分岐します。"),
+  ).toBeVisible();
+  await expect(mainInput).toBeFocused();
+  await main.getByRole("button", { name: "取り消す" }).click();
   await expect(main.getByText("この回答の続きとして分岐します。")).toHaveCount(
     0,
   );
+  await expect(mainInput).toHaveValue("メインの続き");
   await expect(ask).toHaveCount(0);
 
   // 用語はクリックで右側のペインに開く（選択してもペインは開かない）
@@ -2286,7 +2392,10 @@ test("メインの現在地を維持したまま、入力欄から分岐に送�
 
   // 「ここから分岐」で選んだ現在地も維持する
   await main.getByRole("button", { name: "回答を開く" }).first().click();
-  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await startBranch(
+    page,
+    main.getByRole("button", { name: "ここから分岐" }).first(),
+  );
   const headNotice = main.getByText("この回答の続きとして分岐します。");
   await expect(headNotice).toBeVisible();
   await mainInput.fill("前の回答から");
@@ -2513,7 +2622,10 @@ test("保存済みの会話をサイドで開き直し、メインの HEAD を�
   await page.reload();
   await branchSelect.expectCurrent("元の会話");
   await main.getByRole("button", { name: "回答を開く" }).click();
-  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await startBranch(
+    page,
+    main.getByRole("button", { name: "ここから分岐" }).first(),
+  );
   await mainInput.fill("メインで編集中の下書き");
 
   await openSavedBranch();
@@ -2610,7 +2722,10 @@ test("過去の回答をサイドで質問し、狭い画面でもメインの H
   await page.setViewportSize({ width: 1280, height: 800 });
   await idle(page);
   const rootUrl = page.url();
-  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await startBranch(
+    page,
+    main.getByRole("button", { name: "ここから分岐" }).first(),
+  );
   await selectAnswerParagraph(main.locator("[data-assistant-message]").first());
   await askSelectionIn(main);
   await input.fill("A の別の脇道");
