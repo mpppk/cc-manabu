@@ -21,15 +21,12 @@ import { createPortal } from "react-dom";
 import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto, WikiVersionDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
+import { useColumns } from "../lib/columns.ts";
 import type { ApiClient } from "../lib/orpc.ts";
-import {
-  MIN_SIDE_PANEL_WIDTH,
-  useElementWidth,
-  useReserveMainWidth,
-  useSidePanelWidth,
-} from "../lib/side-panel-width.ts";
+import { MIN_SIDE_PANEL_WIDTH } from "../lib/side-panel-width.ts";
 import { cn } from "../lib/utils.ts";
-import { SideChat, SidePanelResizer } from "./chat-workspace.tsx";
+import { SideChat } from "./chat-workspace.tsx";
+import { ColumnStack } from "./column-stack.tsx";
 import { PageQaList } from "./page-qa-list.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
@@ -46,6 +43,16 @@ import {
 } from "./wiki-pane.tsx";
 
 type Draft = { title: string; aliases: string; body: string };
+
+/** ノートの右に開くカラム（#248）。 */
+type WikiColumn =
+  | { kind: "chat"; pageId: string }
+  | {
+      kind: "page";
+      pageId: string;
+      /** 閉じたときにフォーカスを戻す要素（開いた用語）。 */
+      returnFocus: HTMLElement | null;
+    };
 
 const toDraft = (page?: WikiPageDto): Draft => ({
   title: page?.title ?? "",
@@ -262,33 +269,33 @@ export const WikiView = ({
 }) => {
   const [mode, setMode] = useState<"view" | "new" | "edit">("view");
   const [deleting, setDeleting] = useState(false);
-  const [askingPageId, setAskingPageId] = useState<string>();
   /** 本文から選んで、次の質問に添える引用。 */
   const [quote, setQuote] = useState<WikiPageQuote>();
   const askButton = useRef<HTMLButtonElement>(null);
   /**
-   * サイドチャットの回答中の用語から、サイドチャットの上に重ねて開いた Wiki ページ（#168）。
-   * 閉じると、隠していたサイドチャットに入力途中のまま戻る。
+   * ノートの右に開くカラム（#248）。このノートについてのサイドチャットと、用語から開いたノート。
+   * どこから開いても右端に足し、すでに開いているノート（ノート ID）ならそのカラムに移る。
    */
-  const [termPane, setTermPane] = useState<{
-    id: string;
-    pageId: string;
-    returnFocus: HTMLElement | null;
-  }>();
-  const openTermPane = useCallback((termPageId: string) => {
-    const active = document.activeElement;
-    setTermPane({
-      id: crypto.randomUUID(),
-      pageId: termPageId,
-      returnFocus:
-        active instanceof HTMLElement && active !== document.body
-          ? active
-          : null,
-    });
-  }, []);
-  const closeTermPane = () => {
-    const returnFocus = termPane?.returnFocus;
-    setTermPane(undefined);
+  const stack = useColumns<WikiColumn>(
+    pageId === undefined ? [] : [`page:${pageId}`],
+  );
+  const { open: openColumn, close: closeColumn } = stack;
+  const openTermPane = useCallback(
+    (termPageId: string) => {
+      const active = document.activeElement;
+      openColumn([`page:${termPageId}`], {
+        kind: "page",
+        pageId: termPageId,
+        returnFocus:
+          active instanceof HTMLElement && active !== document.body
+            ? active
+            : null,
+      });
+    },
+    [openColumn],
+  );
+  const closeTermPane = (key: string, returnFocus: HTMLElement | null) => {
+    closeColumn(key);
     requestAnimationFrame(() => {
       if (returnFocus?.isConnected) returnFocus.focus();
     });
@@ -314,12 +321,14 @@ export const WikiView = ({
   }, [api, taskId, historyRevision]);
   /** サイドチャットで質問・回答があるたびに増やす（Q&A を読み直す。#159）。 */
   const [qaRevision, setQaRevision] = useState(0);
-  const closeChat = () => {
-    setAskingPageId(undefined);
+  const closeChat = (key: string) => {
+    closeColumn(key);
     setQuote(undefined);
-    setTermPane(undefined);
     requestAnimationFrame(() => askButton.current?.focus());
   };
+  /** このノートについてのサイドチャットを開く（開いていればそのカラムに移る）。 */
+  const ask = (id: string) =>
+    openColumn([`wikichat:${id}`], { kind: "chat", pageId: id });
 
   // ページを移ったら閲覧に戻す（開いたときは下書きの作成画面のまま）
   const openedPageId = useRef(pageId);
@@ -327,11 +336,10 @@ export const WikiView = ({
     if (openedPageId.current === pageId) return;
     openedPageId.current = pageId;
     setMode("view");
-    setAskingPageId(undefined);
     setQuote(undefined);
-    setTermPane(undefined);
+    stack.clear();
     setHistoryOpen(false);
-  }, [pageId]);
+  }, [pageId, stack.clear]);
 
   const page = pages?.find((p) => p.id === pageId);
   // 本文の用語から、同じ Wiki の別のノートの説明を出し、この画面で開く（#210）
@@ -355,28 +363,25 @@ export const WikiView = ({
     taskId,
     onAsk: (selected) => {
       setQuote(selected);
-      setAskingPageId(id);
+      ask(id);
     },
     onPageCreated: () => void refresh(),
     onOpenPage: onNavigate,
   });
-  const asking = pageId !== undefined && askingPageId === pageId;
-  /** 右側のペイン（サイドチャットか、用語から開いたノート）を開いているか。 */
-  const sideOpen = asking || termPane !== undefined;
-  // 右側のペインの幅（#209）。ノート本文と並べる領域の幅に収める
-  const row = useRef<HTMLDivElement>(null);
-  const sidePanel = useSidePanelWidth(useElementWidth(row));
-  // 左サイドバーを広げても、ノートの一覧・本文・右側のペインが並ぶ幅を残す
-  useReserveMainWidth(
-    sideOpen ? WIKI_PAGE_LIST_WIDTH + MIN_SIDE_PANEL_WIDTH : 0,
-  );
+  const asking =
+    pageId !== undefined &&
+    stack.columns.some(
+      (column) => column.kind === "chat" && column.pageId === pageId,
+    );
   const openChatButton = (label: string) => (
     <Button
       ref={askButton}
       variant="outline"
       size="sm"
       aria-expanded={asking}
-      onClick={() => setAskingPageId(pageId)}
+      onClick={() => {
+        if (pageId !== undefined) ask(pageId);
+      }}
     >
       <MessageCircle className="size-3.5" />
       {label}
@@ -642,65 +647,61 @@ export const WikiView = ({
           </details>
         )}
       </aside>
-      <div
-        ref={row}
-        className="flex min-h-0 min-w-0 flex-1 flex-col lg:flex-row"
-      >
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
-            {body}
+      <ColumnStack
+        reveal={stack.reveal}
+        highlight={stack.highlight}
+        backToMain={{
+          target: headerActions,
+          onClick: () => stack.backToMain(),
+        }}
+        // 左サイドバーを広げても、ノートの一覧・本文・右側のカラムが並ぶ幅を残す
+        reserveMainWidth={WIKI_PAGE_LIST_WIDTH + MIN_SIDE_PANEL_WIDTH}
+        main={
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+            <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 py-6">
+              {body}
+            </div>
+            {header}
           </div>
-          {header}
-        </div>
-        {sideOpen && (
-          <SidePanelResizer
-            width={sidePanel.width}
-            min={sidePanel.min}
-            max={sidePanel.max}
-            onResize={sidePanel.resize}
-            onCommit={sidePanel.commit}
-          />
-        )}
-        {asking && (
-          <SideChat
-            key={pageId}
-            width={sidePanel.width}
-            request={{
-              kind: "wiki",
-              taskId,
-              pageId,
-              title: page?.title,
-              quote,
-            }}
-            api={api}
-            models={models}
-            hidden={termPane !== undefined}
-            onActivity={() => {
-              onChatActivity();
-              setQaRevision((revision) => revision + 1);
-              // Claude が Wiki のページを編集・作成していれば反映する
-              void refresh();
-            }}
-            onClose={closeChat}
-            onOpenWikiPage={(_, id) => onNavigate(id)}
-            onOpenWikiPane={(_, id) => openTermPane(id)}
-            onWikiPageCreated={() => void refresh()}
-          />
-        )}
-        {termPane !== undefined && (
-          <WikiPane
-            key={termPane.id}
-            api={api}
-            width={sidePanel.width}
-            taskId={taskId}
-            pageId={termPane.pageId}
-            onClose={closeTermPane}
-            onOpenFull={() => onNavigate(termPane.pageId)}
-            onOpenPage={openTermPane}
-            onWikiPageCreated={() => void refresh()}
-          />
-        )}
-      </div>
+        }
+        columns={stack.columns.map((column) => ({
+          key: column.key,
+          node:
+            column.kind === "chat" ? (
+              <SideChat
+                request={{
+                  kind: "wiki",
+                  taskId,
+                  pageId: column.pageId,
+                  title: pages?.find((p) => p.id === column.pageId)?.title,
+                  quote: column.pageId === pageId ? quote : undefined,
+                }}
+                api={api}
+                models={models}
+                onActivity={() => {
+                  onChatActivity();
+                  setQaRevision((revision) => revision + 1);
+                  // Claude が Wiki のページを編集・作成していれば反映する
+                  void refresh();
+                }}
+                onClose={() => closeChat(column.key)}
+                onOpenWikiPage={(_, id) => onNavigate(id)}
+                onOpenWikiPane={(_, id) => openTermPane(id)}
+                onWikiPageCreated={() => void refresh()}
+              />
+            ) : (
+              <WikiPane
+                api={api}
+                taskId={taskId}
+                pageId={column.pageId}
+                onClose={() => closeTermPane(column.key, column.returnFocus)}
+                onOpenFull={() => onNavigate(column.pageId)}
+                onOpenPage={openTermPane}
+                onWikiPageCreated={() => void refresh()}
+              />
+            ),
+        }))}
+      />
     </div>
   );
 };

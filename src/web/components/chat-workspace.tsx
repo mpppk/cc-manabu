@@ -9,21 +9,14 @@ import type { AnswerQuote, WikiPageQuote } from "../../chat/quote.ts";
 import type { ChatDto, TaskDto } from "../../router.ts";
 import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import type { SendSettings } from "../lib/chat-transport.ts";
+import { useColumns } from "../lib/columns.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
-import {
-  MIN_SIDE_PANEL_WIDTH,
-  sidePanelWidthProps,
-  useElementWidth,
-  useReserveMainWidth,
-  useSidePanelWidth,
-} from "../lib/side-panel-width.ts";
-import { cn } from "../lib/utils.ts";
 import { ChatView, type ChatViewProps, QuoteBlock } from "./chat-view.tsx";
+import { ColumnStack } from "./column-stack.tsx";
 import { Composer } from "./composer.tsx";
 import { ModelPicker } from "./model-picker.tsx";
-import { PaneResizer } from "./pane-resizer.tsx";
 import { SessionDetails } from "./session-details.tsx";
 import { Button } from "./ui/button.tsx";
 import { WikiPane } from "./wiki-pane.tsx";
@@ -43,24 +36,12 @@ export type WikiRequest = {
   quote?: WikiPageQuote | undefined;
 };
 type SideConversation = { chat: ChatDto; messages: ChatUIMessage[] };
-/** 回答中の用語・引用から、会話の右側に開く Wiki ページ。 */
-type PageRequest = {
-  kind: "page";
-  id: string;
-  taskId: string;
-  pageId: string;
-  /** 閉じたときにフォーカスを戻す要素（開いた用語やリンク）。 */
-  returnFocus: HTMLElement | null;
-};
-
 /** 分岐した会話、または Wiki ページにひも付く会話をサイドで開く。 */
 export const SideChat = ({
   request,
   onClose,
   api,
   models,
-  hidden = false,
-  width,
   onConversation,
   quoteNotice,
   ...callbacks
@@ -76,13 +57,6 @@ export const SideChat = ({
 > & {
   request: BranchRequest | WikiRequest;
   onClose: () => void;
-  /**
-   * 上に Wiki ページを重ねて開いている間は隠す（#168）。
-   * 消さずに隠すので、閉じると入力途中のメッセージごと元に戻る。
-   */
-  hidden?: boolean;
-  /** メインと並べるときの幅（#209）。省略すると既定の幅。 */
-  width?: number | undefined;
   /** 開いている会話が変わったとき（閉じたときは undefined。#234）。 */
   onConversation?: ((chatId: string | undefined) => void) | undefined;
   /**
@@ -93,7 +67,6 @@ export const SideChat = ({
     | { onOpenSource: (() => void) | undefined; onDismiss: () => void }
     | undefined;
 }) => {
-  const widthProps = sidePanelWidthProps(width);
   const wiki = request.kind === "wiki" ? request : undefined;
   const taskId = wiki?.taskId;
   const pageId = wiki?.pageId;
@@ -234,15 +207,7 @@ export const SideChat = ({
       ref={panel}
       tabIndex={-1}
       aria-label="サイドチャット"
-      className={cn(
-        "flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none lg:flex-none lg:border-l",
-        widthProps.className,
-        wiki === undefined
-          ? "max-lg:fixed max-lg:inset-0 max-lg:z-30"
-          : "max-lg:flex-[2] max-lg:border-t",
-        hidden && "hidden",
-      )}
-      style={widthProps.style}
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none lg:border-l"
     >
       <header className="flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2">
         <div className="min-w-0">
@@ -380,39 +345,37 @@ export const SideChat = ({
   );
 };
 
-/** 右側のペインの左端に置く、幅を変えるハンドル（#209）。狭い画面で単独表示するときは出さない。 */
-export const SidePanelResizer = (props: {
-  width: number;
-  min: number;
-  max: number;
-  onResize: (width: number) => void;
-  onCommit: (width: number) => void;
-}) => (
-  <PaneResizer
-    side="right"
-    label="右側のペインの幅"
-    title="ドラッグして右側のペインの幅を変える（←→ キーでも変えられます）"
-    className="max-lg:hidden"
-    {...props}
-  />
-);
+/** メインの右に開くカラム（#248）。 */
+type WorkspaceColumn =
+  | { kind: "branch"; request: BranchRequest }
+  | { kind: "wiki"; request: WikiRequest }
+  | {
+      kind: "page";
+      taskId: string;
+      pageId: string;
+      /** 閉じたときにフォーカスを戻す要素（開いた用語やリンク）。 */
+      returnFocus: HTMLElement | null;
+    }
+  | { kind: "details" };
+
+/** 狭い画面（メインとカラムを 1 列ずつ表示する）か。 */
+const isNarrow = () => window.matchMedia("(max-width: 1023.98px)").matches;
 
 /**
- * メインの会話と、右側のペイン（サイドチャットか Wiki ページのどちらか 1 つ）。
- * 右側のペインは常に 1 つだけで、新しく開くと前のものと入れ替わる。
- * ただし、サイドチャットを開いているときに用語・引用から開いた Wiki ページは、
- * サイドチャットを隠して上に重ね、閉じると元のサイドチャットに戻る（#168）。
+ * メインの会話と、その右に開くカラム（サイドチャット・Wiki ノート・セッション詳細。#248）。
+ * どのカラムから開いても右端に足し、すでに開いている会話（分岐ごと）・ノートなら、
+ * そのカラムまでスクロールして見出しを強調する。カラムは個別に閉じられる。
  */
 export const ChatWorkspace = ({
   loading,
   onOpenChat,
-  onSideChatChange,
+  onSideChatsChange,
   task,
   onOpenTask,
   ...props
 }: ChatViewProps & {
-  /** 右側のペインで開いている会話が変わったとき（#234）。 */
-  onSideChatChange?: ((chatId: string | undefined) => void) | undefined;
+  /** カラムで開いている会話が変わったとき（新しい回答の印を外すのに使う。#234）。 */
+  onSideChatsChange?: ((chatIds: string[]) => void) | undefined;
   loading: boolean;
   /** 別のスレッドの会話を開く（Wiki ページの「元の回答を開く」）。 */
   onOpenChat?: (chatId: string) => void;
@@ -421,22 +384,15 @@ export const ChatWorkspace = ({
   /** タスクの概要を開く（セッション詳細から。#245）。 */
   onOpenTask?: ((taskId: string) => void) | undefined;
 }) => {
-  /**
-   * セッション詳細（#245）。右側のペインのいちばん上に重ねて開く。サイドチャットは消さずに隠すので、
-   * 閉じると入力途中のまま戻る。ほかのものを右側のペインに開くと閉じる。
-   */
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [side, setSide] = useState<
-    BranchRequest | PageRequest | (WikiRequest & { id: string })
-  >();
-  /**
-   * サイドチャットを開いたまま、その上に重ねて開いた Wiki ページ（#168）。
-   * 閉じると、隠していたサイドチャットに入力途中のまま戻る。
-   */
-  const [overlay, setOverlay] = useState<PageRequest>();
-  const sideRef = useRef(side);
-  sideRef.current = side;
-  if (!loading && side?.id === props.chat.id) setSide(undefined);
+  const mainChatId = props.chat.id;
+  const stack = useColumns<WorkspaceColumn>([`chat:${mainChatId}`]);
+  const { columns, open, close, closeWhere, addIdentity } = stack;
+  // メインで開いた会話をカラムでも開いていたら、そのカラムは閉じる
+  useEffect(() => {
+    if (loading) return;
+    closeWhere((column) => column.identities.includes(`chat:${mainChatId}`));
+  }, [loading, mainChatId, closeWhere]);
+
   const main = useRef<HTMLElement>(null);
   const focusComposer = () =>
     main.current
@@ -450,21 +406,64 @@ export const ChatWorkspace = ({
         focusComposer();
       }
     });
-  const openSide = (next: NonNullable<typeof side>) => {
-    setDetailsOpen(false);
-    setOverlay(undefined);
-    setSide(next);
+  const openBranch = (request: BranchRequest) =>
+    open([`chat:${request.id}`], { kind: "branch", request });
+  const closeColumn = (key: string) => {
+    const column = columns.find((item) => item.key === key);
+    close(key);
+    setQuoteFocus((current) =>
+      current?.columnKey === key ? undefined : current,
+    );
+    if (column?.kind === "details") {
+      requestAnimationFrame(() => {
+        const toggle = main.current?.ownerDocument.querySelector<HTMLElement>(
+          "[data-session-details-toggle]",
+        );
+        if (toggle?.isConnected) toggle.focus();
+        else focusComposer();
+      });
+    } else {
+      restoreFocus(column?.kind === "page" ? column.returnFocus : null);
+    }
   };
-  const closeSide = () => {
-    const returnFocus = side?.kind === "page" ? side.returnFocus : null;
-    setOverlay(undefined);
-    setSide(undefined);
-    setQuoteFocus(undefined);
-    restoreFocus(returnFocus);
+
+  // カラムで開いている会話（新しい回答の印を外す。#234）
+  const [sideChats, setSideChats] = useState<Record<string, string>>({});
+  const onConversationOf = useCallback(
+    (key: string) => (chatId: string | undefined) => {
+      if (chatId !== undefined) addIdentity(key, `chat:${chatId}`);
+      setSideChats((current) => {
+        if (current[key] === chatId) return current;
+        const { [key]: _, ...rest } = current;
+        return chatId === undefined ? rest : { ...rest, [key]: chatId };
+      });
+    },
+    [addIdentity],
+  );
+  const conversationCallbacks = useRef(
+    new Map<string, (chatId: string | undefined) => void>(),
+  );
+  const conversationCallback = (key: string) => {
+    let callback = conversationCallbacks.current.get(key);
+    if (callback === undefined) {
+      callback = onConversationOf(key);
+      conversationCallbacks.current.set(key, callback);
+    }
+    return callback;
   };
+  const openKeys = columns.map((column) => column.key).join(",");
+  const sideChatIds = Object.entries(sideChats)
+    .filter(([key]) => openKeys.split(",").includes(key))
+    .map(([, chatId]) => chatId);
+  const sideChatKey = sideChatIds.join(",");
+  // 会話の並びが変わったときだけ知らせる
+  useEffect(() => {
+    onSideChatsChange?.(sideChatKey === "" ? [] : sideChatKey.split(","));
+  }, [sideChatKey, onSideChatsChange]);
+
   /**
    * サイドチャットの引用の引用元を、メインのチャットで示す（#239）。
-   * 引用元がメインの会話に無ければ、サイドチャットに知らせて引用元の会話を開けるようにする。
+   * 引用元がメインの会話に無ければ、そのサイドチャットに知らせて引用元の会話を開けるようにする。
    */
   const [quoteFocus, setQuoteFocus] = useState<{
     quote: AnswerQuote;
@@ -472,19 +471,23 @@ export const ChatWorkspace = ({
     parentId: string | null;
     nonce: number;
     missed: boolean;
+    /** 引用元を示そうとしたサイドチャットのカラム。 */
+    columnKey: string;
   }>();
-  const locateInMain = (quote: AnswerQuote, chat: ChatDto) => {
-    // 狭い画面ではサイドチャットがメインを覆うので、閉じてからメインで示す
-    if (window.matchMedia("(max-width: 1023.98px)").matches) {
-      setOverlay(undefined);
-      setSide(undefined);
-    }
+  const locateInMain = (
+    quote: AnswerQuote,
+    chat: ChatDto,
+    columnKey: string,
+  ) => {
+    // 狭い画面では 1 列ずつ表示するので、メインまで戻ってから示す
+    if (isNarrow()) stack.backToMain();
     setQuoteFocus({
       quote,
       chatId: chat.id,
       parentId: chat.parentId,
       nonce: Math.random(),
       missed: false,
+      columnKey,
     });
   };
   const quoteFocusRef = useRef(quoteFocus);
@@ -496,9 +499,9 @@ export const ChatWorkspace = ({
       setQuoteFocus(undefined);
       return;
     }
-    // 狭い画面（サイドチャットを閉じた）で見つからなければ、引用元の会話をメインで開く
+    // 狭い画面（メインに戻った）で見つからなければ、引用元の会話をメインで開く
     if (
-      sideRef.current === undefined &&
+      isNarrow() &&
       current.parentId !== null &&
       props.onSelectBranch !== undefined
     ) {
@@ -507,192 +510,175 @@ export const ChatWorkspace = ({
     }
     setQuoteFocus({ ...current, missed: true });
   };
-  /** 用語・引用の Wiki ページを右側のペインで開く。サイドチャットがあれば、その上に重ねる。 */
-  const openWikiPane = useCallback((taskId: string, pageId: string) => {
-    setDetailsOpen(false);
-    const active = document.activeElement;
-    const request: PageRequest = {
-      kind: "page",
-      id: crypto.randomUUID(),
-      taskId,
-      pageId,
-      returnFocus:
-        active instanceof HTMLElement && active !== document.body
-          ? active
-          : null,
-    };
-    const current = sideRef.current;
-    if (current !== undefined && current.kind !== "page") {
-      setOverlay(request);
-    } else {
-      setOverlay(undefined);
-      setSide(request);
-    }
-  }, []);
-  const page = overlay ?? (side?.kind === "page" ? side : undefined);
-  const closePage = () => {
-    if (overlay === undefined) {
-      closeSide();
-      return;
-    }
-    setOverlay(undefined);
-    restoreFocus(overlay.returnFocus);
-  };
+  /** 用語・引用の Wiki ノートを、右端のカラムで開く（開いていればそのカラムに移る）。 */
+  const openWikiPane = useCallback(
+    (taskId: string, pageId: string) => {
+      const active = document.activeElement;
+      open([`page:${pageId}`], {
+        kind: "page",
+        taskId,
+        pageId,
+        returnFocus:
+          active instanceof HTMLElement && active !== document.body
+            ? active
+            : null,
+      });
+    },
+    [open],
+  );
   const onOpenWikiPage = props.onOpenWikiPage;
-  // 会話で Claude が Wiki を編集したかもしれないので、送信・完了のたびに開いているページを読み直す
+  // 会話で Claude が Wiki を編集したかもしれないので、送信・完了のたびに開いているノートを読み直す
   const [wikiRevision, setWikiRevision] = useState(0);
   const onActivity = () => {
     props.onActivity?.();
     setWikiRevision((revision) => revision + 1);
   };
 
-  // 右側のペインの幅（#209）。メインと並べる領域の幅に収める
-  const row = useRef<HTMLDivElement>(null);
-  const sidePanel = useSidePanelWidth(useElementWidth(row));
-  const sideOpen = page !== undefined || side !== undefined || detailsOpen;
-  const closeDetails = () => {
-    setDetailsOpen(false);
-    requestAnimationFrame(() => {
-      const toggle = main.current?.ownerDocument.querySelector<HTMLElement>(
-        "[data-session-details-toggle]",
-      );
-      if (toggle?.isConnected) toggle.focus();
-      else focusComposer();
-    });
-  };
+  const detailsKey = columns.find((column) => column.kind === "details")?.key;
   const liveChat =
     props.branches?.find((branch) => branch.id === props.chat.id) ?? props.chat;
-  useReserveMainWidth(sideOpen ? MIN_SIDE_PANEL_WIDTH : 0);
 
-  return (
-    <div ref={row} className="flex min-h-0 min-w-0 flex-1">
-      <section
-        ref={main}
-        aria-label="メインのチャット"
-        className={cn(
-          "flex min-h-0 min-w-0 flex-1 flex-col",
-          (side !== undefined || detailsOpen) && "max-lg:hidden",
-        )}
-      >
-        {loading ? (
-          <p role="status" className="m-auto text-muted-foreground">
-            読み込み中…
-          </p>
-        ) : (
-          <ChatView
-            key={props.chat.id}
-            {...props}
-            onActivity={onActivity}
-            onAskSelection={(quote, settings) =>
-              openSide({
-                kind: "branch",
-                id: crypto.randomUUID(),
-                draft: { parentId: props.chat.id, quote, settings },
+  const renderColumn = (column: (typeof columns)[number]) => {
+    switch (column.kind) {
+      case "details":
+        return (
+          <SessionDetails
+            api={props.api}
+            chat={liveChat}
+            task={task}
+            environment={props.environment}
+            onClose={() => closeColumn(column.key)}
+            onOpenTask={onOpenTask}
+            onOpenWikiPage={openWikiPane}
+          />
+        );
+      case "page":
+        return (
+          <WikiPane
+            api={props.api}
+            taskId={column.taskId}
+            pageId={column.pageId}
+            revision={wikiRevision}
+            onClose={() => closeColumn(column.key)}
+            onOpenPage={(pageId) => openWikiPane(column.taskId, pageId)}
+            onAskSelection={(quote) =>
+              open([`wikichat:${column.pageId}`], {
+                kind: "wiki",
+                request: {
+                  kind: "wiki",
+                  taskId: column.taskId,
+                  pageId: column.pageId,
+                  title: quote.sourcePage.title,
+                  quote,
+                },
               })
             }
-            onOpenSideBranch={(id) => openSide({ kind: "branch", id })}
-            onOpenWikiPane={openWikiPane}
-            showRateLimit
-            detailsOpen={detailsOpen}
-            onToggleDetails={() =>
-              detailsOpen ? closeDetails() : setDetailsOpen(true)
+            {...(props.onWikiPageCreated === undefined
+              ? {}
+              : { onWikiPageCreated: props.onWikiPageCreated })}
+            onOpenFull={
+              onOpenWikiPage === undefined
+                ? undefined
+                : () => onOpenWikiPage(column.taskId, column.pageId)
             }
-            quoteFocus={quoteFocus}
-            onQuoteFocusResult={onQuoteFocusResult}
+            onOpenChat={onOpenChat}
           />
-        )}
-      </section>
-      {sideOpen && (
-        <SidePanelResizer
-          width={sidePanel.width}
-          min={sidePanel.min}
-          max={sidePanel.max}
-          onResize={sidePanel.resize}
-          onCommit={sidePanel.commit}
-        />
-      )}
-      {detailsOpen && (
-        <SessionDetails
-          api={props.api}
-          chat={liveChat}
-          task={task}
-          environment={props.environment}
-          width={sidePanel.width}
-          onClose={closeDetails}
-          onOpenTask={onOpenTask}
-          onOpenWikiPage={openWikiPane}
-        />
-      )}
-      {page !== undefined && !detailsOpen && (
-        <WikiPane
-          key={page.id}
-          api={props.api}
-          width={sidePanel.width}
-          taskId={page.taskId}
-          pageId={page.pageId}
-          revision={wikiRevision}
-          onClose={closePage}
-          onOpenPage={(pageId) => openWikiPane(page.taskId, pageId)}
-          onAskSelection={(quote) =>
-            openSide({
-              kind: "wiki",
-              id: crypto.randomUUID(),
-              taskId: page.taskId,
-              pageId: page.pageId,
-              title: quote.sourcePage.title,
-              quote,
-            })
-          }
-          {...(props.onWikiPageCreated === undefined
-            ? {}
-            : { onWikiPageCreated: props.onWikiPageCreated })}
-          onOpenFull={
-            onOpenWikiPage === undefined
-              ? undefined
-              : () => onOpenWikiPage(page.taskId, page.pageId)
-          }
-          onOpenChat={onOpenChat}
-        />
-      )}
-      {side !== undefined && side.kind !== "page" && (
-        <SideChat
-          key={side.id}
-          request={side}
-          api={props.api}
-          models={props.models}
-          hidden={overlay !== undefined || detailsOpen}
-          width={sidePanel.width}
-          onConversation={onSideChatChange}
-          onLocateQuoteElsewhere={locateInMain}
-          quoteNotice={
-            quoteFocus?.missed === true
-              ? {
-                  onOpenSource:
-                    quoteFocus.parentId === null ||
-                    props.onSelectBranch === undefined
-                      ? undefined
-                      : () => {
-                          const { parentId } = quoteFocus;
-                          setQuoteFocus({ ...quoteFocus, missed: false });
-                          if (parentId !== null) {
-                            props.onSelectBranch?.(parentId);
-                          }
-                        },
-                  onDismiss: () => setQuoteFocus(undefined),
-                }
-              : undefined
-          }
-          onClose={closeSide}
-          onActivity={onActivity}
-          onOpenWikiPane={openWikiPane}
-          {...(props.onOpenWikiPage === undefined
-            ? {}
-            : { onOpenWikiPage: props.onOpenWikiPage })}
-          {...(props.onWikiPageCreated === undefined
-            ? {}
-            : { onWikiPageCreated: props.onWikiPageCreated })}
-        />
-      )}
-    </div>
+        );
+      case "branch":
+      case "wiki":
+        return (
+          <SideChat
+            request={column.request}
+            api={props.api}
+            models={props.models}
+            onConversation={conversationCallback(column.key)}
+            onLocateQuoteElsewhere={(quote, chat) =>
+              locateInMain(quote, chat, column.key)
+            }
+            quoteNotice={
+              quoteFocus?.missed === true && quoteFocus.columnKey === column.key
+                ? {
+                    onOpenSource:
+                      quoteFocus.parentId === null ||
+                      props.onSelectBranch === undefined
+                        ? undefined
+                        : () => {
+                            const { parentId } = quoteFocus;
+                            setQuoteFocus({ ...quoteFocus, missed: false });
+                            if (parentId !== null) {
+                              props.onSelectBranch?.(parentId);
+                            }
+                          },
+                    onDismiss: () => setQuoteFocus(undefined),
+                  }
+                : undefined
+            }
+            onClose={() => closeColumn(column.key)}
+            onActivity={onActivity}
+            onOpenWikiPane={openWikiPane}
+            {...(props.onOpenWikiPage === undefined
+              ? {}
+              : { onOpenWikiPage: props.onOpenWikiPage })}
+            {...(props.onWikiPageCreated === undefined
+              ? {}
+              : { onWikiPageCreated: props.onWikiPageCreated })}
+          />
+        );
+    }
+  };
+
+  return (
+    <ColumnStack
+      reveal={stack.reveal}
+      highlight={stack.highlight}
+      backToMain={{
+        target: props.headerSlot,
+        onClick: () => {
+          stack.backToMain();
+          requestAnimationFrame(focusComposer);
+        },
+      }}
+      main={
+        <section
+          ref={main}
+          aria-label="メインのチャット"
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+        >
+          {loading ? (
+            <p role="status" className="m-auto text-muted-foreground">
+              読み込み中…
+            </p>
+          ) : (
+            <ChatView
+              key={props.chat.id}
+              {...props}
+              onActivity={onActivity}
+              onAskSelection={(quote, settings) =>
+                openBranch({
+                  kind: "branch",
+                  id: crypto.randomUUID(),
+                  draft: { parentId: props.chat.id, quote, settings },
+                })
+              }
+              onOpenSideBranch={(id) => openBranch({ kind: "branch", id })}
+              onOpenWikiPane={openWikiPane}
+              showRateLimit
+              detailsOpen={detailsKey !== undefined}
+              onToggleDetails={() =>
+                detailsKey === undefined
+                  ? open(["details"], { kind: "details" })
+                  : closeColumn(detailsKey)
+              }
+              quoteFocus={quoteFocus}
+              onQuoteFocusResult={onQuoteFocusResult}
+            />
+          )}
+        </section>
+      }
+      columns={columns.map((column) => ({
+        key: column.key,
+        node: renderColumn(column),
+      }))}
+    />
   );
 };
