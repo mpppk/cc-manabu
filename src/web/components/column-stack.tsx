@@ -1,4 +1,4 @@
-import { ArrowLeftToLine, Check, ChevronDown, GitBranch } from "lucide-react";
+import { Check, ChevronDown, GitBranch } from "lucide-react";
 import {
   type CSSProperties,
   Fragment,
@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 import {
   type ColumnOrigin,
   originColorOf,
@@ -23,7 +22,6 @@ import {
 } from "../lib/side-panel-width.ts";
 import { cn } from "../lib/utils.ts";
 import { PaneResizer } from "./pane-resizer.tsx";
-import { Button } from "./ui/button.tsx";
 import { DropdownMenu } from "./ui/dropdown-menu.tsx";
 
 /** 狭い画面（メインとカラムを 1 列ずつ表示する、Tailwind の lg 未満）か。 */
@@ -142,7 +140,6 @@ export const ColumnStack = ({
   columns,
   reveal,
   highlight,
-  backToMain,
   className,
   mainClassName,
   reserveMainWidth = MIN_SIDE_PANEL_WIDTH,
@@ -165,12 +162,6 @@ export const ColumnStack = ({
   reveal: { key: string; nonce: number } | undefined;
   /** 見出しを強調しているカラム。 */
   highlight: string | undefined;
-  /**
-   * 「メインに戻る」。target（画面上部のヘッダーの操作の場所）があれば、カラムを開いている間そこに出す。
-   */
-  backToMain?:
-    | { target: HTMLElement | null | undefined; onClick: () => void }
-    | undefined;
   className?: string;
   mainClassName?: string;
   /** カラムを開いている間、左サイドバーを広げても残しておく幅。 */
@@ -339,23 +330,6 @@ export const ColumnStack = ({
           </Fragment>
         );
       })}
-      {open &&
-        backToMain?.target != null &&
-        createPortal(
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="gap-1.5 px-2"
-            title="1 列目（メイン）までスクロールします"
-            onClick={backToMain.onClick}
-          >
-            <ArrowLeftToLine className="size-4 text-muted-foreground" />
-            <span className="hidden sm:inline">メインに戻る</span>
-            <span className="sr-only sm:hidden">メインに戻る</span>
-          </Button>,
-          backToMain.target,
-        )}
     </div>
   );
 };

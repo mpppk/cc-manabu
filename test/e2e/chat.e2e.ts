@@ -4838,20 +4838,29 @@ test("サイドチャットと Wiki ノートを複数カラムで開き、横�
   await expect(columns).toHaveCount(2);
   await expect(sideInput).toHaveValue("サイドの下書き");
 
-  // 「メインに戻る」で 1 列目へ
-  const backToMain = page.getByRole("button", { name: "メインに戻る" });
-  await backToMain.click();
+  // 「メインに戻る」ボタンは出さず、横スクロールで 1 列目へ戻る（#268）
+  await expect(page.getByRole("button", { name: "メインに戻る" })).toHaveCount(
+    0,
+  );
+  const backToMain = async () => {
+    await stack.hover();
+    for (let i = 0; i < 10 && !(await inView(columns.first())); i++) {
+      await page.mouse.wheel(-2000, 0);
+    }
+  };
+  await backToMain();
   await expect.poll(() => inView(columns.first())).toBe(true);
   await expect(mainInput).toHaveValue("メインの下書き");
 
   // 狭い画面: 1 列ずつ画面の幅で表示し、スクロールでカラムに移り、メインに戻れる
   await page.setViewportSize({ width: 700, height: 740 });
+  await backToMain();
   await expect.poll(() => inView(columns.first())).toBe(true);
   await expect.poll(() => inView(columns.nth(1))).toBe(false);
   await columns.nth(1).scrollIntoViewIfNeeded();
   await expect.poll(() => inView(columns.nth(1))).toBe(true);
   await expectOnlyColumn(page, side, main);
-  await backToMain.click();
+  await backToMain();
   await expect.poll(() => inView(columns.first())).toBe(true);
   await expect(mainInput).toHaveValue("メインの下書き");
   await expect(sideInput).toHaveValue("サイドの下書き");
