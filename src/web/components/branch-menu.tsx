@@ -319,10 +319,13 @@ export const BranchMenu = (props: MenuProps) => {
  */
 export const ForkPointBranches = ({
   forks,
+  quoted = false,
   ...props
 }: MenuProps & {
   /** この回答から分岐した会話。 */
   forks: readonly ChatDto[];
+  /** 回答の一部を引用して質問した会話があるか（本文に下線を引く。#239）。 */
+  quoted?: boolean;
 }) => {
   const active = forks.some(
     (chat) => chat.status === "running" || chat.status === "awaiting_approval",
@@ -337,6 +340,19 @@ export const ForkPointBranches = ({
       label="この回答から分岐した会話"
       listLabel="この回答から分岐した会話"
       align="left"
+      {...(quoted
+        ? {
+            note: (
+              <p className="flex items-center gap-1.5 px-2 pt-1 text-muted-foreground text-xs">
+                <span
+                  aria-hidden
+                  className="w-5 shrink-0 border-violet-500 border-b-2 border-dashed dark:border-violet-400"
+                />
+                本文の紫の破線は、サイドで質問した箇所です。押すとその会話を開きます。
+              </p>
+            ),
+          }
+        : {})}
       trigger={({ ref, open, popupId, toggle }) => (
         <Button
           ref={ref}

@@ -2,12 +2,17 @@
  * 回答や Wiki ページの一部を引用した質問（#91）。サーバと Web UI の両方で使うので、ほかに依存しない。
  */
 
+/** 回答の本文（テキストのパーツを描画した文字）の中の位置（#239）。 */
+export type QuoteRange = { start: number; end: number };
+
 /** 質問の対象として選んだ回答の一部。 */
 export type AnswerQuote = {
   /** 選んだテキスト（改行を含む）。 */
   text: string;
   /** 引用元の回答（分岐元の assistant メッセージ）の id。 */
   sourceMessageId: string;
+  /** 選んだ範囲の、回答の本文の中の位置（#239）。以前の引用には無い。 */
+  range?: QuoteRange;
 };
 
 /** 質問の対象として選んだ Wiki ページの本文の一部。 */

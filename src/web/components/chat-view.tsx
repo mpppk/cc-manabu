@@ -6,6 +6,7 @@ import {
   Folder,
   GitBranch,
   Loader2,
+  LocateFixed,
   Pencil,
   RotateCcw,
   X,
@@ -25,7 +26,9 @@ import { resolveChatDefaults } from "../../chat/chat-defaults.ts";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
 import {
   type AnswerQuote,
+  isWikiPageQuote,
   type QuoteData,
+  type QuoteRange,
   quotesOf,
 } from "../../chat/quote.ts";
 import type { ChatDto, EnvironmentDto } from "../../router.ts";
@@ -42,6 +45,7 @@ import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { findQuoteRange, wholeAnswerRange } from "../lib/quote-range.ts";
 import { pendingTermId } from "../lib/rehype-wiki-terms.ts";
 import { pathForWiki } from "../lib/route.ts";
 import { describeSteps, groupSteps } from "../lib/steps.ts";
@@ -128,10 +132,13 @@ const UserMessage = ({
   message,
   canEdit,
   onEdit,
+  locateQuote,
 }: {
   message: ChatUIMessage;
   canEdit: boolean;
   onEdit: (text: string) => void;
+  /** 回答からの引用の引用元を示す動き。示せない引用では undefined（#239）。 */
+  locateQuote?: ((quote: AnswerQuote) => (() => void) | undefined) | undefined;
 }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -194,6 +201,7 @@ const UserMessage = ({
             // biome-ignore lint/suspicious/noArrayIndexKey: パーツの順番は変わらない
             key={i}
             text={quote.text}
+            onLocate={isWikiPageQuote(quote) ? undefined : locateQuote?.(quote)}
           />
         ))}
         <MessageImages images={images} />
@@ -220,6 +228,7 @@ const MessageView = ({
   onBranch,
   forks,
   wikiUndo,
+  locateQuote,
 }: {
   message: ChatUIMessage;
   streaming: boolean;
@@ -242,6 +251,8 @@ const MessageView = ({
   forks?: ReactNode;
   /** 回答で Claude が Wiki に加えた変更を元に戻す（タスクの会話だけ。#166）。 */
   wikiUndo?: { api: ApiClient; onChanged: () => void };
+  /** 発話の引用の引用元を示す動き。示せない引用では undefined（#239）。 */
+  locateQuote?: (quote: AnswerQuote) => (() => void) | undefined;
 }) => {
   if (message.role === "user") {
     return (
@@ -249,6 +260,7 @@ const MessageView = ({
         message={message}
         canEdit={canAct}
         onEdit={(text) => onEdit(message.id, text)}
+        locateQuote={locateQuote}
       />
     );
   }
@@ -274,15 +286,17 @@ const MessageView = ({
   const renderPart = (part: (typeof message.parts)[number], i: number) => {
     switch (part.type) {
       case "text":
+        // 引用した範囲の位置は、この中の文字で数える（#239）
         return (
-          <Markdown
-            key={i}
-            text={linkWikiCitations(part.text, wikiIds)}
-            streaming={streaming}
-            cosenseLinks
-            {...(wikiLinks === undefined ? {} : { wikiLinks })}
-            {...(termMatcher === undefined ? {} : { termMatcher })}
-          />
+          <div key={i} data-answer-text>
+            <Markdown
+              text={linkWikiCitations(part.text, wikiIds)}
+              streaming={streaming}
+              cosenseLinks
+              {...(wikiLinks === undefined ? {} : { wikiLinks })}
+              {...(termMatcher === undefined ? {} : { termMatcher })}
+            />
+          </div>
         );
       case "reasoning":
         return (
@@ -458,12 +472,34 @@ const UsageTotal = ({ messages }: { messages: ChatUIMessage[] }) => {
   );
 };
 
-/** 質問の対象として引用した回答の一部。 */
-export const QuoteBlock = ({ text }: { text: string }) => (
-  <blockquote className="max-h-40 w-full overflow-y-auto whitespace-pre-wrap border-l-4 border-sky-500/60 bg-muted/50 px-3 py-2 text-left text-muted-foreground text-sm">
-    {text}
-  </blockquote>
-);
+const QUOTE_CLASS =
+  "max-h-40 w-full overflow-y-auto whitespace-pre-wrap border-l-4 border-sky-500/60 bg-muted/50 px-3 py-2 text-left text-muted-foreground text-sm";
+
+/**
+ * 質問の対象として引用した回答の一部。onLocate があれば、押すと引用元を示す（#239）。
+ */
+export const QuoteBlock = ({
+  text,
+  onLocate,
+}: {
+  text: string;
+  onLocate?: (() => void) | undefined;
+}) =>
+  onLocate === undefined ? (
+    <blockquote className={QUOTE_CLASS}>{text}</blockquote>
+  ) : (
+    <div className="flex w-full flex-col items-end gap-0.5">
+      <blockquote className={QUOTE_CLASS}>{text}</blockquote>
+      <button
+        type="button"
+        className="flex items-center gap-1 text-muted-foreground text-xs hover:text-foreground"
+        onClick={onLocate}
+      >
+        <LocateFixed aria-hidden className="size-3" />
+        引用元を表示
+      </button>
+    </div>
+  );
 
 /**
  * ノートから質問して始めたスレッドで、元のノートを示す。
@@ -762,7 +798,28 @@ export type ChatViewProps = {
   headerSlot?: HTMLElement | null | undefined;
   /** 新しい回答の印が付いた会話（#234）。 */
   unreadChatIds?: ReadonlySet<string>;
+  /**
+   * 発話の引用の引用元がこの会話に無いとき（サイドチャットの引用）に、メインのチャットで示す（#239）。
+   */
+  onLocateQuoteElsewhere?:
+    | ((quote: AnswerQuote, chat: ChatDto) => void)
+    | undefined;
+  /** サイドチャットの引用の引用元を、この会話の中で示す（メインのチャット。#239）。 */
+  quoteFocus?:
+    | { quote: AnswerQuote; chatId: string; nonce: number }
+    | undefined;
+  /** quoteFocus の引用元が、この会話の中で見つかったか。 */
+  onQuoteFocusResult?: ((nonce: number, found: boolean) => void) | undefined;
 };
+
+/** 引用元を示すときのハイライト（CSS Custom Highlight API の名前。#239）。 */
+const QUOTE_FOCUS_HIGHLIGHT = "monet-quote-focus";
+/** サイドチャットで質問した箇所の下線。 */
+const SIDE_QUOTE_HIGHLIGHT = "monet-side-quote";
+
+type ForkPointDto = Awaited<
+  ReturnType<ApiClient["chats"]["forkPoints"]>
+>[number];
 
 const NO_UNREAD: ReadonlySet<string> = new Set();
 
@@ -789,6 +846,9 @@ export const ChatView = ({
   showRateLimit = false,
   headerSlot,
   unreadChatIds = NO_UNREAD,
+  onLocateQuoteElsewhere,
+  quoteFocus,
+  onQuoteFocusResult,
 }: ChatViewProps) => {
   const chatDefaults = useContext(ChatDefaultsContext);
   /**
@@ -973,7 +1033,11 @@ export const ChatView = ({
   const selectedQuote = (): AnswerQuote | undefined =>
     selection === undefined
       ? undefined
-      : { text: selection.text, sourceMessageId: selection.sourceId };
+      : {
+          text: selection.text,
+          sourceMessageId: selection.sourceId,
+          ...(selection.range === undefined ? {} : { range: selection.range }),
+        };
   const askSelection =
     branchable && onAskSelection !== undefined
       ? () => {
@@ -1324,10 +1388,15 @@ export const ChatView = ({
     messageIds
       .flatMap((id) => forkPoints.get(id) ?? [])
       .flatMap((id) => branches.filter((branch) => branch.id === id));
-  const forkMenu = (forks: readonly ChatDto[]) =>
-    side || forks.length === 0 ? undefined : (
+  const forkMenu = (messageIds: readonly string[]) => {
+    const forks = forksOf(messageIds);
+    return side || forks.length === 0 ? undefined : (
       <ForkPointBranches
         forks={forks}
+        quoted={forkPointList.some(
+          (point) =>
+            messageIds.includes(point.messageId) && point.quotes.length > 0,
+        )}
         current={chat}
         branches={branches}
         unread={unreadChatIds}
@@ -1336,6 +1405,7 @@ export const ChatView = ({
         onOpenSide={onOpenSideBranch}
       />
     );
+  };
 
   const renderMessage = (message: ChatUIMessage, index: number) => (
     <Fragment key={message.id}>
@@ -1374,7 +1444,7 @@ export const ChatView = ({
           canAct={!busy && branchFrom === undefined}
           isLast={index === messages.length - 1}
           {...(() => {
-            const menu = forkMenu(forksOf([message.id]));
+            const menu = forkMenu([message.id]);
             return menu === undefined ? {} : { forks: menu };
           })()}
           {...(!side &&
@@ -1405,6 +1475,7 @@ export const ChatView = ({
             : { onOpenWikiPage: openWikiPage })}
           {...(termMatcher === undefined ? {} : { termMatcher })}
           onRespond={respond}
+          locateQuote={quoteLocator}
         />
         {message.role === "assistant" &&
           termNotice?.messageId === message.id && (
@@ -1424,32 +1495,220 @@ export const ChatView = ({
     </Fragment>
   );
 
-  // 分岐点の回答と、そこから分岐した会話（#235）。会話が増えたり履歴が変わったら取り直す
-  const [forkPoints, setForkPoints] = useState<ReadonlyMap<string, string[]>>(
-    () => new Map(),
+  // 分岐点の回答と、そこから分岐した会話（#235）、回答を引用して分岐した会話の引用（#239）。
+  // 会話が増えたり履歴が変わったら取り直す
+  const [forkState, setForkState] = useState<{
+    chatId: string;
+    points: readonly ForkPointDto[];
+  }>();
+  const forkPointList = useMemo(
+    () => (forkState?.chatId === chat.id ? forkState.points : []),
+    [forkState, chat.id],
   );
+  const forkPoints = useMemo(
+    () =>
+      new Map(forkPointList.map((point) => [point.messageId, point.chatIds])),
+    [forkPointList],
+  );
+  /** 分岐点を読み終えたか（引用元を探すのに使う）。 */
+  const forkPointsReady = side || forkState?.chatId === chat.id;
   // 会話が 1 つだけのスレッドには分岐点が無いので取らない
   const branchKey =
     branches.length < 2 ? "" : branches.map((branch) => branch.id).join(",");
   const historyKey = `${messages.length}:${busy}`;
   useEffect(() => {
-    if (side || branchKey === "" || historyKey === "") return;
+    if (side || historyKey === "") return;
+    if (branchKey === "") {
+      setForkState({ chatId: chat.id, points: [] });
+      return;
+    }
     let cancelled = false;
     api.chats
       .forkPoints({ id: chat.id })
       .then((points) => {
-        if (cancelled) return;
-        setForkPoints(
-          new Map(points.map((point) => [point.messageId, point.chatIds])),
-        );
+        if (!cancelled) setForkState({ chatId: chat.id, points });
       })
       .catch(() => {
         // 取れなくても会話は表示できる（ヘッダーから切り替えられる）
+        if (!cancelled) setForkState({ chatId: chat.id, points: [] });
       });
     return () => {
       cancelled = true;
     };
   }, [api, chat.id, side, branchKey, historyKey]);
+
+  /** この会話の中の、引用元の回答（#239）。fromChatId は、引用して分岐した会話。 */
+  const quoteSourceIn = (
+    quote: AnswerQuote,
+    fromChatId?: string,
+  ): string | undefined => {
+    const shown = messages.slice(firstVisible, visibleCount);
+    if (shown.some((message) => message.id === quote.sourceMessageId)) {
+      return quote.sourceMessageId;
+    }
+    // この会話そのものが、引用して分岐した会話なら、分岐点（写した最後の回答）
+    if (
+      !side &&
+      chat.forkMessageId === quote.sourceMessageId &&
+      chat.inheritedCount > 0 &&
+      chat.inheritedCount <= visibleCount
+    ) {
+      return messages[chat.inheritedCount - 1]?.id;
+    }
+    // ほかの会話（サイドチャット）が引用して分岐した回答
+    return fromChatId === undefined
+      ? undefined
+      : forkPointList.find((point) => point.chatIds.includes(fromChatId))
+          ?.messageId;
+  };
+
+  /** 引用元の回答を開き、引用した範囲を一時的にハイライトする（#239）。 */
+  const [quoteFlash, setQuoteFlash] = useState<{
+    messageId: string;
+    quote: AnswerQuote;
+    nonce: number;
+  }>();
+  const flashQuote = (messageId: string, quote: AnswerQuote) => {
+    const turn = turns.find((t) => t.answers.some((m) => m.id === messageId));
+    if (turn?.question !== undefined) setOpen(turn.question.id, true);
+    setQuoteFlash({ messageId, quote, nonce: Math.random() });
+  };
+  useEffect(() => {
+    if (quoteFlash === undefined) return;
+    const frame = requestAnimationFrame(() => {
+      const element = transcript.current?.querySelector(
+        `[data-assistant-message="${CSS.escape(quoteFlash.messageId)}"]`,
+      );
+      if (element == null) return;
+      const range =
+        findQuoteRange(element, quoteFlash.quote) ?? wholeAnswerRange(element);
+      (range?.startContainer.parentElement ?? element).scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+      if (range !== undefined && "highlights" in CSS) {
+        CSS.highlights.set(QUOTE_FOCUS_HIGHLIGHT, new Highlight(range));
+      }
+    });
+    const timer = setTimeout(() => setQuoteFlash(undefined), 2500);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      if ("highlights" in CSS) CSS.highlights.delete(QUOTE_FOCUS_HIGHLIGHT);
+    };
+  }, [quoteFlash]);
+
+  /** 発話の引用を押したときの動き。示せなければ undefined（ボタンを出さない）。 */
+  const quoteLocator = (quote: AnswerQuote): (() => void) | undefined => {
+    if (quoteSourceIn(quote) !== undefined) {
+      return () => {
+        const messageId = quoteSourceIn(quote);
+        if (messageId !== undefined) flashQuote(messageId, quote);
+      };
+    }
+    return onLocateQuoteElsewhere === undefined
+      ? undefined
+      : () => onLocateQuoteElsewhere(quote, chat);
+  };
+
+  // サイドチャットで引用元を示すよう頼まれたら、この会話の中で探す（#239）
+  const latest = useRef({ quoteSourceIn, flashQuote, onQuoteFocusResult });
+  latest.current = { quoteSourceIn, flashQuote, onQuoteFocusResult };
+  const handledFocus = useRef<number>(undefined);
+  useEffect(() => {
+    if (
+      quoteFocus === undefined ||
+      !forkPointsReady ||
+      handledFocus.current === quoteFocus.nonce
+    ) {
+      return;
+    }
+    handledFocus.current = quoteFocus.nonce;
+    const messageId = latest.current.quoteSourceIn(
+      quoteFocus.quote,
+      quoteFocus.chatId,
+    );
+    if (messageId !== undefined) {
+      latest.current.flashQuote(messageId, quoteFocus.quote);
+    }
+    latest.current.onQuoteFocusResult?.(
+      quoteFocus.nonce,
+      messageId !== undefined,
+    );
+  }, [quoteFocus, forkPointsReady]);
+
+  // サイドチャットで質問した箇所に、紫の破線の下線を引く（メインのチャットだけ。#239）
+  const sideQuotes = useRef<{ range: Range; chatId: string }[]>([]);
+  const [onSideQuote, setOnSideQuote] = useState(false);
+  const quoteKey = JSON.stringify(
+    forkPointList.flatMap((point) =>
+      point.quotes.map((quote) => ({ messageId: point.messageId, ...quote })),
+    ),
+  );
+  useEffect(() => {
+    const container = transcript.current;
+    if (side || container === null || !("highlights" in CSS)) return;
+    const quotes = JSON.parse(quoteKey) as {
+      messageId: string;
+      chatId: string;
+      text: string;
+      range?: QuoteRange;
+    }[];
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      sideQuotes.current = quotes.flatMap((quote) => {
+        const element = container.querySelector(
+          `[data-assistant-message="${CSS.escape(quote.messageId)}"]`,
+        );
+        const range =
+          element == null ? undefined : findQuoteRange(element, quote);
+        return range === undefined ? [] : [{ range, chatId: quote.chatId }];
+      });
+      if (sideQuotes.current.length === 0) {
+        CSS.highlights.delete(SIDE_QUOTE_HIGHLIGHT);
+      } else {
+        CSS.highlights.set(
+          SIDE_QUOTE_HIGHLIGHT,
+          new Highlight(...sideQuotes.current.map(({ range }) => range)),
+        );
+      }
+    };
+    update();
+    if (quotes.length === 0) return;
+    // 回答の描画（用語のリンク・開閉・生成）で本文の DOM が変わったら引き直す
+    const observer = new MutationObserver(() => {
+      if (frame === 0) frame = requestAnimationFrame(update);
+    });
+    observer.observe(container, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+      sideQuotes.current = [];
+      CSS.highlights.delete(SIDE_QUOTE_HIGHLIGHT);
+    };
+  }, [side, quoteKey]);
+  /** 画面上の位置にある、サイドで質問した箇所。 */
+  const sideQuoteAt = (x: number, y: number) => {
+    if (sideQuotes.current.length === 0) return undefined;
+    const caret = document.caretPositionFromPoint?.(x, y);
+    const node =
+      caret?.offsetNode ?? document.caretRangeFromPoint?.(x, y)?.startContainer;
+    const offset =
+      caret?.offset ?? document.caretRangeFromPoint?.(x, y)?.startOffset ?? 0;
+    if (node == null) return undefined;
+    return sideQuotes.current.find(({ range }) => {
+      try {
+        return range.isPointInRange(node, offset);
+      } catch {
+        return false;
+      }
+    });
+  };
 
   // 会話の切り替えは、画面上部のヘッダーに出す（#234）
   const branchMenu =
@@ -1488,7 +1747,26 @@ export const ChatView = ({
         />
       )}
       <div ref={root} className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div ref={transcript} className="flex-1 overflow-y-auto">
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: 下線を押すとサイドチャットを開く。キーボードでは「この回答から分岐」から開ける */}
+        {/* biome-ignore lint/a11y/useKeyWithClickEvents: 同上 */}
+        <div
+          ref={transcript}
+          className={cn(
+            "flex-1 overflow-y-auto",
+            onSideQuote && "cursor-pointer",
+          )}
+          onMouseMove={(event) => {
+            const over =
+              sideQuoteAt(event.clientX, event.clientY) !== undefined;
+            if (over !== onSideQuote) setOnSideQuote(over);
+          }}
+          onClick={(event) => {
+            // 文字を選んでいる途中のクリックでは開かない
+            if (window.getSelection()?.isCollapsed === false) return;
+            const quote = sideQuoteAt(event.clientX, event.clientY);
+            if (quote !== undefined) onOpenSideBranch?.(quote.chatId);
+          }}
+        >
           <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
             {!side && chat.wikiPageId !== null && (
               <WikiSourceNote
@@ -1540,8 +1818,7 @@ export const ChatView = ({
                     {question !== undefined && renderMessage(question, start)}
                     <div className="flex items-center justify-end gap-2 empty:hidden">
                       {/* 閉じている回答でも、そこから分岐した会話は見せる（#235） */}
-                      {!open &&
-                        forkMenu(forksOf(answers.map((answer) => answer.id)))}
+                      {!open && forkMenu(answers.map((answer) => answer.id))}
                       {current && (
                         <span
                           className="rounded-md bg-muted px-2 py-1 text-muted-foreground text-xs"

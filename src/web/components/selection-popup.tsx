@@ -1,5 +1,7 @@
 import { ChevronDown, FilePlus, TextQuote } from "lucide-react";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import type { QuoteRange } from "../../chat/quote.ts";
+import { rangeToOffsets } from "../lib/quote-range.ts";
 import { Button } from "./ui/button.tsx";
 
 /** 選択範囲と、その画面上の位置（ポップアップを出す場所）。 */
@@ -7,6 +9,8 @@ export type TextSelection = {
   /** 選択範囲を含む要素の、attribute の値（回答のメッセージ id・Wiki ページの id）。 */
   sourceId: string;
   text: string;
+  /** 回答の本文の中の位置（#239）。本文にかからない選択では undefined。 */
+  range?: QuoteRange | undefined;
   rect: { top: number; bottom: number; left: number; right: number };
 };
 
@@ -55,12 +59,12 @@ export const useTextSelection = (
         setSelection(undefined);
         return;
       }
-      const { top, bottom, left, right } = current
-        .getRangeAt(0)
-        .getBoundingClientRect();
+      const domRange = current.getRangeAt(0);
+      const { top, bottom, left, right } = domRange.getBoundingClientRect();
       setSelection({
         sourceId,
         text: text.replace(/\n{3,}/g, "\n\n").trim(),
+        range: rangeToOffsets(anchor, domRange),
         rect: { top, bottom, left, right },
       });
     };

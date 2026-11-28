@@ -61,6 +61,7 @@ export const SideChat = ({
   hidden = false,
   width,
   onConversation,
+  quoteNotice,
   ...callbacks
 }: Pick<
   ChatViewProps,
@@ -70,6 +71,7 @@ export const SideChat = ({
   | "onOpenWikiPage"
   | "onOpenWikiPane"
   | "onWikiPageCreated"
+  | "onLocateQuoteElsewhere"
 > & {
   request: BranchRequest | WikiRequest;
   onClose: () => void;
@@ -82,6 +84,13 @@ export const SideChat = ({
   width?: number | undefined;
   /** 開いている会話が変わったとき（閉じたときは undefined。#234）。 */
   onConversation?: ((chatId: string | undefined) => void) | undefined;
+  /**
+   * 引用元を示そうとしたが、メインで開いている会話に引用元が無かったとき（#239）。
+   * onOpenSource があれば、引用元の会話をメインで開ける。
+   */
+  quoteNotice?:
+    | { onOpenSource: (() => void) | undefined; onDismiss: () => void }
+    | undefined;
 }) => {
   const widthProps = sidePanelWidthProps(width);
   const wiki = request.kind === "wiki" ? request : undefined;
@@ -252,6 +261,34 @@ export const SideChat = ({
           <X aria-hidden />
         </Button>
       </header>
+      {quoteNotice !== undefined && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 border-b bg-muted/40 px-4 py-2 text-sm"
+        >
+          <span className="min-w-0 flex-1">
+            引用元は、メインで開いている会話にありません。
+          </span>
+          {quoteNotice.onOpenSource !== undefined && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={quoteNotice.onOpenSource}
+            >
+              引用元の会話をメインで開く
+            </Button>
+          )}
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-7"
+            aria-label="閉じる"
+            onClick={quoteNotice.onDismiss}
+          >
+            <X className="size-3.5" aria-hidden />
+          </Button>
+        </div>
+      )}
       {conversation != null ? (
         <ChatView
           key={conversation.chat.id}
@@ -409,7 +446,53 @@ export const ChatWorkspace = ({
     const returnFocus = side?.kind === "page" ? side.returnFocus : null;
     setOverlay(undefined);
     setSide(undefined);
+    setQuoteFocus(undefined);
     restoreFocus(returnFocus);
+  };
+  /**
+   * サイドチャットの引用の引用元を、メインのチャットで示す（#239）。
+   * 引用元がメインの会話に無ければ、サイドチャットに知らせて引用元の会話を開けるようにする。
+   */
+  const [quoteFocus, setQuoteFocus] = useState<{
+    quote: AnswerQuote;
+    chatId: string;
+    parentId: string | null;
+    nonce: number;
+    missed: boolean;
+  }>();
+  const locateInMain = (quote: AnswerQuote, chat: ChatDto) => {
+    // 狭い画面ではサイドチャットがメインを覆うので、閉じてからメインで示す
+    if (window.matchMedia("(max-width: 1023.98px)").matches) {
+      setOverlay(undefined);
+      setSide(undefined);
+    }
+    setQuoteFocus({
+      quote,
+      chatId: chat.id,
+      parentId: chat.parentId,
+      nonce: Math.random(),
+      missed: false,
+    });
+  };
+  const quoteFocusRef = useRef(quoteFocus);
+  quoteFocusRef.current = quoteFocus;
+  const onQuoteFocusResult = (nonce: number, found: boolean) => {
+    const current = quoteFocusRef.current;
+    if (current?.nonce !== nonce) return;
+    if (found) {
+      setQuoteFocus(undefined);
+      return;
+    }
+    // 狭い画面（サイドチャットを閉じた）で見つからなければ、引用元の会話をメインで開く
+    if (
+      sideRef.current === undefined &&
+      current.parentId !== null &&
+      props.onSelectBranch !== undefined
+    ) {
+      props.onSelectBranch(current.parentId);
+      return;
+    }
+    setQuoteFocus({ ...current, missed: true });
   };
   /** 用語・引用の Wiki ページを右側のペインで開く。サイドチャットがあれば、その上に重ねる。 */
   const openWikiPane = useCallback((taskId: string, pageId: string) => {
@@ -484,6 +567,8 @@ export const ChatWorkspace = ({
             onOpenSideBranch={(id) => openSide({ kind: "branch", id })}
             onOpenWikiPane={openWikiPane}
             showRateLimit
+            quoteFocus={quoteFocus}
+            onQuoteFocusResult={onQuoteFocusResult}
           />
         )}
       </section>
@@ -536,6 +621,25 @@ export const ChatWorkspace = ({
           hidden={overlay !== undefined}
           width={sidePanel.width}
           onConversation={onSideChatChange}
+          onLocateQuoteElsewhere={locateInMain}
+          quoteNotice={
+            quoteFocus?.missed === true
+              ? {
+                  onOpenSource:
+                    quoteFocus.parentId === null ||
+                    props.onSelectBranch === undefined
+                      ? undefined
+                      : () => {
+                          const { parentId } = quoteFocus;
+                          setQuoteFocus({ ...quoteFocus, missed: false });
+                          if (parentId !== null) {
+                            props.onSelectBranch?.(parentId);
+                          }
+                        },
+                  onDismiss: () => setQuoteFocus(undefined),
+                }
+              : undefined
+          }
           onClose={closeSide}
           onActivity={onActivity}
           onOpenWikiPane={openWikiPane}

@@ -164,3 +164,30 @@
     );
   }
 }
+
+/*
+ * 回答の中の、サイドチャットで質問した箇所（#239）。ほかで使っていない紫の破線の下線。
+ * 本文の DOM は変えずに CSS Custom Highlight API で引く（名前は chat-view.tsx と合わせる）。
+ */
+:root {
+  --side-quote-line: oklch(0.606 0.25 292.717); /* violet-500 */
+  --quote-focus: oklch(0.879 0.169 91.605 / 0.6); /* amber-300 */
+}
+
+.dark {
+  --side-quote-line: oklch(0.702 0.183 293.541); /* violet-400 */
+  --quote-focus: oklch(0.666 0.179 58.318 / 0.45); /* amber-600 */
+}
+
+::highlight(monet-side-quote) {
+  text-decoration-line: underline;
+  text-decoration-style: dashed;
+  text-decoration-color: var(--side-quote-line);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+
+/* サイドチャットの引用から引用元を示すときの、一時的なハイライト */
+::highlight(monet-quote-focus) {
+  background-color: var(--quote-focus);
+}

@@ -195,15 +195,15 @@ describe("分岐（#76）", () => {
     const cIds = await idsOf(c);
 
     expect(await client.chats.forkPoints({ id: root.id })).toEqual([
-      { messageId: rootIds[1] ?? "", chatIds: [a, b] },
+      { messageId: rootIds[1] ?? "", chatIds: [a, b], quotes: [] },
     ]);
     // 分岐した会話では、写した回答（id は別）を分岐点として返す。自分自身と祖先は含めない
     expect(await client.chats.forkPoints({ id: a })).toEqual([
-      { messageId: aIds[1] ?? "", chatIds: [b] },
-      { messageId: aIds[3] ?? "", chatIds: [c] },
+      { messageId: aIds[1] ?? "", chatIds: [b], quotes: [] },
+      { messageId: aIds[3] ?? "", chatIds: [c], quotes: [] },
     ]);
     expect(await client.chats.forkPoints({ id: c })).toEqual([
-      { messageId: cIds[1] ?? "", chatIds: [b] },
+      { messageId: cIds[1] ?? "", chatIds: [b], quotes: [] },
     ]);
 
     // 元の会話を編集すると、元の会話からは分岐点が無くなるが、分岐した会話同士では分かる
@@ -216,8 +216,8 @@ describe("分岐（#76）", () => {
     );
     expect(await client.chats.forkPoints({ id: root.id })).toEqual([]);
     expect(await client.chats.forkPoints({ id: a })).toEqual([
-      { messageId: aIds[1] ?? "", chatIds: [b] },
-      { messageId: aIds[3] ?? "", chatIds: [c] },
+      { messageId: aIds[1] ?? "", chatIds: [b], quotes: [] },
+      { messageId: aIds[3] ?? "", chatIds: [c], quotes: [] },
     ]);
     await expect(
       client.chats.forkPoints({ id: "missing" }),
@@ -379,6 +379,69 @@ describe("選択範囲を引用して質問（#91）", () => {
       (await client.chats.get({ id: branchId })).messages[2]?.parts,
     ).toEqual([quote, { type: "text", text: "失敗時の通知は？" }]);
     expect(prompts.at(-1)).toContain("<quote>");
+  });
+
+  test("回答の中の位置を添えた引用を残し、分岐点から引用が分かる（#239）", async () => {
+    const { client } = setup();
+    const root = await twoTurns(client);
+    const { messages } = await client.chats.get({ id: root.id });
+    const answer = messages[1];
+    const branchId = crypto.randomUUID();
+    const quote = {
+      text: "方式 B",
+      sourceMessageId: answer?.id ?? "",
+      range: { start: 3, end: 7 },
+    };
+    await client.chat.branch({
+      parentId: root.id,
+      messageId: answer?.id ?? "",
+      branchId,
+      message: {
+        id: crypto.randomUUID(),
+        role: "user",
+        parts: [
+          { type: "data-quote", data: quote },
+          { type: "text", text: "詳しく" },
+        ],
+      },
+      selectBranch: false,
+    });
+    await drain(await client.chat.reconnect({ chatId: branchId }));
+    // 引用せずに分岐した会話は、quotes に含めない
+    const plain = await branchFrom(client, root.id, 1, "分岐", false);
+
+    expect(await client.chats.forkPoints({ id: root.id })).toEqual([
+      {
+        messageId: answer?.id ?? "",
+        chatIds: [branchId, plain],
+        quotes: [
+          { chatId: branchId, text: "方式 B", range: { start: 3, end: 7 } },
+        ],
+      },
+    ]);
+    // 不正な位置は受け付けない
+    for (const range of [
+      { start: 5, end: 5 },
+      { start: -1, end: 2 },
+      { start: 0.5, end: 2 },
+      { start: "0", end: 2 },
+    ]) {
+      await expect(
+        client.chat.branch({
+          parentId: root.id,
+          messageId: answer?.id ?? "",
+          branchId: crypto.randomUUID(),
+          message: {
+            id: crypto.randomUUID(),
+            role: "user",
+            parts: [
+              { type: "data-quote", data: { ...quote, range } },
+              { type: "text", text: "質問" },
+            ],
+          },
+        }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    }
   });
 
   test("空の引用は BAD_REQUEST", async () => {

@@ -3519,6 +3519,96 @@ const askSelectionIn = async (
     .click();
 };
 
+/** CSS Custom Highlight API で引いた範囲の文字（#239）。 */
+const highlightTexts = (page: Page, name: string) =>
+  page.evaluate(
+    (highlight) =>
+      [...(CSS.highlights.get(highlight) ?? [])].map((range) =>
+        (range as Range).toString(),
+      ),
+    name,
+  );
+
+test("サイドチャットの引用からメインの引用元へ移れ、メインの回答の引用した箇所からサイドチャットを開ける（#239）", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("main");
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const sideInput = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  const closeSide = side.getByRole("button", {
+    name: "サイドチャットを閉じる",
+  });
+  const branches = branchMenu(page);
+
+  await newChat(page);
+  await send(page, "最初の話題");
+  await idle(page);
+  await send(page, "引用元を探す質問");
+  await idle(page);
+
+  // 回答の一部を引用してサイドチャットで質問する
+  await selectAnswerText(
+    page.locator("[data-assistant-message]").last(),
+    "探す質問",
+  );
+  await askSelectionIn(page);
+  await sideInput.fill("どういう意味？");
+  await sideInput.press("Enter");
+  await expect(side.getByText(/^了解: 以下は/)).toBeVisible();
+
+  // メインの回答の、引用した箇所に下線を引く
+  await expect
+    .poll(() => highlightTexts(page, "monet-side-quote"))
+    .toEqual(["探す質問"]);
+  await closeSide.click();
+  await expect(side).toHaveCount(0);
+
+  // 下線を押すと、そのサイドチャットを開く
+  const point = await page.evaluate(() => {
+    const range = [
+      ...(CSS.highlights.get("monet-side-quote") ?? []),
+    ][0] as Range;
+    range.startContainer.parentElement?.scrollIntoView({ block: "center" });
+    const rect = range.getClientRects()[0];
+    if (rect === undefined) throw new Error("no rect");
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await page.mouse.click(point.x, point.y);
+  await expect(side.getByText(/^了解: 以下は/)).toBeVisible();
+
+  // サイドチャットの引用から、メインの引用元を示す
+  await side.getByRole("button", { name: "引用元を表示" }).click();
+  await expect
+    .poll(() => highlightTexts(page, "monet-quote-focus"))
+    .toEqual(["探す質問"]);
+  await expect
+    .poll(() => highlightTexts(page, "monet-quote-focus"), { timeout: 5000 })
+    .toEqual([]);
+  await closeSide.click();
+
+  // 引用元より前から分岐した会話をメインで開いていると、引用元の会話を開けるよう知らせる
+  await main.getByRole("button", { name: "回答を開く" }).first().click();
+  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await send(page, "別の流れ");
+  await idle(page);
+  await expect(branches.trigger).toContainText("別の流れ");
+  await branches.openSide("どういう意味？");
+  await side.getByRole("button", { name: "引用元を表示" }).click();
+  await expect(side.getByRole("status")).toContainText(
+    "引用元は、メインで開いている会話にありません。",
+  );
+  await side
+    .getByRole("button", { name: "引用元の会話をメインで開く" })
+    .click();
+  await expect(branches.trigger).toContainText("元の会話");
+  await expect
+    .poll(() => highlightTexts(page, "monet-quote-focus"))
+    .toEqual(["探す質問"]);
+});
+
 /** 回答の中の text と一致する文字だけを選ぶ。用語の下線などで要素が分かれていても選べる。 */
 const selectAnswerText = (answer: Locator, text: string) =>
   answer.evaluate((root, target) => {
