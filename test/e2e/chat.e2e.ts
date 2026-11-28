@@ -2064,6 +2064,9 @@ test("「ここから分岐」で新しい分岐を作り、分岐があれば�
   await idle(page);
   await send(page, "末尾の質問");
   await idle(page);
+  // HEAD のバッジは出さない（#270）
+  const headBadge = main.getByText("HEAD", { exact: true });
+  await expect(headBadge).toHaveCount(0);
 
   // 閉じた回答からも、分岐が無ければすぐに新しい分岐を作り始め、入力欄に移る。起点が分かる
   await main
@@ -2074,6 +2077,8 @@ test("「ここから分岐」で新しい分岐を作り、分岐があれば�
   await expect(origin).toContainText("了解: 起点の質問");
   await expect(mainInput).toBeFocused();
   await expect(main.getByText("了解: 末尾の質問")).toHaveCount(0);
+  await expect(main.locator("[data-branch-origin]")).toHaveCount(1);
+  await expect(headBadge).toHaveCount(0);
   // 送信前に取り消すと、元の会話に戻る
   await main.getByRole("button", { name: "取り消す" }).click();
   await expect(notice).toHaveCount(0);
