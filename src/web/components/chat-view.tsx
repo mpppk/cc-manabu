@@ -2039,8 +2039,6 @@ export const ChatView = ({
                   answers.length > 0 || (busy && turn === latestTurn);
                 // 閉じている回答は、「回答を開く」の代わりに要約を出す
                 const summary = open ? undefined : summaryOf(answers);
-                const current =
-                  !side && answerStart + answers.length === visibleCount;
                 return (
                   <div
                     key={question?.id ?? answers[0]?.id}
@@ -2050,14 +2048,6 @@ export const ChatView = ({
                     <div className="flex items-center justify-end gap-2 empty:hidden">
                       {/* 閉じている回答からも分岐を作り、そこから分岐した会話を開ける（#235、#242） */}
                       {!open && branchControl(answers)}
-                      {current && (
-                        <span
-                          className="rounded-md bg-muted px-2 py-1 text-muted-foreground text-xs"
-                          title="HEAD: メインの入力欄から送ると、この回答の続きになります"
-                        >
-                          HEAD
-                        </span>
-                      )}
                       {question !== undefined && hasAnswer && (
                         <Button
                           type="button"
