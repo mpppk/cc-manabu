@@ -196,6 +196,7 @@ export type TaskDto = Pick<
   | "progressNote"
   | "nextAction"
   | "progressUpdatedAt"
+  | "archivedAt"
   | "createdAt"
 > & {
   /** 所属する環境。 */
@@ -214,6 +215,7 @@ const toTaskDto = (row: TaskRow): TaskDto => ({
   progressNote: row.progressNote,
   nextAction: row.nextAction,
   progressUpdatedAt: row.progressUpdatedAt,
+  archivedAt: row.archivedAt,
   createdAt: row.createdAt,
 });
 
@@ -708,6 +710,20 @@ export const router = {
       .handler(async ({ context, input }) =>
         toGoalRunDto(
           await unwrapForOrpc(context.goalRuns.stop(input.id), ERROR_CODES),
+        ),
+      ),
+    /**
+     * タスクをアーカイブする・復元する（#241）。進捗の状態・環境・スレッドの所属はそのまま。
+     * アーカイブしたタスクは通常の一覧から隠れるが、直接のリンクからは開ける。
+     */
+    setArchived: base
+      .input(z.object({ id: z.string().min(1), archived: z.boolean() }))
+      .handler(async ({ context, input }) =>
+        toTaskDto(
+          await unwrapForOrpc(
+            context.tasks.setArchived(input.id, input.archived),
+            ERROR_CODES,
+          ),
         ),
       ),
     /** 回答からの用語ページの自動作成を切り替える。 */

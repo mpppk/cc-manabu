@@ -235,6 +235,33 @@ export const createTaskRepository = (db: Db) => ({
       Result.andThen((row) => requireTask(row, taskId)),
     ),
 
+  /**
+   * タスクをアーカイブする・復元する（#241）。進捗の状態・環境・ゴールなどは変えず、
+   * アーカイブした日時だけを付け外しする。すでにその状態なら日時も変えない。
+   */
+  setArchived: (
+    taskId: string,
+    archived: boolean,
+  ): Result.Result<TaskRow, TaskNotFoundError | DatabaseError> =>
+    Result.pipe(
+      run(() =>
+        db.transaction((tx) => {
+          const row = tx.select().from(tasks).where(eq(tasks.id, taskId)).get();
+          if (row === undefined || (row.archivedAt !== null) === archived) {
+            return row;
+          }
+          const now = new Date();
+          return tx
+            .update(tasks)
+            .set({ archivedAt: archived ? now : null, updatedAt: now })
+            .where(eq(tasks.id, taskId))
+            .returning()
+            .get();
+        }),
+      ),
+      Result.andThen((row) => requireTask(row, taskId)),
+    ),
+
   /** 回答からの用語ページの自動作成を切り替える。 */
   setAutoTerms: (
     taskId: string,

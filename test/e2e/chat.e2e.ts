@@ -1471,6 +1471,94 @@ test("タスクの進捗を記録し、一覧で状態ごとに確認できる",
   await expect(taskRow(page, "進捗A")).not.toContainText("完了");
 });
 
+test("タスクをアーカイブして通常の一覧から隠し、アーカイブ済みから閲覧・復元できる（#241）", async ({
+  page,
+}) => {
+  await open(page);
+  const status = page.getByRole("combobox", { name: "状態" });
+  const notice = page.getByRole("region", { name: "アーカイブ済み" });
+
+  await createTask(page, "整理A");
+  await status.selectOption({ label: "保留" });
+  await page.getByRole("textbox", { name: "ゴール" }).fill("リリースを待つ");
+  await page.getByRole("button", { name: "進捗を保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+  await page
+    .getByRole("textbox", { name: "URL" })
+    .last()
+    .fill("https://example.com/a");
+  await page.getByRole("button", { name: "追加", exact: true }).click();
+  await expect(
+    page.getByRole("list", { name: "関連リンク" }).getByRole("link"),
+  ).toHaveCount(1);
+  await newChat(page);
+  await send(page, "アーカイブ前の質問");
+  await idle(page);
+  const chatUrl = page.url();
+
+  // 左ペインのメニューからアーカイブすると、左ペインとカンバンから消える
+  await openTaskMenu(page, "整理A", "アーカイブ");
+  await expect(taskRow(page, "整理A")).toHaveCount(0);
+  // 開いていた会話はそのまま読める
+  await expect(page.getByText("了解: アーカイブ前の質問")).toBeVisible();
+  await page.getByRole("button", { name: "タスク一覧" }).click();
+  await expect(card(page, "整理A")).toHaveCount(0);
+
+  // 「アーカイブ済み」から概要と所属スレッドを見返せる。再読み込みしても残る
+  await page.getByRole("button", { name: "アーカイブ済み（1）" }).click();
+  await expect(page).toHaveURL(/\/tasks\/archived$/);
+  await page.reload();
+  const item = page.locator("[data-archived-task]");
+  await expect(item).toHaveCount(1);
+  await expect(item).toContainText("整理A");
+  await expect(item).toContainText("保留");
+  await expect(item).toContainText("スレッド 1 件");
+  await expect(item).toContainText("リリースを待つ");
+  await item.getByRole("button", { name: "整理A", exact: true }).click();
+  await expect(page).toHaveURL(/\/t\/[^/]+$/);
+  const taskUrl = page.url();
+  await expect(notice).toBeVisible();
+  await expect(status).toHaveValue("on_hold");
+  await expect(
+    page.getByRole("list", { name: "関連リンク" }).getByRole("link"),
+  ).toHaveCount(1);
+  await page
+    .getByRole("main")
+    .getByRole("button", { name: /アーカイブ前の質問/ })
+    .click();
+  await expect(page.getByText("了解: アーカイブ前の質問")).toBeVisible();
+
+  // スレッドへの直接のリンクからも開ける
+  await page.goto(chatUrl);
+  await expect(page.getByText("了解: アーカイブ前の質問")).toBeVisible();
+  await expect(taskRow(page, "整理A")).toHaveCount(0);
+
+  // 復元すると、元の状態・環境で通常の一覧に戻る
+  await page.goto(taskUrl);
+  await notice.getByRole("button", { name: "復元" }).click();
+  await expect(notice).toHaveCount(0);
+  await expect(taskRow(page, "整理A")).toBeVisible();
+  await expect(status).toHaveValue("on_hold");
+  await expect(page.getByRole("textbox", { name: "ゴール" })).toHaveValue(
+    "リリースを待つ",
+  );
+  await expect(taskItem(page, "整理A")).toContainText("アーカイブ前の質問");
+  await page.reload();
+  await expect(taskRow(page, "整理A")).toBeVisible();
+  await page.getByRole("button", { name: "タスク一覧" }).click();
+  await expect(column(page, "保留")).toContainText("整理A");
+  await expect(
+    page.getByRole("button", { name: "アーカイブ済み（0）" }),
+  ).toBeVisible();
+
+  // アーカイブ済みの一覧からも復元できる
+  await openTaskMenu(page, "整理A", "アーカイブ");
+  await page.getByRole("button", { name: "アーカイブ済み（1）" }).click();
+  await page.getByRole("button", { name: "「整理A」を復元" }).click();
+  await expect(page.locator("[data-archived-task]")).toHaveCount(0);
+  await expect(taskRow(page, "整理A")).toBeVisible();
+});
+
 test("カンバンの保存に失敗したら元の列に戻し、左パネルは進捗で絞り込める（#195）", async ({
   page,
 }) => {

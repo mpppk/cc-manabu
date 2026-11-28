@@ -1,6 +1,8 @@
-import { BookOpen, MessageSquare } from "lucide-react";
+import { ArchiveRestore, BookOpen, MessageSquare } from "lucide-react";
+import { useState } from "react";
 import type { ChatDto, TaskDto } from "../../router.ts";
 import type { ApiClient } from "../lib/orpc.ts";
+import { formatDateTime } from "../lib/task-status.ts";
 import { TaskLinks } from "./task-links.tsx";
 import { TaskProgress } from "./task-progress.tsx";
 import { Button } from "./ui/button.tsx";
@@ -14,6 +16,7 @@ export const TaskOverview = ({
   onOpenWiki,
   onNewChat,
   onChanged,
+  onRestore,
 }: {
   api: ApiClient;
   task: TaskDto;
@@ -24,9 +27,14 @@ export const TaskOverview = ({
   onOpenChat: (chatId: string) => void;
   onOpenWiki: () => void;
   onNewChat: () => void;
+  /** アーカイブしたタスクを復元する（#241）。失敗したら reject する。 */
+  onRestore: () => Promise<void>;
 }) => (
   <div className="flex-1 overflow-y-auto">
     <div className="mx-auto flex max-w-3xl flex-col gap-8 px-4 py-6">
+      {task.archivedAt !== null && (
+        <ArchivedNotice archivedAt={task.archivedAt} onRestore={onRestore} />
+      )}
       <header className="flex flex-col gap-3">
         <h1 className="font-bold text-2xl">{task.name}</h1>
         <div className="flex flex-wrap gap-2">
@@ -89,3 +97,52 @@ export const TaskOverview = ({
     </div>
   </div>
 );
+
+/** アーカイブしたタスクの概要に出す案内と「復元」（#241）。 */
+const ArchivedNotice = ({
+  archivedAt,
+  onRestore,
+}: {
+  archivedAt: Date | string;
+  onRestore: () => Promise<void>;
+}) => {
+  const [restoring, setRestoring] = useState(false);
+  const [error, setError] = useState<string>();
+  return (
+    <section
+      aria-label="アーカイブ済み"
+      className="flex flex-col gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p>
+          このタスクはアーカイブ済みです（{formatDateTime(archivedAt)}
+          ）。サイドバーとタスク一覧には表示されません。
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={restoring}
+          onClick={() => {
+            setRestoring(true);
+            setError(undefined);
+            onRestore()
+              .catch((cause: unknown) =>
+                setError(
+                  `復元できませんでした: ${cause instanceof Error ? cause.message : String(cause)}`,
+                ),
+              )
+              .finally(() => setRestoring(false));
+          }}
+        >
+          <ArchiveRestore className="size-4" />
+          復元
+        </Button>
+      </div>
+      {error !== undefined && (
+        <p role="alert" className="text-destructive">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+};

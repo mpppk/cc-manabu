@@ -8,7 +8,7 @@ import type { EnvironmentInput } from "./components/environment-dialogs.tsx";
 import { PaneResizer } from "./components/pane-resizer.tsx";
 import { GeneralSettingsDialog } from "./components/settings-dialog.tsx";
 import { Sidebar } from "./components/sidebar.tsx";
-import { TaskList } from "./components/task-list.tsx";
+import { ArchivedTaskList, TaskList } from "./components/task-list.tsx";
 import { TaskOverview } from "./components/task-overview.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { WikiView } from "./components/wiki-view.tsx";
@@ -24,7 +24,9 @@ import {
 } from "./lib/notify.ts";
 import type { ApiClient } from "./lib/orpc.ts";
 import {
+  ARCHIVED_TASK_LIST_PATH,
   chatIdFromPath,
+  isArchivedTaskListPath,
   isTaskListPath,
   pathForChat,
   pathForTask,
@@ -341,15 +343,17 @@ export const App = ({ api }: { api: ApiClient }) => {
   /** ヘッダーに出す、いま開いているものの名前。 */
   const headerTitle = isTaskListPath(path)
     ? "タスク一覧"
-    : showWiki
-      ? `Wiki: ${wikis.find((w) => w.id === task.wikiId)?.name ?? task.name}`
-      : selectedId !== undefined
-        ? selectedChat === undefined
-          ? ""
-          : selectedChat.title === ""
-            ? "新しいスレッド"
-            : selectedChat.title
-        : (task?.name ?? "");
+    : isArchivedTaskListPath(path)
+      ? "アーカイブ済みのタスク"
+      : showWiki
+        ? `Wiki: ${wikis.find((w) => w.id === task.wikiId)?.name ?? task.name}`
+        : selectedId !== undefined
+          ? selectedChat === undefined
+            ? ""
+            : selectedChat.title === ""
+              ? "新しいスレッド"
+              : selectedChat.title
+          : (task?.name ?? "");
   // Wiki のページ一覧（サイドバーの一覧とメインのページ表示で共有する）
   const wiki = useWikiPages(api, showWiki ? task.id : undefined);
   const navigateWiki = (pageId: string | undefined) => {
@@ -380,6 +384,16 @@ export const App = ({ api }: { api: ApiClient }) => {
   const workspaceGroup =
     chats.find((chat) => chat.id === chatViewId)?.groupId ??
     workspace?.chat.groupId;
+
+  const openTaskListView = (view: "active" | "archived") =>
+    navigate(view === "active" ? TASK_LIST_PATH : ARCHIVED_TASK_LIST_PATH);
+  /** タスクごとのスレッドの数（アーカイブ済みの一覧に出す）。 */
+  const threadCounts = new Map<string, number>();
+  for (const group of groupChats(chats)) {
+    const owner = group.primary.taskId;
+    if (owner !== null)
+      threadCounts.set(owner, (threadCounts.get(owner) ?? 0) + 1);
+  }
 
   /** 同じタスクにまだ何も送っていない会話があれば、新しく作らずにそれを開く。 */
   const newChat = async (owner: string | null) => {
@@ -440,6 +454,12 @@ export const App = ({ api }: { api: ApiClient }) => {
     await Promise.all([refreshTasks(), refreshChats()]);
     // 開いているタスク（またはその会話）を消したときだけ移動する
     if (id === taskId) navigate(pathForTask(null));
+  };
+
+  /** タスクをアーカイブする・復元する（#241）。開いている画面はそのまま。 */
+  const setTaskArchived = async (id: string, archived: boolean) => {
+    await api.tasks.setArchived({ id, archived });
+    await refreshTasks();
   };
 
   const renameWiki = async (id: string, name: string) => {
@@ -509,6 +529,7 @@ export const App = ({ api }: { api: ApiClient }) => {
           onRenameWiki={renameWiki}
           onRenameTask={renameTask}
           onDeleteTask={deleteTask}
+          onArchiveTask={(id) => setTaskArchived(id, true)}
           onSetTask={setTask}
           onSetAutoTerms={setAutoTerms}
           onOpenTaskList={() => navigate(TASK_LIST_PATH)}
@@ -601,6 +622,16 @@ export const App = ({ api }: { api: ApiClient }) => {
                 await api.tasks.updateProgress({ id, status });
                 await refreshTasks();
               }}
+              onOpenView={openTaskListView}
+            />
+          ) : isArchivedTaskListPath(path) ? (
+            <ArchivedTaskList
+              tasks={tasks ?? []}
+              environments={environments}
+              threadCounts={threadCounts}
+              onOpen={(id) => navigate(pathForTask(id))}
+              onRestore={(id) => setTaskArchived(id, false)}
+              onOpenView={openTaskListView}
             />
           ) : showWiki ? (
             <WikiView
@@ -647,6 +678,7 @@ export const App = ({ api }: { api: ApiClient }) => {
               onOpenWiki={() => navigate(pathForWiki(task.id))}
               onNewChat={() => void newChat(task.id)}
               onChanged={refreshTasks}
+              onRestore={() => setTaskArchived(task.id, false)}
             />
           ) : (
             <section className="flex flex-1 items-center justify-center text-muted-foreground">

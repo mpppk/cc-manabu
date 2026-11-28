@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   chatIdFromPath,
+  isArchivedTaskListPath,
   isTaskListPath,
   pathForChat,
   pathForTask,
@@ -47,5 +48,9 @@ describe("route", () => {
     expect(isTaskListPath("/tasks/")).toBe(true);
     expect(isTaskListPath("/projects")).toBe(true);
     expect(isTaskListPath("/t/x")).toBe(false);
+    expect(isTaskListPath("/tasks/archived")).toBe(false);
+    expect(isArchivedTaskListPath("/tasks/archived")).toBe(true);
+    expect(isArchivedTaskListPath("/tasks/archived/")).toBe(true);
+    expect(isArchivedTaskListPath("/tasks")).toBe(false);
   });
 });

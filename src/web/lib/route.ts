@@ -6,6 +6,7 @@
  * - `/c/<chatId>`: 会話（一覧はそのスレッドの所属先）
  * - `/t/<taskId>/wiki[/<pageId>]`: タスクの Wiki
  * - `/tasks`: タスク一覧（`?status=` で絞り込み）
+ * - `/tasks/archived`: アーカイブしたタスクの一覧（#241）
  *
  * 「プロジェクト」だったころの `/p/...` と `/projects` も読めるようにする（古いリンク用）。
  */
@@ -38,3 +39,8 @@ export const TASK_LIST_PATH = "/tasks";
 
 export const isTaskListPath = (pathname: string): boolean =>
   /^\/(tasks|projects)\/?$/.test(pathname);
+
+export const ARCHIVED_TASK_LIST_PATH = "/tasks/archived";
+
+export const isArchivedTaskListPath = (pathname: string): boolean =>
+  /^\/tasks\/archived\/?$/.test(pathname);

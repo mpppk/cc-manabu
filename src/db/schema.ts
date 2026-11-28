@@ -101,6 +101,11 @@ export const tasks = sqliteTable(
     nextAction: text("next_action").notNull().default(""),
     /** 状態・進捗メモ・ゴールを最後に変えた日時。まだ変えていなければ null。 */
     progressUpdatedAt: integer("progress_updated_at", { mode: "timestamp_ms" }),
+    /**
+     * アーカイブした日時。アーカイブしていなければ null（#241）。
+     * 進捗の状態とは別に持ち、復元すると元の状態のまま通常の一覧に戻る。
+     */
+    archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()
       .default(sql`(unixepoch('subsec') * 1000)`),

@@ -36,6 +36,9 @@ import goalRuns from "./migrations/0016_goal_runs.sql" with { type: "text" };
 import environmentWithoutWiki from "./migrations/0017_environment_without_wiki.sql" with {
   type: "text",
 };
+import taskArchive from "./migrations/0018_task_archive.sql" with {
+  type: "text",
+};
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -60,6 +63,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0015_wiki_history", sql: wikiHistory },
   { name: "0016_goal_runs", sql: goalRuns },
   { name: "0017_environment_without_wiki", sql: environmentWithoutWiki },
+  { name: "0018_task_archive", sql: taskArchive },
 ];
 
 /**
