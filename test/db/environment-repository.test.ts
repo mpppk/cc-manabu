@@ -220,6 +220,7 @@ describe("migration 0012_environments", () => {
       "0018_task_archive",
       "0019_chat_context_usage",
       "0020_chat_archive",
+      "0021_chat_agent",
     ]);
     const db = drizzle(sqlite, { schema });
     const repo = createEnvironmentRepository(db);
@@ -329,6 +330,7 @@ describe("Wiki を使わない環境（#232）", () => {
       "0018_task_archive",
       "0019_chat_context_usage",
       "0020_chat_archive",
+      "0021_chat_agent",
     ]);
     expect(
       sqlite.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get(),

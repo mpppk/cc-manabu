@@ -1,7 +1,9 @@
 import { eventIterator, os } from "@orpc/server";
 import { Result } from "@praha/byethrow";
+import { ErrorFactory } from "@praha/error-factory";
 import type { InferUIMessageChunk } from "ai";
 import * as z from "zod";
+import { AGENT_LABELS, type AgentStatusHolder } from "./agents/status.ts";
 import type { ApprovalBroker } from "./chat/approval-broker.ts";
 import { checkImagePart, MAX_IMAGES_PER_MESSAGE } from "./chat/attachments.ts";
 import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
@@ -21,15 +23,17 @@ import {
 import type { PreferencesRepository } from "./db/preferences-repository.ts";
 import type { QueueRepository } from "./db/queue-repository.ts";
 import type { RateLimitRepository } from "./db/rate-limit-repository.ts";
-import type {
-  ChatRow,
-  GoalRunRow,
-  MessageRow,
-  TaskLinkRow,
-  TaskRow,
-  WikiCheckpointRow,
-  WikiPageRow,
-  WikiPageVersionRow,
+import {
+  AGENT_IDS,
+  type AgentId,
+  type ChatRow,
+  type GoalRunRow,
+  type MessageRow,
+  type TaskLinkRow,
+  type TaskRow,
+  type WikiCheckpointRow,
+  type WikiPageRow,
+  type WikiPageVersionRow,
 } from "./db/schema.ts";
 import type { SearchRepository } from "./db/search-repository.ts";
 import {
@@ -70,6 +74,8 @@ export type RouterContext = {
   chatService: ChatService;
   approvals: ApprovalBroker;
   claude: ClaudeStatusHolder;
+  /** Claude Code 以外の AI（Codex・GitHub Copilot）の状態（#265）。 */
+  agents: AgentStatusHolder;
   /** 回答や Wiki ページの中の語句から Wiki のページを Claude に書かせる。 */
   generateWikiPage: WikiPageGenerator;
   /**
@@ -87,7 +93,36 @@ export type RouterContext = {
 
 export const base = os.$context<RouterContext>();
 
+/** 選んだ AI が使えないとき（#265）。理由と設定の手順を伝える。 */
+export class AgentUnavailableError extends ErrorFactory({
+  name: "AgentUnavailableError",
+  message: (fields) => fields.detail,
+  fields: ErrorFactory.fields<{ detail: string }>(),
+}) {}
+
+/** Claude Code 以外の AI なら、使える状態かを確かめる。 */
+const requireAgent = (
+  context: RouterContext,
+  agent: AgentId | undefined,
+): Result.Result<void, AgentUnavailableError> => {
+  if (agent === undefined || agent === "claude-code") return Result.succeed();
+  const status = context.agents.get()[agent];
+  if (status.state === "ready") return Result.succeed();
+  const label = AGENT_LABELS[agent];
+  return Result.fail(
+    new AgentUnavailableError({
+      detail:
+        status.state === "checking"
+          ? `${label} の状態を確かめています。しばらくしてからもう一度お試しください。`
+          : [status.reason, ...status.setup.map((step) => `- ${step}`)].join(
+              "\n",
+            ),
+    }),
+  );
+};
+
 const ERROR_CODES: OrpcErrorCodeMap = {
+  AgentUnavailableError: "BAD_REQUEST",
   ChatNotFoundError: "NOT_FOUND",
   TaskNotFoundError: "NOT_FOUND",
   EnvironmentNotFoundError: "NOT_FOUND",
@@ -119,6 +154,7 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   MessageNotFoundError: "NOT_FOUND",
   NothingToRegenerateError: "BAD_REQUEST",
   NotBranchableError: "BAD_REQUEST",
+  UnsupportedForAgentError: "BAD_REQUEST",
   WikiVersionNotFoundError: "NOT_FOUND",
   WikiCheckpointNotFoundError: "NOT_FOUND",
   NothingToUndoError: "BAD_REQUEST",
@@ -150,6 +186,7 @@ export type ChatDto = Pick<
   | "taskId"
   | "wikiPageId"
   | "title"
+  | "agent"
   | "model"
   | "effort"
   | "cwd"
@@ -178,6 +215,7 @@ const toChatDto = (row: ChatRow): ChatDto => ({
   taskId: row.taskId,
   wikiPageId: row.wikiPageId,
   title: row.title,
+  agent: row.agent,
   model: row.model,
   effort: row.effort,
   cwd: row.cwd,
@@ -513,6 +551,7 @@ export const router = {
       version,
       cwd: context.cwd,
       claude: context.claude.get(),
+      agents: context.agents.get(),
     })),
     /** OS のフォルダを選ぶダイアログを開き、選んだディレクトリを返す（キャンセルなら null）。 */
     pickDirectory: base.handler(async ({ context }) => ({
@@ -1230,6 +1269,8 @@ export const router = {
       .input(
         z.object({
           taskId: z.string().min(1).nullable().optional(),
+          /** 会話に使う AI（#265）。省くと Claude Code。 */
+          agent: z.enum(AGENT_IDS).optional(),
           model: z.string().min(1).optional(),
           effort: z.string().min(1).nullable().optional(),
         }),
@@ -1238,7 +1279,8 @@ export const router = {
         toChatDto(
           await unwrapForOrpc(
             Result.pipe(
-              requireTask(context, input.taskId),
+              requireAgent(context, input.agent),
+              Result.andThen(() => requireTask(context, input.taskId)),
               Result.andThen(() => cwdForTask(context, input.taskId)),
               Result.andThen((cwd) =>
                 context.chats.createChat({
@@ -1246,7 +1288,45 @@ export const router = {
                   taskId: input.taskId ?? null,
                   model: input.model,
                   effort: input.effort,
+                  ...(input.agent === undefined ? {} : { agent: input.agent }),
                 }),
+              ),
+            ),
+            ERROR_CODES,
+          ),
+        ),
+      ),
+    /**
+     * 会話に使う AI を変える（#265）。最初の送信の前（メッセージもセッションも無い会話）だけ変えられる。
+     * モデルと effort も、選んだ AI のものに変える。
+     */
+    setAgent: base
+      .input(
+        chatId.extend({
+          agent: z.enum(AGENT_IDS),
+          model: z.string().min(1),
+          effort: z.string().min(1).nullable(),
+        }),
+      )
+      .handler(async ({ context, input }) =>
+        toChatDto(
+          await unwrapForOrpc(
+            Result.pipe(
+              requireAgent(context, input.agent),
+              Result.andThen(() => context.chats.getChat(input.id)),
+              Result.andThen(({ chat, messages }) =>
+                messages.length > 0 || chat.sessionId !== null
+                  ? Result.fail(
+                      new AgentUnavailableError({
+                        detail:
+                          "送信を始めた会話の AI は変えられません。新しいスレッドで選んでください。",
+                      }),
+                    )
+                  : context.chats.updateChat(input.id, {
+                      agent: input.agent,
+                      model: input.model,
+                      effort: input.effort,
+                    }),
               ),
             ),
             ERROR_CODES,

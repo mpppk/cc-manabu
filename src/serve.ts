@@ -3,6 +3,11 @@ import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { generateText } from "ai";
 import {
+  createAgentStatuses,
+  probeCodex,
+  probeCopilot,
+} from "./agents/status.ts";
+import {
   ANSWER_SUMMARY_MODEL,
   ANSWER_SUMMARY_SETTINGS,
   createAnswerSummarizer,
@@ -40,6 +45,8 @@ import { createWikiRepository } from "./db/wiki-repository.ts";
 import { readEnv } from "./env.ts";
 import { createDirectoryPicker } from "./environment/directory-picker.ts";
 import { CliExit } from "./errors/index.ts";
+import { spawnCodexAppServer } from "./provider/codex/app-server.ts";
+import { createCodex } from "./provider/codex/codex-language-model.ts";
 import { createClaudeCode } from "./provider/index.ts";
 import { router } from "./router.ts";
 import type { RuntimeConfig } from "./runtime-config.ts";
@@ -58,6 +65,7 @@ import { openBrowser, PortInUseError, startServer } from "./server/server.ts";
 import { createGoalRuns, type GoalRuns } from "./task/goal-runs.ts";
 import { readGoalVerdict } from "./task/goal-verdict.ts";
 import { createTaskToolServers } from "./task/tools.ts";
+import { version } from "./version.ts";
 import index from "./web/index.html";
 import { createTermPageWriter } from "./wiki/auto-terms.ts";
 import {
@@ -130,6 +138,14 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           ? { found: true, path: claudePath.value }
           : { found: false, message: claudePath.error.message },
       );
+      // Claude Code 以外の AI（#265）。起動時に 1 回だけ、使えるかを調べる
+      const codexPath = Bun.which("codex");
+      const agents = createAgentStatuses({
+        codex: () =>
+          probeCodex({ which: () => codexPath, clientVersion: version }),
+        copilot: async () =>
+          probeCopilot({ which: () => Bun.which("copilot") }),
+      });
       const providerSettings = {
         cwd: process.cwd(),
         onRateLimit,
@@ -245,8 +261,24 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
         chats,
         registry,
         approvals,
-        languageModel: (modelId, options) =>
-          createClaudeCode({ ...providerSettings, ...options })(modelId),
+        languageModel: (modelId, { agent, ...options }) => {
+          if (agent === "codex") {
+            return createCodex({
+              spawn: spawnCodexAppServer(codexPath ?? "codex"),
+              clientVersion: version,
+              canUseTool: options.canUseTool,
+              ...(options.appendSystemPrompt === undefined
+                ? {}
+                : { appendSystemPrompt: options.appendSystemPrompt }),
+            })(modelId);
+          }
+          if (agent === "copilot") {
+            throw new Error(
+              "この版の Monet は、GitHub Copilot との会話にまだ対応していません。",
+            );
+          }
+          return createClaudeCode({ ...providerSettings, ...options })(modelId);
+        },
         taskTools: createTaskToolServers({ tasks }),
         wikiTools: createWikiToolServers({
           wiki,
@@ -315,6 +347,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
             chatService,
             approvals,
             claude,
+            agents,
             generateWikiPage,
             cwd: process.cwd(),
             pickDirectory: createDirectoryPicker(),

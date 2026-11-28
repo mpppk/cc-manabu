@@ -1,5 +1,6 @@
 import type { SDKRateLimitInfo } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
+import type { AgentStatuses } from "../../src/agents/status.ts";
 import { createAnswerSummarizer } from "../../src/chat/answer-summary.ts";
 import { createApprovalBroker } from "../../src/chat/approval-broker.ts";
 import { createChatService } from "../../src/chat/chat-service.ts";
@@ -40,6 +41,27 @@ import { createWikiPageGenerator } from "../../src/wiki/page-generation.ts";
 import { createWikiToolServers } from "../../src/wiki/tools.ts";
 import { createFakeSessions } from "./fake-sessions.ts";
 
+/** テストでの Claude Code 以外の AI の状態（#265）。 */
+export const TEST_AGENTS: AgentStatuses = {
+  codex: {
+    state: "ready",
+    models: [
+      {
+        value: "gpt-test",
+        displayName: "GPT Test",
+        description: "",
+        supportsEffort: true,
+        supportedEffortLevels: ["low", "medium", "high"],
+      },
+    ],
+  },
+  copilot: {
+    state: "unavailable",
+    reason: "GitHub Copilot CLI（`copilot`）が見つかりません。",
+    setup: ["GitHub Copilot CLI をインストールする"],
+  },
+};
+
 /**
  * インメモリ DB と、差し替えた query() を使うルータのコンテキストを作る。
  * query を省略すると、呼ばれたら例外にする。
@@ -67,6 +89,8 @@ export const createTestContext = (
     contextUsage?: boolean;
     /** 回答が正常に終わって保存されたとき（#264）。 */
     onAnswerSaved?: (event: { chatId: string; messageId: string }) => void;
+    /** Claude Code 以外の AI の状態（#265）。既定では Codex を使え、Copilot は未導入。 */
+    agents?: AgentStatuses;
   } = {},
 ) => {
   const opened = openDatabase(":memory:");
@@ -125,6 +149,7 @@ export const createTestContext = (
     chats,
     registry,
     approvals,
+    // Codex の会話も、差し替えた query() で答える（AI ごとの違いは provider のテストで確かめる）
     languageModel: (modelId, { canUseTool, mcpServers, onContextUsage }) =>
       createClaudeCode({
         cwd: "/work",
@@ -222,6 +247,10 @@ export const createTestContext = (
     chatService,
     approvals,
     claude,
+    agents: {
+      get: () => options.agents ?? TEST_AGENTS,
+      ready: Promise.resolve(),
+    },
     generateWikiPage: createWikiPageGenerator({
       tasks,
       chats,

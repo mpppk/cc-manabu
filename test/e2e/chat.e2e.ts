@@ -5698,3 +5698,51 @@ test("入力欄は読むために開いた会話では閉じておき、「メ�
       .getByRole("button", { name: "途中から分岐（元の会話 から分岐）" }),
   ).toBeVisible();
 });
+
+test("新規スレッドで会話に使う AI を選び、使えない AI は理由と手順を出す（#265）", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const agent = main.getByRole("combobox", { name: "AI" });
+
+  // 新規スレッドでは Claude Code が選ばれている
+  await newChat(page);
+  await expect(agent).toHaveValue("claude-code");
+
+  // 使えない AI を選ぶと、理由と設定の手順を出し、切り替えない
+  await agent.selectOption("copilot");
+  const notice = main
+    .getByRole("alert")
+    .filter({ hasText: "GitHub Copilot は使えません" });
+  await expect(notice).toContainText("見つかりません");
+  await expect(notice).toContainText("GitHub Copilot CLI をインストールする");
+  await expect(agent).toHaveValue("claude-code");
+  await notice.getByRole("button", { name: "閉じる" }).click();
+  await expect(notice).toHaveCount(0);
+
+  // Codex を選ぶと、Codex のモデルを出す
+  await agent.selectOption("codex");
+  await expect(agent).toHaveValue("codex");
+  await expect(modelButton(main)).toHaveAttribute("data-model", "gpt-test");
+  await send(page, "Codex で質問");
+  await expect(main.getByText("了解: Codex で質問")).toBeVisible();
+  await idle(page);
+  // 送ったあとは AI を変えられず、どの AI の会話かを出す
+  await expect(agent).toHaveCount(0);
+  await expect(main.locator('[data-agent="codex"]')).toHaveText("Codex");
+
+  // 再読み込みしても、同じ AI で続けられる
+  await page.reload();
+  await openComposer(page);
+  await expect(main.locator('[data-agent="codex"]')).toHaveText("Codex");
+  await send(page, "続きの質問");
+  await expect(main.getByText("了解: 続きの質問")).toBeVisible();
+  await idle(page);
+
+  // 既存の Claude Code のスレッドでは AI の表示を出さない
+  await newChat(page);
+  await send(page, "Claude で質問");
+  await idle(page);
+  await expect(main.locator("[data-agent]")).toHaveCount(0);
+});

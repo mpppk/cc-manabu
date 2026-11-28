@@ -19,7 +19,7 @@ import type {
   ChatRepository,
   DatabaseError,
 } from "../db/chat-repository.ts";
-import type { ChatRow, MessageRow } from "../db/schema.ts";
+import type { AgentId, ChatRow, MessageRow } from "../db/schema.ts";
 import {
   type ClaudeCodeProviderMetadata,
   PROVIDER_NAME,
@@ -59,6 +59,13 @@ export class NotBranchableError extends ErrorFactory({
   message: (fields) =>
     `This message cannot be a branch point (a completed assistant message is required): ${fields.messageId}`,
   fields: ErrorFactory.fields<{ messageId: string }>(),
+}) {}
+
+/** Claude Code 以外の会話で、途中からのやり直し（再生成・編集）を頼まれたとき（#265）。 */
+export class UnsupportedForAgentError extends ErrorFactory({
+  name: "UnsupportedForAgentError",
+  message: (fields) => fields.detail,
+  fields: ErrorFactory.fields<{ detail: string }>(),
 }) {}
 
 export class NothingToRegenerateError extends ErrorFactory({
@@ -200,10 +207,14 @@ export const createChatService = (deps: {
   chats: ChatRepository;
   registry: RunnerRegistry;
   approvals: ApprovalBroker;
-  /** 会話ごとの canUseTool（と MCP サーバ）を差し込んだモデルを返す。 */
+  /**
+   * 会話ごとの canUseTool（と MCP サーバ）を差し込んだモデルを返す。
+   * agent は会話に使う AI（#265）。Claude Code 以外では MCP サーバ・コンテキストの使用量は使わない。
+   */
   languageModel: (
     modelId: string,
     options: {
+      agent: AgentId;
       canUseTool: CanUseTool;
       mcpServers?: Record<string, McpServerConfig>;
       /** 回答のあとに取れたコンテキストの使用量（#245）。 */
@@ -311,6 +322,8 @@ export const createChatService = (deps: {
 
   const startGeneration = (params: {
     chatId: string;
+    /** 会話に使う AI（#265）。省くと Claude Code。 */
+    agent?: AgentId;
     model: string;
     effort: Effort | null;
     sessionId: string | null;
@@ -375,6 +388,7 @@ export const createChatService = (deps: {
                 .join("\n\n");
           const result = streamText({
             model: deps.languageModel(params.model, {
+              agent: params.agent ?? "claude-code",
               canUseTool,
               ...(mcpServers === undefined ? {} : { mcpServers }),
               // 根拠にした資料を、本文の該当箇所に出典として付けてもらう（#258）
@@ -566,6 +580,7 @@ export const createChatService = (deps: {
       Result.andThen((chat) =>
         startGeneration({
           chatId: chat.id,
+          agent: chat.agent,
           model: chat.model,
           effort: (chat.effort as Effort | null) ?? null,
           ...resumeOf(chat),
@@ -714,6 +729,7 @@ export const createChatService = (deps: {
           Result.andThen(() =>
             startGeneration({
               chatId: created.id,
+              agent: created.agent,
               model: created.model,
               effort: (created.effort as Effort | null) ?? null,
               ...resumeOf(created),
@@ -745,7 +761,10 @@ export const createChatService = (deps: {
     messages: MessageRow[],
     index: number,
     userMessage: { id: string; parts: ChatUIMessage["parts"] },
-  ): Result.Result<ChatRunner, SendError | NothingToRegenerateError> => {
+  ): Result.Result<
+    ChatRunner,
+    SendError | NothingToRegenerateError | UnsupportedForAgentError
+  > => {
     const target = messages[index];
     if (target === undefined) {
       return Result.fail(new NothingToRegenerateError());
@@ -753,6 +772,15 @@ export const createChatService = (deps: {
     const context = contextFor(chat, userMessage.parts);
     if (Result.isFailure(context)) return context;
     const forkPoint = findForkPoint(messages, index);
+    // Claude Code 以外では、途中の地点からセッションを巻き戻せない（最初の発話からなら新しく始められる）
+    if (chat.agent !== "claude-code" && forkPoint === undefined && index > 0) {
+      return Result.fail(
+        new UnsupportedForAgentError({
+          detail:
+            "この AI の会話では、途中の発話からの再生成・編集にまだ対応していません。新しいメッセージとして送ってください。",
+        }),
+      );
+    }
     return Result.pipe(
       chats.deleteMessagesFrom(chat.id, target.seq),
       Result.andThen(() =>
@@ -765,6 +793,7 @@ export const createChatService = (deps: {
       Result.andThen(() =>
         startGeneration({
           chatId: chat.id,
+          agent: chat.agent,
           model: chat.model,
           effort: (chat.effort as Effort | null) ?? null,
           // 分岐点が無ければ（最初の発話からやり直すなら）新しいセッションにする。
@@ -791,7 +820,10 @@ export const createChatService = (deps: {
   /** 最後の回答を作り直す。 */
   const regenerate = (
     chatId: string,
-  ): Result.Result<ChatRunner, SendError | NothingToRegenerateError> =>
+  ): Result.Result<
+    ChatRunner,
+    SendError | NothingToRegenerateError | UnsupportedForAgentError
+  > =>
     Result.pipe(
       ensureIdle(chatId),
       Result.andThen(() => chats.getChat(chatId)),
@@ -818,7 +850,10 @@ export const createChatService = (deps: {
     parts: ChatUIMessage["parts"];
   }): Result.Result<
     ChatRunner,
-    SendError | MessageNotFoundError | NothingToRegenerateError
+    | SendError
+    | MessageNotFoundError
+    | NothingToRegenerateError
+    | UnsupportedForAgentError
   > =>
     Result.pipe(
       ensureIdle(input.chatId),

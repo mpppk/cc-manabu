@@ -45,6 +45,7 @@ import chatContextUsage from "./migrations/0019_chat_context_usage.sql" with {
 import chatArchive from "./migrations/0020_chat_archive.sql" with {
   type: "text",
 };
+import chatAgent from "./migrations/0021_chat_agent.sql" with { type: "text" };
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -72,6 +73,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0018_task_archive", sql: taskArchive },
   { name: "0019_chat_context_usage", sql: chatContextUsage },
   { name: "0020_chat_archive", sql: chatArchive },
+  { name: "0021_chat_agent", sql: chatAgent },
 ];
 
 /**

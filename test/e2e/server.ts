@@ -72,6 +72,7 @@ import {
   TERM_EXTRACTION_SETTINGS,
 } from "../../src/wiki/terms.ts";
 import { createWikiToolServers } from "../../src/wiki/tools.ts";
+import { TEST_AGENTS } from "../helpers/context.ts";
 import { createFakeSessions } from "../helpers/fake-sessions.ts";
 import { createScriptedQuery, goalVerdicts } from "./scripted-query.ts";
 
@@ -266,6 +267,7 @@ const started = startServer({
     chatService,
     approvals,
     claude,
+    agents: { get: () => TEST_AGENTS, ready: Promise.resolve() },
     generateWikiPage,
     cwd: "/e2e",
     // フォルダを選ぶダイアログの代わりに、E2E_PICKED_DIR（無ければ一時ディレクトリ）を返す

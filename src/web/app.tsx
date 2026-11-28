@@ -23,6 +23,7 @@ import { ArchivedTaskList, TaskList } from "./components/task-list.tsx";
 import { TaskOverview } from "./components/task-overview.tsx";
 import { Button } from "./components/ui/button.tsx";
 import { WikiView } from "./components/wiki-view.tsx";
+import { AgentsContext } from "./lib/agents.ts";
 import {
   ChatDefaultsContext,
   useChatDefaultsState,
@@ -228,7 +229,10 @@ export const App = ({ api }: { api: ApiClient }) => {
       const next = await api.system.status();
       if (cancelled) return;
       setStatus(next);
-      if (next.claude.state === "checking") {
+      if (
+        next.claude.state === "checking" ||
+        Object.values(next.agents).some((agent) => agent.state === "checking")
+      ) {
         setTimeout(poll, 1000);
       }
     };
@@ -605,223 +609,227 @@ export const App = ({ api }: { api: ApiClient }) => {
 
   return (
     <ChatDefaultsContext.Provider value={chatDefaults}>
-      <div className="flex h-full">
-        <Sidebar
-          id="sidebar"
-          hidden={!sidebarOpen}
-          width={sidebarWidth}
-          chats={listedChats(chats, selectedId)}
-          tasks={tasks ?? []}
-          environments={environments}
-          wikis={wikis}
-          defaultDirectory={status?.cwd}
-          taskId={taskId}
-          selectedId={selectedId}
-          openTaskId={
-            selectedId === undefined && wikiRoute === undefined
-              ? task?.id
-              : undefined
-          }
-          openWikiTaskId={showWiki ? task.id : undefined}
-          onNewInTask={(id) => void newChat(id)}
-          onSelect={select}
-          onRename={rename}
-          onDelete={remove}
-          onOpenTask={(id) => navigate(pathForTask(id))}
-          onOpenWiki={(id) => navigate(pathForWiki(id))}
-          onCreateTask={createTask}
-          onCreateEnvironment={createEnvironment}
-          onUpdateEnvironment={updateEnvironment}
-          onDeleteEnvironment={deleteEnvironment}
-          onPickDirectory={pickDirectory}
-          onSetTaskEnvironment={setTaskEnvironment}
-          onRenameWiki={renameWiki}
-          onRenameTask={renameTask}
-          onDeleteTask={deleteTask}
-          onArchiveTask={(id) => setTaskArchived(id, true)}
-          onArchiveThread={async (id, archived) => {
-            await api.chats.setArchived({ id, archived });
-            await refreshChats();
-          }}
-          unreadChatIds={unreadChatIds}
-          onSetTask={setTask}
-          onSetAutoTerms={setAutoTerms}
-          onOpenTaskList={() => navigate(TASK_LIST_PATH)}
-          onOpenGeneralSettings={() => setSettingsOpen(true)}
-          onSearch={searchChats}
-          onOpenSearchHit={openSearchHit}
-          request={sidebarRequest}
-        />
-        {sidebarOpen && (
-          <PaneResizer
-            side="left"
-            label="サイドバーの幅"
-            title="ドラッグしてサイドバーの幅を変える（←→ キーでも変えられます）"
-            controls="sidebar"
+      <AgentsContext.Provider value={status?.agents}>
+        <div className="flex h-full">
+          <Sidebar
+            id="sidebar"
+            hidden={!sidebarOpen}
             width={sidebarWidth}
-            {...sidebarWidthRange(viewportWidth, sidebarReserved)}
-            onResize={setSavedSidebarWidth}
-            onCommit={saveSidebarWidth}
+            chats={listedChats(chats, selectedId)}
+            tasks={tasks ?? []}
+            environments={environments}
+            wikis={wikis}
+            defaultDirectory={status?.cwd}
+            taskId={taskId}
+            selectedId={selectedId}
+            openTaskId={
+              selectedId === undefined && wikiRoute === undefined
+                ? task?.id
+                : undefined
+            }
+            openWikiTaskId={showWiki ? task.id : undefined}
+            onNewInTask={(id) => void newChat(id)}
+            onSelect={select}
+            onRename={rename}
+            onDelete={remove}
+            onOpenTask={(id) => navigate(pathForTask(id))}
+            onOpenWiki={(id) => navigate(pathForWiki(id))}
+            onCreateTask={createTask}
+            onCreateEnvironment={createEnvironment}
+            onUpdateEnvironment={updateEnvironment}
+            onDeleteEnvironment={deleteEnvironment}
+            onPickDirectory={pickDirectory}
+            onSetTaskEnvironment={setTaskEnvironment}
+            onRenameWiki={renameWiki}
+            onRenameTask={renameTask}
+            onDeleteTask={deleteTask}
+            onArchiveTask={(id) => setTaskArchived(id, true)}
+            onArchiveThread={async (id, archived) => {
+              await api.chats.setArchived({ id, archived });
+              await refreshChats();
+            }}
+            unreadChatIds={unreadChatIds}
+            onSetTask={setTask}
+            onSetAutoTerms={setAutoTerms}
+            onOpenTaskList={() => navigate(TASK_LIST_PATH)}
+            onOpenGeneralSettings={() => setSettingsOpen(true)}
+            onSearch={searchChats}
+            onOpenSearchHit={openSearchHit}
+            request={sidebarRequest}
           />
-        )}
-        <main
-          className="flex min-w-0 flex-1 flex-col"
-          data-claude-state={status?.claude.state ?? "connecting"}
-        >
-          <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground"
-              aria-label={
-                sidebarOpen ? "サイドバーを閉じる" : "サイドバーを開く"
-              }
-              title={`${sidebarOpen ? "サイドバーを閉じる" : "サイドバーを開く"}（${SIDEBAR_SHORTCUT}）`}
-              aria-expanded={sidebarOpen}
-              aria-controls="sidebar"
-              onClick={toggleSidebar}
-            >
-              {sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
-            </Button>
-            <span className="min-w-0 flex-1 truncate font-medium text-sm">
-              {headerTitle}
-            </span>
-            <div className="flex shrink-0 items-center gap-2">
-              {/* 開いている画面の操作（Wiki の概要と操作ボタンなど。#213） */}
-              <div
-                ref={setHeaderActions}
-                className="flex items-center gap-1 empty:hidden"
-              />
-              <ClaudeStatusBadge status={status} />
-            </div>
-          </header>
-          {workspace !== undefined && (
-            <div className={showWiki ? "hidden" : "flex min-h-0 flex-1"}>
-              <ChatWorkspace
-                key={workspaceGroup || workspace.chat.id}
-                api={api}
-                chat={workspace.chat}
-                initialMessages={workspace.messages}
-                loading={workspace.chat.id !== chatViewId}
-                models={models}
-                cwd={workspace.chat.cwd}
-                environment={environmentOf(workspace.chat)}
-                onEditEnvironment={editEnvironment}
-                onActivity={refreshAfterActivity}
-                branches={chats.filter(
-                  (chat) => chat.groupId === workspace.chat.groupId,
-                )}
-                onSelectBranch={select}
-                onOpenChat={select}
-                // Wiki を使わない環境のタスクでは、回答からノートを作れない（#232）
-                {...(tasks?.find((item) => item.id === workspace.chat.taskId)
-                  ?.wikiId === null
-                  ? {}
-                  : { onWikiPageCreated: () => void wiki.refresh() })}
-                {...(focus?.chatId === workspace.chat.id
-                  ? { focusMessage: focus }
-                  : {})}
-                onOpenWikiPage={(taskId, pageId) =>
-                  navigate(pathForWiki(taskId, pageId), { returnTo: path })
+          {sidebarOpen && (
+            <PaneResizer
+              side="left"
+              label="サイドバーの幅"
+              title="ドラッグしてサイドバーの幅を変える（←→ キーでも変えられます）"
+              controls="sidebar"
+              width={sidebarWidth}
+              {...sidebarWidthRange(viewportWidth, sidebarReserved)}
+              onResize={setSavedSidebarWidth}
+              onCommit={saveSidebarWidth}
+            />
+          )}
+          <main
+            className="flex min-w-0 flex-1 flex-col"
+            data-claude-state={status?.claude.state ?? "connecting"}
+          >
+            <header className="flex h-12 shrink-0 items-center gap-2 border-b px-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-8 text-muted-foreground"
+                aria-label={
+                  sidebarOpen ? "サイドバーを閉じる" : "サイドバーを開く"
                 }
-                headerSlot={showWiki ? null : headerActions}
-                task={tasks?.find((item) => item.id === workspace.chat.taskId)}
-                onOpenTask={(id) => navigate(pathForTask(id))}
-                unreadChatIds={unreadChatIds}
-                onSideChatsChange={setSideChatIds}
+                title={`${sidebarOpen ? "サイドバーを閉じる" : "サイドバーを開く"}（${SIDEBAR_SHORTCUT}）`}
+                aria-expanded={sidebarOpen}
+                aria-controls="sidebar"
+                onClick={toggleSidebar}
+              >
+                {sidebarOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+              </Button>
+              <span className="min-w-0 flex-1 truncate font-medium text-sm">
+                {headerTitle}
+              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                {/* 開いている画面の操作（Wiki の概要と操作ボタンなど。#213） */}
+                <div
+                  ref={setHeaderActions}
+                  className="flex items-center gap-1 empty:hidden"
+                />
+                <ClaudeStatusBadge status={status} />
+              </div>
+            </header>
+            {workspace !== undefined && (
+              <div className={showWiki ? "hidden" : "flex min-h-0 flex-1"}>
+                <ChatWorkspace
+                  key={workspaceGroup || workspace.chat.id}
+                  api={api}
+                  chat={workspace.chat}
+                  initialMessages={workspace.messages}
+                  loading={workspace.chat.id !== chatViewId}
+                  models={models}
+                  cwd={workspace.chat.cwd}
+                  environment={environmentOf(workspace.chat)}
+                  onEditEnvironment={editEnvironment}
+                  onActivity={refreshAfterActivity}
+                  branches={chats.filter(
+                    (chat) => chat.groupId === workspace.chat.groupId,
+                  )}
+                  onSelectBranch={select}
+                  onOpenChat={select}
+                  // Wiki を使わない環境のタスクでは、回答からノートを作れない（#232）
+                  {...(tasks?.find((item) => item.id === workspace.chat.taskId)
+                    ?.wikiId === null
+                    ? {}
+                    : { onWikiPageCreated: () => void wiki.refresh() })}
+                  {...(focus?.chatId === workspace.chat.id
+                    ? { focusMessage: focus }
+                    : {})}
+                  onOpenWikiPage={(taskId, pageId) =>
+                    navigate(pathForWiki(taskId, pageId), { returnTo: path })
+                  }
+                  headerSlot={showWiki ? null : headerActions}
+                  task={tasks?.find(
+                    (item) => item.id === workspace.chat.taskId,
+                  )}
+                  onOpenTask={(id) => navigate(pathForTask(id))}
+                  unreadChatIds={unreadChatIds}
+                  onSideChatsChange={setSideChatIds}
+                />
+              </div>
+            )}
+            {isTaskListPath(path) ? (
+              <TaskList
+                tasks={tasks ?? []}
+                onOpen={(id) => navigate(pathForTask(id))}
+                onMove={async (id, status) => {
+                  await api.tasks.updateProgress({ id, status });
+                  await refreshTasks();
+                }}
+                onOpenView={openTaskListView}
               />
-            </div>
-          )}
-          {isTaskListPath(path) ? (
-            <TaskList
-              tasks={tasks ?? []}
-              onOpen={(id) => navigate(pathForTask(id))}
-              onMove={async (id, status) => {
-                await api.tasks.updateProgress({ id, status });
-                await refreshTasks();
-              }}
-              onOpenView={openTaskListView}
-            />
-          ) : isArchivedTaskListPath(path) ? (
-            <ArchivedTaskList
-              tasks={tasks ?? []}
-              environments={environments}
-              threadCounts={threadCounts}
-              onOpen={(id) => navigate(pathForTask(id))}
-              onRestore={(id) => setTaskArchived(id, false)}
-              onOpenView={openTaskListView}
-            />
-          ) : showWiki ? (
-            <WikiView
-              key={task.id}
-              api={api}
-              pages={wiki.pages}
-              loadError={wiki.loadError}
-              refresh={wiki.refresh}
-              taskId={task.id}
-              taskName={task.name}
-              wikiName={wikis.find((wiki) => wiki.id === task.wikiId)?.name}
-              referencingTasks={(tasks ?? [])
-                .filter((p) => p.wikiId === task.wikiId)
-                .map((p) => ({ id: p.id, name: p.name }))}
-              autoTerms={task.autoTerms}
-              headerActions={headerActions}
-              onOpenTask={(id) => navigate(pathForTask(id))}
-              pageId={wikiRoute.pageId}
-              models={models}
-              hasPageChat={chats.some(
-                (chat) =>
-                  chat.taskId === task.id &&
-                  chat.parentId === null &&
-                  chat.wikiPageId === wikiRoute.pageId,
-              )}
-              onChatActivity={refreshAfterActivity}
-              onOpenChat={select}
-              returnTo={wikiState?.returnTo}
-              onReturn={(to) => navigate(to)}
-              onNavigate={navigateWiki}
-              onOpenAnswer={openSearchHit}
-            />
-          ) : workspace !== undefined ? null : selectedId === undefined &&
-            wikiRoute === undefined &&
-            task !== undefined ? (
-            <TaskOverview
-              key={task.id}
-              api={api}
-              task={task}
-              threads={groupChats(listedChats(chats, selectedId))
-                .filter((group) => group.primary.taskId === task.id)
-                .map((group) => group.primary)}
-              onOpenChat={select}
-              onOpenWiki={() => navigate(pathForWiki(task.id))}
-              onNewChat={() => void newChat(task.id)}
-              onChanged={refreshTasks}
-              onRestore={() => setTaskArchived(task.id, false)}
-            />
-          ) : (
-            <section className="flex flex-1 items-center justify-center text-muted-foreground">
-              {loadError ??
-                (wikiUnavailable
-                  ? "このタスクの環境は Wiki を使っていません。"
-                  : selectedId === undefined
-                    ? "スレッドを選ぶか、新しいスレッドを始めてください。"
-                    : "読み込み中…")}
-            </section>
-          )}
-        </main>
-      </div>
-      <CommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        commands={commands}
-      />
-      <GeneralSettingsDialog
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        claude={status?.claude}
-        theme={theme}
-        onThemeChange={setTheme}
-      />
+            ) : isArchivedTaskListPath(path) ? (
+              <ArchivedTaskList
+                tasks={tasks ?? []}
+                environments={environments}
+                threadCounts={threadCounts}
+                onOpen={(id) => navigate(pathForTask(id))}
+                onRestore={(id) => setTaskArchived(id, false)}
+                onOpenView={openTaskListView}
+              />
+            ) : showWiki ? (
+              <WikiView
+                key={task.id}
+                api={api}
+                pages={wiki.pages}
+                loadError={wiki.loadError}
+                refresh={wiki.refresh}
+                taskId={task.id}
+                taskName={task.name}
+                wikiName={wikis.find((wiki) => wiki.id === task.wikiId)?.name}
+                referencingTasks={(tasks ?? [])
+                  .filter((p) => p.wikiId === task.wikiId)
+                  .map((p) => ({ id: p.id, name: p.name }))}
+                autoTerms={task.autoTerms}
+                headerActions={headerActions}
+                onOpenTask={(id) => navigate(pathForTask(id))}
+                pageId={wikiRoute.pageId}
+                models={models}
+                hasPageChat={chats.some(
+                  (chat) =>
+                    chat.taskId === task.id &&
+                    chat.parentId === null &&
+                    chat.wikiPageId === wikiRoute.pageId,
+                )}
+                onChatActivity={refreshAfterActivity}
+                onOpenChat={select}
+                returnTo={wikiState?.returnTo}
+                onReturn={(to) => navigate(to)}
+                onNavigate={navigateWiki}
+                onOpenAnswer={openSearchHit}
+              />
+            ) : workspace !== undefined ? null : selectedId === undefined &&
+              wikiRoute === undefined &&
+              task !== undefined ? (
+              <TaskOverview
+                key={task.id}
+                api={api}
+                task={task}
+                threads={groupChats(listedChats(chats, selectedId))
+                  .filter((group) => group.primary.taskId === task.id)
+                  .map((group) => group.primary)}
+                onOpenChat={select}
+                onOpenWiki={() => navigate(pathForWiki(task.id))}
+                onNewChat={() => void newChat(task.id)}
+                onChanged={refreshTasks}
+                onRestore={() => setTaskArchived(task.id, false)}
+              />
+            ) : (
+              <section className="flex flex-1 items-center justify-center text-muted-foreground">
+                {loadError ??
+                  (wikiUnavailable
+                    ? "このタスクの環境は Wiki を使っていません。"
+                    : selectedId === undefined
+                      ? "スレッドを選ぶか、新しいスレッドを始めてください。"
+                      : "読み込み中…")}
+              </section>
+            )}
+          </main>
+        </div>
+        <CommandPalette
+          open={paletteOpen}
+          onOpenChange={setPaletteOpen}
+          commands={commands}
+        />
+        <GeneralSettingsDialog
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          claude={status?.claude}
+          theme={theme}
+          onThemeChange={setTheme}
+        />
+      </AgentsContext.Provider>
     </ChatDefaultsContext.Provider>
   );
 };

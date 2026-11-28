@@ -21,6 +21,7 @@ const chatDto = (id: string, title: string): ChatDto => ({
   taskId: null,
   wikiPageId: null,
   title,
+  agent: "claude-code",
   model: "sonnet",
   effort: null,
   cwd: "/w",
