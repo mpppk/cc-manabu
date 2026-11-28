@@ -699,13 +699,6 @@ export const ChatWorkspace = ({
     <ColumnStack
       reveal={stack.reveal}
       highlight={stack.highlight}
-      backToMain={{
-        target: props.headerSlot,
-        onClick: () => {
-          stack.backToMain();
-          requestAnimationFrame(focusComposer);
-        },
-      }}
       main={
         <section
           ref={main}

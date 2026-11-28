@@ -660,10 +660,6 @@ export const WikiView = ({
       <ColumnStack
         reveal={stack.reveal}
         highlight={stack.highlight}
-        backToMain={{
-          target: headerActions,
-          onClick: () => stack.backToMain(),
-        }}
         // 左サイドバーを広げても、ノートの一覧・本文・右側のカラムが並ぶ幅を残す
         reserveMainWidth={WIKI_PAGE_LIST_WIDTH + MIN_SIDE_PANEL_WIDTH}
         main={
