@@ -6,6 +6,7 @@ import {
   summaryOf,
   WikiTermsContext,
 } from "../../src/web/components/wiki-term.tsx";
+import { linkServiceOf } from "../../src/web/lib/link-service.ts";
 import { createTermMatcher } from "../../src/wiki/term-matcher.ts";
 
 describe("Markdown", () => {
@@ -156,5 +157,50 @@ describe("Reasoning", () => {
       "考えています",
     );
     expect(renderToString(<Reasoning text="" streaming={false} />)).toBe("");
+  });
+});
+
+describe("リンク先のサービスのアイコン（#275）", () => {
+  test("Cosense・Slack の URL を判定し、ほかのサイトや解釈できない URL は対象外", () => {
+    expect(linkServiceOf("https://scrapbox.io/proj/ページ")).toBe("cosense");
+    expect(linkServiceOf("https://cosen.se/proj/page")).toBe("cosense");
+    // プロジェクトのトップなど、ページでなければ付けない
+    expect(linkServiceOf("https://scrapbox.io/proj")).toBeUndefined();
+    expect(
+      linkServiceOf("https://acme.slack.com/archives/C1/p1700000000000100"),
+    ).toBe("slack");
+    expect(linkServiceOf("https://slack.com/intl/ja-jp")).toBe("slack");
+    expect(linkServiceOf("https://example.com/slack.com")).toBeUndefined();
+    expect(linkServiceOf("https://notslack.com/x")).toBeUndefined();
+    expect(linkServiceOf("#wiki-p1")).toBeUndefined();
+    expect(linkServiceOf(undefined)).toBeUndefined();
+  });
+
+  test("Markdown リンク・自動リンク・プロジェクト間リンクの先頭にアイコンを付け、ほかのリンク・コード・出典には付けない", () => {
+    const html = renderToString(
+      <Markdown
+        text={[
+          "[設計メモ](https://scrapbox.io/proj/設計メモ) と https://acme.slack.com/archives/C1/p1700000000000100",
+          "[/Nota/xxx] と [外部](https://example.com)",
+          "`https://scrapbox.io/proj/コード`",
+          "根拠[出典](#cite-1)",
+        ].join("\n\n")}
+        cosenseLinks
+        citations={[
+          {
+            n: 1,
+            kind: "cosense",
+            url: "https://scrapbox.io/proj/p",
+            title: "p",
+          },
+        ]}
+      />,
+    );
+    expect(html.match(/data-link-service="cosense"/g)).toHaveLength(2);
+    expect(html.match(/data-link-service="slack"/g)).toHaveLength(1);
+    // アイコンは読み上げず、リンクのラベルと同じリンクの中に置く
+    expect(html).toMatch(
+      /<a[^>]*>(?:(?!<\/a>).)*data-link-service="cosense"[^>]*aria-hidden="true"|<a[^>]*>(?:(?!<\/a>).)*aria-hidden="true"[^>]*data-link-service="cosense"/,
+    );
   });
 });
