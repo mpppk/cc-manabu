@@ -1988,8 +1988,10 @@ test("分岐点の回答から、そこで分岐した会話を開け、引き�
   await open(page);
   const main = page.getByRole("main");
   const branches = branchMenu(page);
-  // 分岐した会話のある回答の「ここから分岐」には、その数を出す（#242）
-  const forkButton = main.getByRole("button", { name: /^ここから分岐\s*\d+/ });
+  // 分岐した会話のある回答の「ここから分岐」はメニューを開く（アイコンだけ。#266）
+  const forkButton = main
+    .getByRole("button", { name: "ここから分岐", exact: true })
+    .and(main.locator('[data-fork-count]:not([data-fork-count="0"])'));
   const forkPopup = page.getByRole("dialog", {
     name: "この回答から分岐した会話",
   });
@@ -2017,7 +2019,8 @@ test("分岐点の回答から、そこで分岐した会話を開け、引き�
 
   // 分岐点の回答（閉じていても）から、そこで分岐した会話が分かり、開ける
   await expect(forkButton).toHaveCount(1);
-  await expect(forkButton).toHaveText(/ここから分岐\s*1/);
+  await expect(forkButton).toHaveAttribute("data-fork-count", "1");
+  await expect(forkButton).toHaveText("");
   await forkButton.click();
   await expect(
     forkPopup.getByRole("button", { name: "別案だと？（元の会話 から分岐）" }),
@@ -2093,8 +2096,8 @@ test("「ここから分岐」で新しい分岐を作り、分岐があれば�
 
   // 分岐があれば、メニューから既存の分岐を開くか、新しい分岐を作るかを選べる
   await branches.select("元の会話");
-  const forkButton = lastAnswer.getByRole("button", { name: /^ここから分岐/ });
-  await expect(forkButton).toHaveText(/ここから分岐\s*1/);
+  const forkButton = lastAnswer.getByRole("button", { name: "ここから分岐" });
+  await expect(forkButton).toHaveAttribute("data-fork-count", "1");
   await forkButton.click();
   await expect(
     forkPopup.getByRole("button", {
@@ -2113,7 +2116,7 @@ test("「ここから分岐」で新しい分岐を作り、分岐があれば�
 
   // 同じメニューから既存の分岐をメインで開ける
   await branches.select("元の会話");
-  await expect(forkButton).toHaveText(/ここから分岐\s*2/);
+  await expect(forkButton).toHaveAttribute("data-fork-count", "2");
   await forkButton.click();
   await forkPopup
     .getByRole("button", { name: "末尾から分岐（元の会話 から分岐）" })
@@ -3902,7 +3905,29 @@ test("サイドチャットの引用からメインの引用元へ移れ、メ�
     if (rect === undefined) throw new Error("no rect");
     return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
   });
+  // 下線にポインターを重ねると、そのサイドチャットで最初に送った質問をプレビューする（#266）
+  const preview = page.getByRole("tooltip");
+  await page.mouse.move(point.x, point.y);
+  await expect(preview).toContainText("どういう意味？");
+  // 離れるとプレビューを閉じる
+  await page.mouse.move(point.x, point.y - 200);
+  await expect(preview).toHaveCount(0);
+  // 分岐メニューに紫の破線の説明は出さない
+  await page
+    .locator("[data-assistant-message]")
+    .last()
+    .locator('button[aria-label="ここから分岐"]')
+    .click();
+  await expect(
+    page.getByText("本文の紫の破線は、サイドで質問した箇所です。", {
+      exact: false,
+    }),
+  ).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await page.mouse.move(point.x, point.y);
+  await expect(preview).toContainText("どういう意味？");
   await page.mouse.click(point.x, point.y);
+  await expect(preview).toHaveCount(0);
   await expect(side.getByText(/^了解: 以下は/)).toBeVisible();
 
   // サイドチャットの引用から、メインの引用元を示す

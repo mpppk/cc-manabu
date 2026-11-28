@@ -64,7 +64,6 @@ describe("branchPointsOf（#242）", () => {
       ],
       {
         forksOf: (id) => forks[id] ?? [],
-        quoted: (id) => id === "a2",
         onCreate: (id) => created.push(id),
       },
     );
@@ -77,7 +76,6 @@ describe("branchPointsOf（#242）", () => {
       ["b1"],
       ["b2", "b3"],
     ]);
-    expect(points.map((p) => p.quoted)).toEqual([false, true]);
     points[1]?.onCreate?.();
     points[0]?.onCreate?.();
     expect(created).toEqual(["a2", "a1"]);
@@ -86,7 +84,6 @@ describe("branchPointsOf（#242）", () => {
   test("分岐元の位置が分からない回答でも、分岐があれば開ける（新規作成はできない）", () => {
     const [point] = branchPointsOf([answer("a", "古い回答", false)], {
       forksOf: () => [chatDto("b", "分岐")],
-      quoted: () => false,
       onCreate: () => {},
     });
     expect(point?.forks).toHaveLength(1);
@@ -96,7 +93,6 @@ describe("branchPointsOf（#242）", () => {
   test("生成中など新しい分岐を作れないときは、新規作成の起点を持たない", () => {
     const [point] = branchPointsOf([answer("a", "回答")], {
       forksOf: () => [],
-      quoted: () => false,
       onCreate: undefined,
     });
     expect(point?.onCreate).toBeUndefined();
@@ -123,18 +119,19 @@ describe("BranchFromHere（#242）", () => {
     label: "回答 1",
     forks,
     onCreate: creatable ? () => {} : undefined,
-    quoted: false,
   });
 
-  test("分岐が無ければ、メニューを挟まない「ここから分岐」", () => {
+  test("分岐が無ければ、メニューを挟まない「ここから分岐」（アイコンだけ。#266）", () => {
     const html = renderToString(
       <BranchFromHere {...props} points={[point([])]} />,
     );
-    expect(html).toContain("ここから分岐");
+    expect(html).toContain('aria-label="ここから分岐"');
     expect(html).not.toContain("aria-haspopup");
+    // ボタンの中に文字は出さない
+    expect(html).not.toMatch(/>ここから分岐</);
   });
 
-  test("分岐があれば、数を出してメニューを開く", () => {
+  test("分岐があれば、メニューを開く（件数や補助アイコンは出さない。#266）", () => {
     const html = renderToString(
       <BranchFromHere
         {...props}
@@ -144,6 +141,9 @@ describe("BranchFromHere（#242）", () => {
     expect(html).toContain("ここから分岐");
     expect(html).toContain('aria-haspopup="dialog"');
     expect(html).toContain('data-fork-count="2"');
+    expect(html).not.toMatch(/>ここから分岐</);
+    expect(html).not.toContain("lucide-chevron-down");
+    expect(html).not.toMatch(/>2</);
   });
 
   test("分岐も無く新しく作れもしなければ出さない", () => {

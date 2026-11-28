@@ -415,7 +415,12 @@ describe("選択範囲を引用して質問（#91）", () => {
         messageId: answer?.id ?? "",
         chatIds: [branchId, plain],
         quotes: [
-          { chatId: branchId, text: "方式 B", range: { start: 3, end: 7 } },
+          {
+            chatId: branchId,
+            text: "方式 B",
+            range: { start: 3, end: 7 },
+            question: "詳しく",
+          },
         ],
       },
     ]);

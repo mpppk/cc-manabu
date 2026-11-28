@@ -827,6 +827,49 @@ type ForkPointDto = Awaited<
 
 const NO_UNREAD: ReadonlySet<string> = new Set();
 
+/**
+ * 紫の破線にポインターを重ねたときの、そのサイドチャットで最初に送った質問のプレビュー（#266）。
+ * 破線の行の下（画面の下端に近ければ上）に出す。押すと破線のクリックでサイドチャットを開く。
+ */
+const SideQuotePreview = ({
+  chatId,
+  question,
+  left,
+  top,
+  bottom,
+}: {
+  chatId: string;
+  question: string;
+  left: number;
+  top: number;
+  bottom: number;
+}) => {
+  const below = bottom + 160 < window.innerHeight;
+  const width = Math.min(352, window.innerWidth - 16);
+  return createPortal(
+    <div
+      role="tooltip"
+      data-side-quote-preview={chatId}
+      className="pointer-events-none fixed z-50 flex flex-col gap-1 rounded-md border bg-popover px-3 py-2 text-popover-foreground text-sm shadow-lg"
+      style={{
+        left: Math.max(8, Math.min(left, window.innerWidth - width - 8)),
+        width,
+        ...(below
+          ? { top: bottom + 6 }
+          : { bottom: window.innerHeight - top + 6 }),
+      }}
+    >
+      <span className="text-muted-foreground text-xs">
+        サイドで質問した内容（押すと開きます）
+      </span>
+      <span className="line-clamp-4 whitespace-pre-wrap break-words">
+        {question === "" ? "（質問の本文はありません）" : question}
+      </span>
+    </div>,
+    document.body,
+  );
+};
+
 /** 1 つの会話を表示し、その会話の ID で送信・再接続する。 */
 export const ChatView = ({
   api,
@@ -1421,10 +1464,6 @@ export const ChatView = ({
     if (side) return undefined;
     const points = branchPointsOf(answers, {
       forksOf: (id) => forksOf([id]),
-      quoted: (id) =>
-        forkPointList.some(
-          (point) => point.messageId === id && point.quotes.length > 0,
-        ),
       onCreate: createBlocker === undefined ? startBranch : undefined,
     });
     return points.length === 0 ? undefined : (
@@ -1664,8 +1703,21 @@ export const ChatView = ({
   }, [quoteFocus, forkPointsReady]);
 
   // サイドチャットで質問した箇所に、紫の破線の下線を引く（メインのチャットだけ。#239）
-  const sideQuotes = useRef<{ range: Range; chatId: string }[]>([]);
-  const [onSideQuote, setOnSideQuote] = useState(false);
+  const sideQuotes = useRef<
+    { range: Range; chatId: string; question: string }[]
+  >([]);
+  /**
+   * ポインターを重ねている紫の破線と、そのサイドチャットで最初に送った質問（プレビューに出す。#266）。
+   * left / top / bottom は、ポインターの下にある破線の行の位置（画面の座標）。
+   */
+  const [hoveredSideQuote, setHoveredSideQuote] = useState<{
+    chatId: string;
+    question: string;
+    left: number;
+    top: number;
+    bottom: number;
+  }>();
+  const onSideQuote = hoveredSideQuote !== undefined;
   const quoteKey = JSON.stringify(
     forkPointList.flatMap((point) =>
       point.quotes.map((quote) => ({ messageId: point.messageId, ...quote })),
@@ -1679,6 +1731,7 @@ export const ChatView = ({
       chatId: string;
       text: string;
       range?: QuoteRange;
+      question: string;
     }[];
     let frame = 0;
     const update = () => {
@@ -1689,7 +1742,9 @@ export const ChatView = ({
         );
         const range =
           element == null ? undefined : findQuoteRange(element, quote);
-        return range === undefined ? [] : [{ range, chatId: quote.chatId }];
+        return range === undefined
+          ? []
+          : [{ range, chatId: quote.chatId, question: quote.question }];
       });
       if (sideQuotes.current.length === 0) {
         CSS.highlights.delete(SIDE_QUOTE_HIGHLIGHT);
@@ -1716,6 +1771,7 @@ export const ChatView = ({
       cancelAnimationFrame(frame);
       sideQuotes.current = [];
       CSS.highlights.delete(SIDE_QUOTE_HIGHLIGHT);
+      setHoveredSideQuote(undefined);
     };
   }, [side, quoteKey]);
   /** 画面上の位置にある、サイドで質問した箇所。 */
@@ -1860,17 +1916,49 @@ export const ChatView = ({
             onSideQuote && "cursor-pointer",
           )}
           onMouseMove={(event) => {
-            const over =
-              sideQuoteAt(event.clientX, event.clientY) !== undefined;
-            if (over !== onSideQuote) setOnSideQuote(over);
+            const quote = sideQuoteAt(event.clientX, event.clientY);
+            if (quote === undefined) {
+              if (hoveredSideQuote !== undefined) {
+                setHoveredSideQuote(undefined);
+              }
+              return;
+            }
+            if (hoveredSideQuote?.chatId === quote.chatId) return;
+            // 破線が複数行に渡るときは、ポインターの下の行に添える
+            const rects = [...quote.range.getClientRects()];
+            const rect =
+              rects.find(
+                (r) =>
+                  event.clientY >= r.top &&
+                  event.clientY <= r.bottom &&
+                  event.clientX >= r.left &&
+                  event.clientX <= r.right,
+              ) ?? quote.range.getBoundingClientRect();
+            setHoveredSideQuote({
+              chatId: quote.chatId,
+              question: quote.question,
+              left: rect.left,
+              top: rect.top,
+              bottom: rect.bottom,
+            });
+          }}
+          onMouseLeave={() => setHoveredSideQuote(undefined)}
+          onScroll={() => {
+            if (hoveredSideQuote !== undefined) setHoveredSideQuote(undefined);
           }}
           onClick={(event) => {
             // 文字を選んでいる途中のクリックでは開かない
             if (window.getSelection()?.isCollapsed === false) return;
             const quote = sideQuoteAt(event.clientX, event.clientY);
-            if (quote !== undefined) onOpenSideBranch?.(quote.chatId);
+            if (quote !== undefined) {
+              setHoveredSideQuote(undefined);
+              onOpenSideBranch?.(quote.chatId);
+            }
           }}
         >
+          {hoveredSideQuote !== undefined && (
+            <SideQuotePreview {...hoveredSideQuote} />
+          )}
           <div className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
             {!side && chat.wikiPageId !== null && (
               <WikiSourceNote

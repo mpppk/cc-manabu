@@ -10,8 +10,6 @@ export type BranchPoint = {
   forks: readonly ChatDto[];
   /** この回答から新しい分岐を作る。作れないときは undefined。 */
   onCreate: (() => void) | undefined;
-  /** 回答の一部を引用して質問した会話があるか（本文に下線を引く。#239）。 */
-  quoted: boolean;
 };
 
 /** 回答の本文の書き出し（「…」で括る）。本文が無ければ空。分岐の起点を示すのに使う（#242）。 */
@@ -35,8 +33,6 @@ export const branchPointsOf = (
   options: {
     /** その回答から分岐した会話。 */
     forksOf: (messageId: string) => readonly ChatDto[];
-    /** 引用して質問した会話のある回答。 */
-    quoted: (messageId: string) => boolean;
     /** 新しい分岐を作り始める。作れないとき（生成中など）は undefined。 */
     onCreate: ((messageId: string) => void) | undefined;
   },
@@ -59,6 +55,5 @@ export const branchPointsOf = (
           create !== undefined && branchable
             ? () => create(message.id)
             : undefined,
-        quoted: options.quoted(message.id),
       };
     });

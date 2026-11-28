@@ -39,9 +39,31 @@ export type ForkPoint = {
   messageId: string;
   /** この回答から分岐した会話（作った順）。 */
   chatIds: string[];
-  /** そのうち、回答の一部を引用して質問した会話と、その引用。 */
-  quotes: { chatId: string; text: string; range?: QuoteRange }[];
+  /**
+   * そのうち、回答の一部を引用して質問した会話と、その引用。
+   * question はその会話で最初に送った質問の本文（紫の破線のプレビューに出す。#266）。
+   */
+  quotes: {
+    chatId: string;
+    text: string;
+    range?: QuoteRange;
+    question: string;
+  }[];
 };
+
+/** 質問の本文（テキストのパートだけをつなぐ。引用や画像は含めない）。 */
+const questionTextOf = (parts: readonly unknown[]): string =>
+  parts
+    .flatMap((part) =>
+      typeof part === "object" &&
+      part !== null &&
+      (part as { type?: unknown }).type === "text" &&
+      typeof (part as { text?: unknown }).text === "string"
+        ? [(part as { text: string }).text]
+        : [],
+    )
+    .join("\n")
+    .trim();
 
 const run = <T>(fn: () => T): Result.Result<T, DatabaseError> =>
   Result.try({ try: fn, catch: (cause) => new DatabaseError({ cause }) });
@@ -588,6 +610,7 @@ export const createChatRepository = (db: Db) => {
                   chatId: other.id,
                   text: quote.text,
                   ...(quote.range === undefined ? {} : { range: quote.range }),
+                  question: questionTextOf(question?.parts ?? []),
                 });
               }
               points.set(match.id, point);
