@@ -1,11 +1,11 @@
 import {
   Archive,
+  ArchiveRestore,
   BookOpen,
   Boxes,
   Check,
   ChevronRight,
   FileText,
-  Filter,
   FolderMinus,
   FolderPlus,
   FolderTree,
@@ -25,14 +25,12 @@ import {
 } from "lucide-react";
 import {
   type FormEvent,
-  type KeyboardEvent,
   type ReactNode,
   useEffect,
   useId,
   useRef,
   useState,
 } from "react";
-import type { TaskStatus } from "../../db/schema.ts";
 import type {
   ChatDto,
   EnvironmentDto,
@@ -41,13 +39,16 @@ import type {
 } from "../../router.ts";
 import { type ChatGroup, groupChats } from "../lib/groups.ts";
 import {
-  filterTasksByStatus,
-  loadStatusFilter,
-  saveStatusFilter,
-  TASK_STATUS_CLASSES,
-  TASK_STATUS_LABELS,
-  TASK_STATUS_ORDER,
-} from "../lib/task-status.ts";
+  type FilterState,
+  type FilterSubject,
+  fieldsOf,
+  isEmptyFilter,
+  loadFilterState,
+  saveFilterState,
+  showsTaskWithoutThreads,
+  showsThread,
+  threadStateOf,
+} from "../lib/thread-filter.ts";
 import { cn } from "../lib/utils.ts";
 import { ChatStatusBadge } from "./chat-status-badge.tsx";
 import {
@@ -66,6 +67,7 @@ import {
   type TaskDialog,
   TaskDialogs,
 } from "./task-dialogs.tsx";
+import { ThreadFilterPanel } from "./thread-filter-panel.tsx";
 import { Button } from "./ui/button.tsx";
 import { Dialog, DialogFooter } from "./ui/dialog.tsx";
 import { DropdownMenu } from "./ui/dropdown-menu.tsx";
@@ -77,9 +79,12 @@ const ChatItem = ({
   onRename,
   onDelete,
   onRemoveFromTask,
+  onArchive,
   branchCount = 1,
 }: {
   chat: ChatDto;
+  /** スレッドをアーカイブする・復元する（#256）。 */
+  onArchive?: ((archived: boolean) => void) | undefined;
   /** スレッド内の会話の数（2 以上なら表示する）。 */
   branchCount?: number;
   selected: boolean;
@@ -170,6 +175,11 @@ const ChatItem = ({
             {branchCount}
           </span>
         )}
+        {chat.archivedAt !== null && (
+          <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">
+            アーカイブ済み
+          </span>
+        )}
         <ChatStatusBadge status={chat.status} />
       </button>
       <div className="hidden shrink-0 group-hover:flex group-focus-within:flex">
@@ -195,6 +205,30 @@ const ChatItem = ({
             onClick={onRemoveFromTask}
           >
             <FolderMinus className="size-3.5" />
+          </Button>
+        )}
+        {onArchive !== undefined && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-6"
+            aria-label={
+              chat.archivedAt === null
+                ? `「${label}」をアーカイブ`
+                : `「${label}」を復元`
+            }
+            title={
+              chat.archivedAt === null
+                ? "アーカイブ（一覧から隠す。フィルタで見つけられます）"
+                : "復元"
+            }
+            onClick={() => onArchive(chat.archivedAt === null)}
+          >
+            {chat.archivedAt === null ? (
+              <Archive className="size-3.5" />
+            ) : (
+              <ArchiveRestore className="size-3.5" />
+            )}
           </Button>
         )}
         <Button
@@ -357,155 +391,6 @@ const TreeRow = ({
   </div>
 );
 
-/**
- * 左パネルのタスクを進捗で絞り込む（複数選択。#195）。
- * 「フィルタ」ボタンから開くメニューにまとめ、選んでも閉じずに続けて選べる（#208）。
- */
-const StatusFilter = ({
-  selected,
-  onToggle,
-}: {
-  selected: readonly TaskStatus[];
-  onToggle: (status: TaskStatus) => void;
-}) => {
-  const [open, setOpen] = useState(false);
-  const menuId = useId();
-  const rootRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const count = TASK_STATUS_ORDER.length;
-
-  const focusItem = (index: number) => {
-    itemRefs.current[((index % count) + count) % count]?.focus();
-  };
-  const close = (restoreFocus: boolean) => {
-    setOpen(false);
-    if (restoreFocus) triggerRef.current?.focus();
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    itemRefs.current[0]?.focus();
-    // メニューの外を押したら閉じる
-    const onPointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [open]);
-
-  const onMenuKeyDown = (event: KeyboardEvent) => {
-    const current = itemRefs.current.indexOf(
-      document.activeElement as HTMLButtonElement,
-    );
-    switch (event.key) {
-      case "ArrowDown":
-        event.preventDefault();
-        focusItem(current + 1);
-        break;
-      case "ArrowUp":
-        event.preventDefault();
-        focusItem(current - 1);
-        break;
-      case "Home":
-        event.preventDefault();
-        focusItem(0);
-        break;
-      case "End":
-        event.preventDefault();
-        focusItem(count - 1);
-        break;
-      case "Escape":
-        event.preventDefault();
-        close(true);
-        break;
-      case "Tab":
-        close(false);
-        break;
-    }
-  };
-
-  const label =
-    selected.length === 0
-      ? "フィルタ"
-      : `フィルタ（${selected.map((s) => TASK_STATUS_LABELS[s]).join("・")}）`;
-
-  return (
-    <div ref={rootRef} className="relative px-2 pb-2">
-      <Button
-        ref={triggerRef}
-        variant={selected.length > 0 ? "secondary" : "ghost"}
-        size="sm"
-        className="h-7 gap-1.5 px-2 text-xs"
-        aria-label={label}
-        title={label}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={open ? menuId : undefined}
-        onClick={() => setOpen((prev) => !prev)}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            setOpen(true);
-          }
-        }}
-      >
-        <Filter />
-        フィルタ
-        {selected.length > 0 && (
-          <span
-            className="rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground leading-4"
-            aria-hidden="true"
-          >
-            {selected.length}
-          </span>
-        )}
-      </Button>
-      {open && (
-        <div
-          id={menuId}
-          role="menu"
-          aria-label="進捗で絞り込む"
-          tabIndex={-1}
-          className="absolute top-full left-2 z-50 mt-1 flex min-w-40 flex-col rounded-md border bg-background p-1 shadow-md"
-          onKeyDown={onMenuKeyDown}
-        >
-          {TASK_STATUS_ORDER.map((status, index) => {
-            const checked = selected.includes(status);
-            return (
-              <button
-                key={status}
-                ref={(element) => {
-                  itemRefs.current[index] = element;
-                }}
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={checked}
-                tabIndex={-1}
-                className="flex items-center gap-2 whitespace-nowrap rounded-sm px-2 py-1.5 text-left text-sm outline-none hover:bg-accent focus:bg-accent"
-                // 選んでもメニューは閉じず、続けて選び直せる
-                onClick={() => onToggle(status)}
-              >
-                <span className="flex size-4 shrink-0 items-center justify-center">
-                  {checked && <Check className="size-4" />}
-                </span>
-                <span
-                  className={cn(
-                    "rounded-full px-2 py-0.5 text-xs",
-                    TASK_STATUS_CLASSES[status],
-                  )}
-                >
-                  {TASK_STATUS_LABELS[status]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
 /** コマンドパレット（#243）からサイドバーに頼む操作。 */
 export type SidebarRequest = {
   kind: "search" | "createTask";
@@ -541,6 +426,8 @@ export const Sidebar = ({
   onRenameTask,
   onDeleteTask,
   onArchiveTask,
+  onArchiveThread,
+  unreadChatIds,
   onSetTask,
   onSetAutoTerms,
   onSetTaskEnvironment,
@@ -596,6 +483,10 @@ export const Sidebar = ({
   onDeleteTask: (taskId: string) => Promise<void>;
   /** タスクをアーカイブする（#241）。 */
   onArchiveTask: (taskId: string) => Promise<void>;
+  /** スレッドをアーカイブする・復元する（#256）。 */
+  onArchiveThread: (chatId: string, archived: boolean) => Promise<void>;
+  /** 新しい回答の印が付いた会話（スレッドの状態の未読・既読に使う。#256）。 */
+  unreadChatIds: ReadonlySet<string>;
   /** スレッドの所属を変える（null で未所属に戻す）。 */
   onSetTask: (chatId: string, taskId: string | null) => Promise<void>;
   onSetAutoTerms: (taskId: string, enabled: boolean) => Promise<void>;
@@ -623,19 +514,22 @@ export const Sidebar = ({
   const [groupByEnvironment, setGroupByEnvironment] = useState(
     loadGroupByEnvironment,
   );
-  // 進捗の絞り込み（#195）。何も選んでいなければすべてのタスクを出す
-  const [statusFilter, setStatusFilter] =
-    useState<TaskStatus[]>(loadStatusFilter);
-  const toggleStatus = (status: TaskStatus) => {
-    const next = TASK_STATUS_ORDER.filter((s) =>
-      s === status ? !statusFilter.includes(s) : statusFilter.includes(s),
-    );
-    setStatusFilter(next);
-    saveStatusFilter(next);
+  /**
+   * 絞り込み（#256）。環境・タスクの進捗・スレッドの状態・アーカイブを AND／OR で組み合わせる。
+   * 以前の進捗の絞り込み（#195）は、そのどれかに当てはまる条件として引き継ぐ。
+   */
+  const [filterState, setFilterState] = useState<FilterState>(loadFilterState);
+  const changeFilter = (next: FilterState) => {
+    setFilterState(next);
+    saveFilterState(next);
   };
+  const filter = filterState.current;
+  const filtering = !isEmptyFilter(filter);
+  /** スレッドの状態で絞り込んでいるとき（スレッドを出すため、当てはまるタスクは開いて出す）。 */
+  const threadFiltering =
+    fieldsOf(filter).has("threadState") || fieldsOf(filter).has("archived");
   // アーカイブしたタスクは、タスク一覧の「アーカイブ済み」から開く（#241）
   const activeTasks = tasks.filter((item) => item.archivedAt === null);
-  const visibleTasks = filterTasksByStatus(activeTasks, statusFilter);
   const searchId = useId();
   const searchButton = useRef<HTMLButtonElement>(null);
   const closeSearch = (restoreFocus: boolean) => {
@@ -697,8 +591,34 @@ export const Sidebar = ({
     });
   }, [taskId, environmentOfTask, selectedId]);
 
+  /** 絞り込みに当てはまるスレッド（スレッドの行を単位にする）。 */
+  const subjectOf = (group: ChatGroup): FilterSubject => {
+    const owner = tasks.find((item) => item.id === group.primary.taskId);
+    return {
+      environmentId: owner?.environmentId ?? null,
+      taskStatus: owner?.status ?? null,
+      threadState: threadStateOf(group.branches, unreadChatIds),
+      archived: group.branches.some((chat) => chat.archivedAt !== null),
+    };
+  };
+  const shownGroups = groups.filter((group) =>
+    showsThread(filter, subjectOf(group)),
+  );
   const threadsOf = (owner: string | null) =>
-    groups.filter((group) => group.primary.taskId === owner);
+    shownGroups.filter((group) => group.primary.taskId === owner);
+  /**
+   * 出すタスク。当てはまるスレッドがあるタスクと、環境・進捗だけで絞り込んでいるときは条件に合うタスク。
+   * 絞り込んでいなければ、すべて。
+   */
+  const visibleTasks = activeTasks.filter(
+    (item) =>
+      !filtering ||
+      threadsOf(item.id).length > 0 ||
+      showsTaskWithoutThreads(filter, {
+        environmentId: item.environmentId,
+        taskStatus: item.status,
+      }),
+  );
 
   const renderThreads = (
     items: ChatGroup[],
@@ -725,6 +645,9 @@ export const Sidebar = ({
               onSelect={() => onSelect(primary.id)}
               onRename={(title) => onRename(primary.id, title)}
               onDelete={() => setDeleting(primary)}
+              onArchive={(archived) =>
+                void onArchiveThread(primary.id, archived)
+              }
               {...(owner === undefined || primary.wikiPageId !== null
                 ? {}
                 : {
@@ -738,7 +661,9 @@ export const Sidebar = ({
 
   const renderTask = (item: TaskDto, level: number) => {
     const key = `task:${item.id}`;
-    const open = isExpanded(expanded, key);
+    const open =
+      isExpanded(expanded, key) ||
+      (threadFiltering && threadsOf(item.id).length > 0);
     return (
       <li key={item.id} data-task-id={item.id}>
         <TreeRow
@@ -820,11 +745,14 @@ export const Sidebar = ({
   const openWikiEnvironmentId = tasks.find(
     (p) => p.id === openWikiTaskId,
   )?.environmentId;
-  const orphans = activeTasks.filter(
+  const orphans = visibleTasks.filter(
     (p) =>
       !environments.some((environment) => environment.id === p.environmentId),
   );
-  const unassignedOpen = isExpanded(expanded, "unassigned");
+  const unassignedThreads = threadsOf(null);
+  const unassignedOpen =
+    isExpanded(expanded, "unassigned") ||
+    (threadFiltering && unassignedThreads.length > 0);
 
   return (
     <aside
@@ -935,7 +863,11 @@ export const Sidebar = ({
         </nav>
       ) : (
         <>
-          <StatusFilter selected={statusFilter} onToggle={toggleStatus} />
+          <ThreadFilterPanel
+            state={filterState}
+            environments={environments}
+            onChange={changeFilter}
+          />
           <nav
             className="flex-1 overflow-y-auto px-2 pb-2"
             aria-label="スレッド一覧"
@@ -956,7 +888,7 @@ export const Sidebar = ({
                     (p) => p.environmentId === environment.id,
                   );
                   // 絞り込み中は、当てはまるタスクの無い環境を出さない
-                  if (statusFilter.length > 0 && members.length === 0) {
+                  if (filtering && members.length === 0) {
                     return null;
                   }
                   return (
@@ -1040,24 +972,27 @@ export const Sidebar = ({
                 })}
               {groupByEnvironment &&
                 orphans.map((orphan) => renderTask(orphan, 0))}
-              <li data-unassigned>
-                <TreeRow
-                  level={0}
-                  expanded={unassignedOpen}
-                  onToggle={() => toggle("unassigned")}
-                  icon={<MessagesSquare />}
-                  label="未所属のスレッド"
-                  actions={
-                    <RowAction
-                      label="未所属に新しいスレッド"
-                      onClick={() => onNewInTask(null)}
-                    >
-                      <MessageSquarePlus className="size-3.5" />
-                    </RowAction>
-                  }
-                />
-                {unassignedOpen && renderThreads(threadsOf(null), 1, undefined)}
-              </li>
+              {(!filtering || unassignedThreads.length > 0) && (
+                <li data-unassigned>
+                  <TreeRow
+                    level={0}
+                    expanded={unassignedOpen}
+                    onToggle={() => toggle("unassigned")}
+                    icon={<MessagesSquare />}
+                    label="未所属のスレッド"
+                    actions={
+                      <RowAction
+                        label="未所属に新しいスレッド"
+                        onClick={() => onNewInTask(null)}
+                      >
+                        <MessageSquarePlus className="size-3.5" />
+                      </RowAction>
+                    }
+                  />
+                  {unassignedOpen &&
+                    renderThreads(unassignedThreads, 1, undefined)}
+                </li>
+              )}
             </ul>
           </nav>
         </>

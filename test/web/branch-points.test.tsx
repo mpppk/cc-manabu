@@ -17,6 +17,7 @@ const chatDto = (id: string, title: string): ChatDto => ({
   inheritedCount: 0,
   branchTitle: title,
   lastSelectedAt: null,
+  archivedAt: null,
   taskId: null,
   wikiPageId: null,
   title,

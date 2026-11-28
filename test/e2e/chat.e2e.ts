@@ -547,6 +547,39 @@ const createTask = async (page: Page, name: string) => {
   await expect(taskRow(page, name)).toBeVisible();
 };
 
+/** 絞り込み（#256）に条件を足す。button は「条件を追加」か「グループに条件を追加」。 */
+const addFilterRule = async (
+  scope: Locator,
+  field: string,
+  value: string,
+  operator: "=" | "≠" = "=",
+) => {
+  await scope.getByRole("button", { name: "条件を追加", exact: true }).click();
+  await setFilterRule(
+    scope.locator("[data-filter-rule]").last(),
+    field,
+    value,
+    operator,
+  );
+};
+
+const setFilterRule = async (
+  rule: Locator,
+  field: string,
+  value: string,
+  operator: "=" | "≠" = "=",
+) => {
+  await rule
+    .getByRole("combobox", { name: "項目" })
+    .selectOption({ label: field });
+  await rule
+    .getByRole("combobox", { name: "比較" })
+    .selectOption({ label: operator });
+  await rule
+    .getByRole("combobox", { name: "値" })
+    .selectOption({ label: value });
+};
+
 /** タスク一覧のカンバンの列（#195）。 */
 const column = (page: Page, label: string) =>
   page.getByRole("region", { name: new RegExp(`^${label}`) });
@@ -1660,22 +1693,19 @@ test("カンバンの保存に失敗したら元の列に戻し、左パネル�
     .selectOption({ label: "進行中" });
   await expect(column(page, "進行中")).toContainText("カンバンC");
 
-  // 左パネルの「フィルタ」ボタンからメニューを開き、「進行中」と「保留」を
-  // 続けて選ぶと、そのどちらかのタスクだけを出す（#208）
+  // 左パネルの「フィルタ」から、「進行中」か「保留」のタスクだけを出す（#208、#256）
   const filterButton = page.getByRole("button", { name: /^フィルタ/ });
-  const filter = page.getByRole("menu", { name: "進捗で絞り込む" });
+  const filter = page.getByRole("dialog", { name: "絞り込み" });
   await expect(filter).toHaveCount(0);
   await filterButton.click();
-  await filter.getByRole("menuitemcheckbox", { name: "進行中" }).click();
-  // 選んでもメニューは閉じない
-  await filter.getByRole("menuitemcheckbox", { name: "保留" }).click();
-  await expect(
-    filter.getByRole("menuitemcheckbox", { name: "進行中" }),
-  ).toHaveAttribute("aria-checked", "true");
-  await expect(
-    filter.getByRole("menuitemcheckbox", { name: "未着手" }),
-  ).toHaveAttribute("aria-checked", "false");
-  await expect(filterButton).toHaveAccessibleName("フィルタ（進行中・保留）");
+  await filter
+    .getByRole("combobox", { name: "条件の組み合わせ" })
+    .selectOption("or");
+  await addFilterRule(filter, "タスクの進捗", "進行中");
+  await addFilterRule(filter, "タスクの進捗", "保留");
+  await expect(filterButton).toHaveAccessibleName(
+    "フィルタ（タスクの進捗 = 進行中 または タスクの進捗 = 保留）",
+  );
   // Escape で閉じる
   await page.keyboard.press("Escape");
   await expect(filter).toHaveCount(0);
@@ -1695,23 +1725,14 @@ test("カンバンの保存に失敗したら元の列に戻し、左パネル�
   await page.reload();
   await expect(taskRow(page, "カンバンA")).toBeVisible();
   await expect(taskRow(page, "カンバンC")).toHaveCount(0);
-  // 選択をすべて外すと全件に戻る。キーボードでも選べる
-  await filterButton.focus();
-  await page.keyboard.press("ArrowDown");
-  await expect(
-    filter.getByRole("menuitemcheckbox", { name: "未着手" }),
-  ).toBeFocused();
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Enter");
-  await expect(
-    filter.getByRole("menuitemcheckbox", { name: "進行中" }),
-  ).toHaveAttribute("aria-checked", "false");
-  await filter.getByRole("menuitemcheckbox", { name: "保留" }).click();
+  // 「条件なしに戻す」で全件に戻る
+  await filterButton.click();
+  await filter.getByRole("button", { name: "条件なしに戻す" }).click();
   await expect(filterButton).toHaveAccessibleName("フィルタ");
   await expect(taskRow(page, "カンバンC")).toBeVisible();
-  // メニューの外を押すと閉じる
+  // パネルの外を押すと閉じる
   await expect(filter).toBeVisible();
-  await column(page, "未着手").click({ position: { x: 4, y: 4 } });
+  await column(page, "完了").click({ position: { x: 4, y: 4 } });
   await expect(filter).toHaveCount(0);
   await page.getByRole("button", { name: "環境ごとにまとめる" }).click();
 });
@@ -4801,6 +4822,183 @@ test("サイドチャットと Wiki ノートを複数カラムで開き、横�
   await expect.poll(() => inView(columns.first())).toBe(true);
   await expect(mainInput).toHaveValue("メインの下書き");
   await expect(sideInput).toHaveValue("サイドの下書き");
+});
+
+test("左ペインを環境・スレッドの状態・アーカイブで AND／OR に絞り込み、名前を付けて保存して切り替えられる（#256）", async ({
+  page,
+}) => {
+  await open(page);
+  const tree = page.getByRole("navigation", { name: "スレッド一覧" });
+  const thread = (name: string) =>
+    tree.locator("li:not(:has(li))").filter({ hasText: name });
+  const filterButton = page.getByRole("button", { name: /^フィルタ/ });
+  const filter = page.getByRole("dialog", { name: "絞り込み" });
+  const summary = page.getByTestId("filter-summary");
+  const saved = filter.getByRole("combobox", { name: "保存した絞り込み" });
+
+  // 以前の進捗の絞り込みを引き継ぐ
+  await page.evaluate(() => {
+    localStorage.removeItem("monet.threadFilter");
+    localStorage.setItem(
+      "cc-manabu.sidebarStatusFilter",
+      JSON.stringify(["on_hold"]),
+    );
+  });
+  await page.reload();
+  await expect(summary).toHaveText("タスクの進捗 = 保留");
+  await filterButton.click();
+  await filter.getByRole("button", { name: "条件なしに戻す" }).click();
+  await page.keyboard.press("Escape");
+
+  // 開発: 既読のスレッドと、生成中→未読になるスレッド。別件: 既読のスレッド
+  await createTask(page, "開発");
+  await newChat(page);
+  await send(page, "読んだ質問");
+  await idle(page);
+  await createTask(page, "別件");
+  await newChat(page);
+  await send(page, "別件の質問");
+  await idle(page);
+  await openTask(page, "開発");
+  await newChat(page);
+  await send(page, "ゆっくり未読にする");
+  await thread("読んだ質問").click();
+
+  // 環境 = 開発 AND（スレッドの状態 = 回答生成中 OR 回答完了・未読）
+  await filterButton.click();
+  await addFilterRule(filter, "環境", "開発");
+  await filter.getByRole("button", { name: "グループを追加" }).click();
+  const group = filter.locator('[data-filter-group="nested"]');
+  await setFilterRule(
+    group.locator("[data-filter-rule]").first(),
+    "スレッドの状態",
+    "回答生成中",
+  );
+  await group.getByRole("button", { name: "グループに条件を追加" }).click();
+  await setFilterRule(
+    group.locator("[data-filter-rule]").last(),
+    "スレッドの状態",
+    "回答完了・未読",
+  );
+  await expect(
+    group.getByRole("combobox", { name: "グループの組み合わせ" }),
+  ).toHaveValue("or");
+  await expect(summary).toHaveText(
+    "環境 = 開発 かつ （スレッドの状態 = 回答生成中 または スレッドの状態 = 回答完了・未読）",
+  );
+  // 生成中のスレッドだけが、親のタスクと環境とともに出る
+  await expect(thread("ゆっくり未読にする")).toBeVisible();
+  await expect(thread("読んだ質問")).toHaveCount(0);
+  await expect(thread("別件の質問")).toHaveCount(0);
+  await expect(taskRow(page, "開発")).toBeVisible();
+  await expect(taskRow(page, "別件")).toHaveCount(0);
+
+  // 名前を付けて保存する
+  await filter.getByRole("button", { name: "名前を付けて保存" }).click();
+  await filter
+    .getByRole("textbox", { name: "絞り込みの名前" })
+    .fill("開発の未読・生成中");
+  await filter.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(summary).toHaveText("開発の未読・生成中");
+  await page.keyboard.press("Escape");
+
+  // 回答が終わると未読として出続け、開いて既読になると消える
+  await expect(thread("ゆっくり未読にする")).toBeVisible();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            (
+              JSON.parse(
+                localStorage.getItem("monet.unreadChats") ?? "[]",
+              ) as unknown[]
+            ).length,
+        ),
+      { timeout: 15_000 },
+    )
+    .toBeGreaterThan(0);
+  await expect(thread("ゆっくり未読にする")).toBeVisible();
+  await thread("ゆっくり未読にする").click();
+  await expect(thread("ゆっくり未読にする")).toHaveCount(0);
+
+  // スレッドをアーカイブすると通常の一覧から消え、アーカイブの条件で見つけて復元できる
+  await filterButton.click();
+  await saved.selectOption({ label: "条件なし" });
+  await page.keyboard.press("Escape");
+  await expect(summary).toHaveCount(0);
+  const other = thread("別件の質問");
+  await other.hover();
+  await other
+    .getByRole("button", { name: "「別件の質問」をアーカイブ" })
+    .click();
+  await expect(thread("別件の質問")).toHaveCount(0);
+  await expect(taskRow(page, "別件")).toBeVisible();
+  await filterButton.click();
+  await addFilterRule(filter, "スレッドのアーカイブ", "アーカイブ済み");
+  await expect(thread("別件の質問")).toContainText("アーカイブ済み");
+  await expect(thread("読んだ質問")).toHaveCount(0);
+  await filter.getByRole("button", { name: "名前を付けて保存" }).click();
+  await filter
+    .getByRole("textbox", { name: "絞り込みの名前" })
+    .fill("アーカイブ済み");
+  await filter.getByRole("button", { name: "保存", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await thread("別件の質問").hover();
+  await thread("別件の質問")
+    .getByRole("button", { name: "「別件の質問」を復元" })
+    .click();
+  await expect(thread("別件の質問")).toHaveCount(0);
+
+  // 保存した絞り込みを選ぶだけで切り替え、条件なしに戻せる
+  await filterButton.click();
+  await saved.selectOption({ label: "開発の未読・生成中" });
+  await expect(summary).toHaveText("開発の未読・生成中");
+  await saved.selectOption({ label: "条件なし" });
+  await expect(summary).toHaveCount(0);
+  await expect(thread("別件の質問")).toBeVisible();
+  await expect(thread("読んだ質問")).toBeVisible();
+  // 復元したスレッドは、所属と履歴を保つ
+  await page.keyboard.press("Escape");
+  await thread("別件の質問").click();
+  await expect(page.getByText("了解: 別件の質問")).toBeVisible();
+  await expect(taskItem(page, "別件")).toContainText("別件の質問");
+
+  // 保存した絞り込みを更新（上書き保存）・名前の変更・削除できる
+  await filterButton.click();
+  await saved.selectOption({ label: "アーカイブ済み" });
+  await setFilterRule(
+    filter.locator("[data-filter-rule]").first(),
+    "スレッドのアーカイブ",
+    "アーカイブされていない",
+  );
+  await expect(summary).toHaveText("アーカイブ済み（変更あり）");
+  await filter.getByRole("button", { name: "上書き保存" }).click();
+  await expect(summary).toHaveText("アーカイブ済み");
+  await filter.getByRole("button", { name: "名前を変更" }).click();
+  await filter
+    .getByRole("textbox", { name: "絞り込みの新しい名前" })
+    .fill("アーカイブなし");
+  await filter.getByRole("button", { name: "変更", exact: true }).click();
+  await expect(summary).toHaveText("アーカイブなし");
+
+  // 再読み込みしても、保存した絞り込みと最後に適用した条件を戻す
+  await page.reload();
+  await expect(summary).toHaveText("アーカイブなし");
+  await filterButton.click();
+  await expect(saved.locator("option")).toHaveText([
+    "条件なし",
+    "開発の未読・生成中",
+    "アーカイブなし",
+  ]);
+  await filter.getByRole("button", { name: "削除", exact: true }).click();
+  await expect(saved.locator("option")).toHaveText([
+    "条件なし",
+    "開発の未読・生成中",
+  ]);
+  await expect(summary).toHaveText(
+    "スレッドのアーカイブ = アーカイブされていない",
+  );
 });
 
 test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロードしても保たれる", async ({
