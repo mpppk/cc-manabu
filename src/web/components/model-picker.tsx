@@ -50,6 +50,13 @@ export const groupModels = (
     (m) => !(PRIMARY_MODEL_ALIASES as readonly string[]).includes(m.value),
   );
   const known = models.some((m) => m.value === current);
+  // シリーズのエイリアスが無い一覧（Codex など。#265）は、すべて最初の階層に並べる
+  if (primary.length === 0 && models.length > 0) {
+    return {
+      primary: [...models],
+      others: known ? [] : [{ value: current, displayName: current }],
+    };
+  }
   return {
     primary,
     others: known

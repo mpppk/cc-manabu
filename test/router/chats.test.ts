@@ -88,3 +88,30 @@ describe("system.status", () => {
     });
   });
 });
+
+describe("会話に使う AI（#265）", () => {
+  test("使える AI を選んで会話を作る。選ばなければ Claude Code", async () => {
+    const ctx = createTestContext();
+    const client = createRouterClient(router, { context: ctx.context });
+    const status = await client.system.status();
+    expect(status.agents.codex.state).toBe("ready");
+    const codex = await client.chats.create({
+      agent: "codex",
+      model: "gpt-test",
+    });
+    expect(codex.agent).toBe("codex");
+    // 既存の会話・選ばずに作った会話は Claude Code
+    expect((await client.chats.create({})).agent).toBe("claude-code");
+  });
+
+  test("使えない AI を選ぶと、理由と設定の手順を返す", async () => {
+    const ctx = createTestContext();
+    const client = createRouterClient(router, { context: ctx.context });
+    await expect(
+      client.chats.create({ agent: "copilot" }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: expect.stringContaining("見つかりません"),
+    });
+  });
+});

@@ -1296,6 +1296,43 @@ export const router = {
           ),
         ),
       ),
+    /**
+     * 会話に使う AI を変える（#265）。最初の送信の前（メッセージもセッションも無い会話）だけ変えられる。
+     * モデルと effort も、選んだ AI のものに変える。
+     */
+    setAgent: base
+      .input(
+        chatId.extend({
+          agent: z.enum(AGENT_IDS),
+          model: z.string().min(1),
+          effort: z.string().min(1).nullable(),
+        }),
+      )
+      .handler(async ({ context, input }) =>
+        toChatDto(
+          await unwrapForOrpc(
+            Result.pipe(
+              requireAgent(context, input.agent),
+              Result.andThen(() => context.chats.getChat(input.id)),
+              Result.andThen(({ chat, messages }) =>
+                messages.length > 0 || chat.sessionId !== null
+                  ? Result.fail(
+                      new AgentUnavailableError({
+                        detail:
+                          "送信を始めた会話の AI は変えられません。新しいスレッドで選んでください。",
+                      }),
+                    )
+                  : context.chats.updateChat(input.id, {
+                      agent: input.agent,
+                      model: input.model,
+                      effort: input.effort,
+                    }),
+              ),
+            ),
+            ERROR_CODES,
+          ),
+        ),
+      ),
     /** 会話の所属タスクを変える（null で未所属に戻す）。過去のメッセージとセッションはそのまま。 */
     setTask: base
       .input(chatId.extend({ taskId: z.string().min(1).nullable() }))

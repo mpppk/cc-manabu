@@ -86,7 +86,7 @@ export type NewMessage = {
 };
 
 export type ChatUpdate = Partial<
-  Pick<ChatRow, "title" | "sessionId" | "model" | "effort" | "status">
+  Pick<ChatRow, "title" | "sessionId" | "model" | "effort" | "status" | "agent">
 >;
 
 /** 会話とメッセージの永続化。すべて同期（bun:sqlite）で、失敗は Result で返す。 */

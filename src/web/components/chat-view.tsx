@@ -37,6 +37,7 @@ import {
   type QuoteRange,
   quotesOf,
 } from "../../chat/quote.ts";
+import type { AgentId } from "../../db/schema.ts";
 import type { ChatDto, EnvironmentDto } from "../../router.ts";
 import { citedPageIds } from "../../wiki/citations.ts";
 import {
@@ -45,6 +46,7 @@ import {
   type TermMatch,
 } from "../../wiki/term-matcher.ts";
 import { isPageTerm, normalizeTerm } from "../../wiki/terms.ts";
+import { AgentsContext } from "../lib/agents.ts";
 import { branchPointsOf, snippetOf } from "../lib/branch-points.ts";
 import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import { OrpcChatTransport, type SendSettings } from "../lib/chat-transport.ts";
@@ -65,6 +67,12 @@ import { describeSteps, groupSteps } from "../lib/steps.ts";
 import { formatUsage, totalUsage, usageOf } from "../lib/usage.ts";
 import { useSessionSync } from "../lib/use-session-sync.ts";
 import { cn } from "../lib/utils.ts";
+import {
+  AGENT_NAMES,
+  AgentPicker,
+  AgentUnavailableNotice,
+  agentStatusOf,
+} from "./agent-picker.tsx";
 import { AnswerWikiUndo, changedWiki } from "./answer-wiki-undo.tsx";
 import { ApprovalCard } from "./approval-card.tsx";
 import { BranchFromHere, BranchMenu } from "./branch-menu.tsx";
@@ -933,11 +941,26 @@ export const ChatView = ({
    */
   const fresh =
     initialMessages.length === 0 && chat.parentId === null && !chat.hasSession;
+  /**
+   * 会話に使う AI（#265）。新規スレッドでは最初の送信の前に選び直せる。
+   * Claude Code 以外では、その AI のモデル一覧を出し、最後に選んだモデル（Claude 用）は使わない。
+   */
+  const agents = useContext(AgentsContext);
+  const [agent, setAgent] = useState<AgentId>(chat.agent);
+  const agentModels =
+    agent === "claude-code"
+      ? models
+      : (() => {
+          const status = agentStatusOf(agents, agent);
+          return status.state === "ready" ? status.models : [];
+        })();
+  /** 選ぼうとした AI が使えなかったとき、その理由を出す。 */
+  const [unavailableAgent, setUnavailableAgent] = useState<AgentId>();
   const [settings, setSettings] = useState<{
     model: string;
     effort: Effort | null;
   }>(() =>
-    fresh
+    fresh && chat.agent === "claude-code"
       ? resolveChatDefaults(chatDefaults.defaults, models)
       : { model: chat.model, effort: (chat.effort as Effort | null) ?? null },
   );
@@ -1022,8 +1045,37 @@ export const ChatView = ({
   const unsent = messages.length === 0;
   useEffect(() => {
     if (!fresh || !unsent || pickedSettings.current) return;
+    if (agent !== "claude-code") return;
     setSettings(resolveChatDefaults(chatDefaults.defaults, models));
-  }, [fresh, unsent, chatDefaults.defaults, models]);
+  }, [fresh, unsent, chatDefaults.defaults, models, agent]);
+  /** 新規スレッドの AI を選び直す（#265）。使えなければ理由を出し、切り替えない。 */
+  const chooseAgent = async (next: AgentId) => {
+    if (next === agent) return;
+    const status = agentStatusOf(agents, next);
+    if (status.state !== "ready") {
+      setUnavailableAgent(next);
+      return;
+    }
+    setUnavailableAgent(undefined);
+    const nextSettings =
+      next === "claude-code"
+        ? resolveChatDefaults(chatDefaults.defaults, models)
+        : { model: status.models[0]?.value ?? "default", effort: null };
+    try {
+      await api.chats.setAgent({ id: chat.id, agent: next, ...nextSettings });
+      pickedSettings.current = false;
+      setAgent(next);
+      setSettings(nextSettings);
+      onActivity?.();
+    } catch (failure) {
+      setAgentError(
+        failure instanceof Error
+          ? failure.message
+          : "AI を切り替えられませんでした。",
+      );
+    }
+  };
+  const [agentError, setAgentError] = useState<string>();
   const busy = status === "submitted" || status === "streaming";
   const turns = useMemo(() => groupTurns(messages), [messages]);
   const latestTurn = busy
@@ -2333,6 +2385,21 @@ export const ChatView = ({
               )}
             </div>
           )}
+          {unavailableAgent !== undefined && (
+            <AgentUnavailableNotice
+              agent={unavailableAgent}
+              status={agentStatusOf(agents, unavailableAgent)}
+              onDismiss={() => setUnavailableAgent(undefined)}
+            />
+          )}
+          {agentError !== undefined && (
+            <p
+              className="mx-auto mb-2 max-w-3xl text-destructive text-sm"
+              role="alert"
+            >
+              {agentError}
+            </p>
+          )}
           <Composer
             hidden={!composerOpen}
             onCollapse={() => setComposerOpen(false)}
@@ -2346,17 +2413,35 @@ export const ChatView = ({
             }
             queueing={queueing && branchFrom === undefined}
             toolbar={
-              <ModelPicker
-                models={models}
-                model={settings.model}
-                effort={settings.effort}
-                disabled={busy}
-                onChange={(next) => {
-                  pickedSettings.current = true;
-                  setSettings(next);
-                  chatDefaults.choose(next);
-                }}
-              />
+              <>
+                {!side && fresh && unsent ? (
+                  <AgentPicker
+                    agent={agent}
+                    agents={agents}
+                    disabled={busy}
+                    onChange={(next) => void chooseAgent(next)}
+                  />
+                ) : agent !== "claude-code" ? (
+                  <span
+                    className="shrink-0 px-1 text-muted-foreground text-xs"
+                    data-agent={agent}
+                  >
+                    {AGENT_NAMES[agent]}
+                  </span>
+                ) : null}
+                <ModelPicker
+                  models={agentModels}
+                  model={settings.model}
+                  effort={settings.effort}
+                  disabled={busy}
+                  onChange={(next) => {
+                    pickedSettings.current = true;
+                    setSettings(next);
+                    // 新規スレッドの初期値は Claude Code のモデルだけ覚える
+                    if (agent === "claude-code") chatDefaults.choose(next);
+                  }}
+                />
+              </>
             }
             onSubmit={submit}
             onQueue={enqueue}
