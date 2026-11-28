@@ -189,8 +189,15 @@ export const App = ({ api }: { api: ApiClient }) => {
   }, []);
   /** コマンドパレットからサイドバーに頼む操作（検索欄を開く・タスクを作る）。 */
   const [sidebarRequest, setSidebarRequest] = useState<SidebarRequest>();
-  const requestSidebar = (kind: SidebarRequest["kind"]) =>
+  const requestSidebar = (kind: "search" | "createTask") =>
     setSidebarRequest((prev) => ({ kind, nonce: (prev?.nonce ?? 0) + 1 }));
+  /** 環境の設定を開く（ダイアログはサイドバーが持つ。閉じていても開ける。#271）。 */
+  const editEnvironment = (environmentId: string) =>
+    setSidebarRequest((prev) => ({
+      kind: "editEnvironment",
+      environmentId,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
   /** 開いたらメインの入力欄にフォーカスする会話（コマンドパレットの「新しいスレッド」）。 */
   const [focusComposerOf, setFocusComposerOf] = useState<string>();
   const [chats, setChats] = useState<ChatDto[]>([]);
@@ -699,6 +706,7 @@ export const App = ({ api }: { api: ApiClient }) => {
                 models={models}
                 cwd={workspace.chat.cwd}
                 environment={environmentOf(workspace.chat)}
+                onEditEnvironment={editEnvironment}
                 onActivity={refreshAfterActivity}
                 branches={chats.filter(
                   (chat) => chat.groupId === workspace.chat.groupId,
