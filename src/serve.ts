@@ -15,6 +15,7 @@ import {
 } from "./chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "./chat/rate-limit.ts";
 import { RunnerRegistry } from "./chat/runner-registry.ts";
+import { createSessionSync } from "./chat/session-sync.ts";
 import { createTaskContextBuilder } from "./chat/task-context.ts";
 import {
   createWikiThreadTitler,
@@ -22,6 +23,7 @@ import {
   THREAD_TITLE_SETTINGS,
 } from "./chat/thread-title.ts";
 import { resolveClaudePath } from "./claude/detect.ts";
+import { createDesktopLauncher, sdkSessionReader } from "./claude/sessions.ts";
 import { createClaudeStatus } from "./claude/status.ts";
 import { createChatRepository } from "./db/chat-repository.ts";
 import { createEnvironmentRepository } from "./db/environment-repository.ts";
@@ -297,6 +299,13 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
             generateWikiPage,
             cwd: process.cwd(),
             pickDirectory: createDirectoryPicker(),
+            sessionSync: createSessionSync({
+              chats,
+              reader: sdkSessionReader,
+              launchDesktop: createDesktopLauncher(
+                Result.isSuccess(claudePath) ? claudePath.value : undefined,
+              ),
+            }),
           },
         });
       const port = installedPwa?.port ?? config.port;

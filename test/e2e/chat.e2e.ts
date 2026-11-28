@@ -4352,6 +4352,83 @@ test("⌘K（Ctrl+K）でコマンドパレットを開き、絞り込んだ操�
   await expect(taskItem(page, "パレット")).toContainText("新しいスレッド");
 });
 
+test("会話を Claude Desktop で開き、Desktop で足した発言があることを、送信せずに知らせる（#244）", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  const openDesktop = page.getByRole("button", {
+    name: "Claude Desktopで開く",
+  });
+  const unimported = main.getByRole("status", {
+    name: "未取り込みのメッセージ",
+  });
+  const branches = branchMenu(page);
+  /** Monet の画面にフォーカスが戻ったことにする。 */
+  const refocus = () =>
+    page.evaluate(() => window.dispatchEvent(new Event("focus")));
+
+  // セッションがまだ無い会話は開けず、理由を出す
+  await newChat(page);
+  await expect(openDesktop).toHaveAttribute("aria-disabled", "true");
+  await expect(openDesktop).toHaveAttribute(
+    "title",
+    /まだ Claude Code のセッションがありません/,
+  );
+  // 押せない状態でも、押すと理由を出す（aria-disabled なので force で押す）
+  await openDesktop.click({ force: true });
+  await expect(main.getByRole("alert")).toContainText(
+    "まだ Claude Code のセッションがありません",
+  );
+
+  await send(page, "Desktop に引き継ぐ質問");
+  await idle(page);
+  await expect(openDesktop).toHaveAttribute("aria-disabled", "false");
+  await refocus();
+  await expect(unimported).toHaveCount(0);
+
+  // 開くと（E2E では Desktop で質問と回答を 1 組足したことになる）、戻ったときに知らせる
+  await openDesktop.click();
+  await expect(
+    main
+      .getByRole("status")
+      .filter({ hasText: "Claude Desktop でこの会話を開きました" }),
+  ).toBeVisible();
+  await refocus();
+  await expect(unimported).toContainText(
+    "Claude Code 側に未取り込みのメッセージがあります（質問 1 件）",
+  );
+
+  // 開き直しても、再確認しても知らせ続ける。Monet の履歴と入力中の内容は変わらない
+  await page.reload();
+  await expect(unimported).toBeVisible();
+  await mainInput.fill("入力中の下書き");
+  await unimported.getByRole("button", { name: "再確認" }).click();
+  await expect(unimported).toBeVisible();
+  await expect(mainInput).toHaveValue("入力中の下書き");
+  await expect(main.getByText("了解: Desktop に引き継ぐ質問")).toHaveCount(1);
+  await expect(main.getByText("Desktop で足した質問")).toHaveCount(0);
+
+  // 別の分岐には案内を出さない。分岐を切り替えると、その会話のセッションで確かめ直す
+  await mainInput.fill("");
+  await main
+    .locator("[data-assistant-message]")
+    .last()
+    .getByRole("button", { name: "ここから分岐" })
+    .click();
+  await send(page, "分岐の質問");
+  await expect(main.getByText("了解: 分岐の質問")).toBeVisible();
+  await idle(page);
+  await refocus();
+  await expect(unimported).toHaveCount(0);
+  await branches.select("元の会話");
+  await expect(unimported).toBeVisible();
+});
+
 test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロードしても保たれる", async ({
   page,
 }) => {

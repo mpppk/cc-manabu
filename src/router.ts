@@ -6,6 +6,7 @@ import type { ApprovalBroker } from "./chat/approval-broker.ts";
 import { checkImagePart, MAX_IMAGES_PER_MESSAGE } from "./chat/attachments.ts";
 import type { ChatService, ChatUIMessage } from "./chat/chat-service.ts";
 import type { QueueDispatcher } from "./chat/queue-dispatcher.ts";
+import type { SessionSync } from "./chat/session-sync.ts";
 import type { ClaudeStatusHolder } from "./claude/status.ts";
 import {
   type ChatRepository,
@@ -80,6 +81,8 @@ export type RouterContext = {
   pickDirectory: DirectoryPicker;
   /** タスクのゴールの実行（#198）。 */
   goalRuns: GoalRuns;
+  /** Claude Code のセッションとの照合と、Claude Desktop で開く操作（#244）。 */
+  sessionSync: SessionSync;
 };
 
 export const base = os.$context<RouterContext>();
@@ -108,6 +111,9 @@ const ERROR_CODES: OrpcErrorCodeMap = {
   WikiPageQaNotFoundError: "NOT_FOUND",
   InvalidPageTermError: "BAD_REQUEST",
   ChatAlreadyRunningError: "CONFLICT",
+  ChatSessionMissingError: "CONFLICT",
+  ChatBusyError: "CONFLICT",
+  DesktopLaunchError: "SERVICE_UNAVAILABLE",
   TooManyRunnersError: "TOO_MANY_REQUESTS",
   ApprovalNotFoundError: "NOT_FOUND",
   MessageNotFoundError: "NOT_FOUND",
@@ -1307,6 +1313,23 @@ export const router = {
     select: base.input(chatId).handler(async ({ context, input }) => {
       await unwrapForOrpc(context.chats.getChat(input.id), ERROR_CODES);
       await unwrapForOrpc(context.chats.markSelected(input.id), ERROR_CODES);
+      return { id: input.id };
+    }),
+    /**
+     * 会話の Claude Code セッションに、Monet の外（Claude Desktop・CLI）で足された質問があるか（#244）。
+     * ローカルの履歴を読むだけで、Claude の生成もセッションへの書き込みもしない。
+     */
+    sessionSync: base
+      .input(chatId)
+      .handler(async ({ context, input }) =>
+        unwrapForOrpc(context.sessionSync.check(input.id), ERROR_CODES),
+      ),
+    /** 会話のセッションを、作業ディレクトリから Claude Desktop で開く（#244）。 */
+    openInDesktop: base.input(chatId).handler(async ({ context, input }) => {
+      await unwrapForOrpc(
+        context.sessionSync.openInDesktop(input.id),
+        ERROR_CODES,
+      );
       return { id: input.id };
     }),
   },

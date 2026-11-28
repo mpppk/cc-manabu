@@ -23,6 +23,7 @@ import {
 } from "../../src/chat/queue-dispatcher.ts";
 import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { RunnerRegistry } from "../../src/chat/runner-registry.ts";
+import { createSessionSync } from "../../src/chat/session-sync.ts";
 
 /** E2E のサーバで同時に生成できる会話の数。 */
 const E2E_MAX_CONCURRENT = 3;
@@ -71,6 +72,7 @@ import {
   TERM_EXTRACTION_SETTINGS,
 } from "../../src/wiki/terms.ts";
 import { createWikiToolServers } from "../../src/wiki/tools.ts";
+import { createFakeSessions } from "../helpers/fake-sessions.ts";
 import { createScriptedQuery, goalVerdicts } from "./scripted-query.ts";
 
 export const E2E_PORT = Number(process.env.E2E_PORT ?? 45200);
@@ -99,6 +101,11 @@ const approvals = createApprovalBroker({
   },
 });
 const query = createScriptedQuery();
+// Claude Desktop で開くと、Desktop で質問と回答を 1 組足したことにする（#244）
+const sessions = createFakeSessions(chats);
+sessions.setOnLaunch((sessionId) =>
+  sessions.appendExternal(sessionId, "Desktop で足した質問"),
+);
 const termModel = createClaudeCode({
   cwd: "/e2e",
   query,
@@ -264,6 +271,11 @@ const started = startServer({
     // フォルダを選ぶダイアログの代わりに、E2E_PICKED_DIR（無ければ一時ディレクトリ）を返す
     pickDirectory: async () =>
       Result.succeed(process.env.E2E_PICKED_DIR ?? realpathSync(tmpdir())),
+    sessionSync: createSessionSync({
+      chats,
+      reader: sessions.reader,
+      launchDesktop: sessions.launchDesktop,
+    }),
   },
 });
 if (Result.isFailure(started)) throw started.error;
