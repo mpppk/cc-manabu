@@ -9,6 +9,7 @@ import type { AnswerQuote, WikiPageQuote } from "../../chat/quote.ts";
 import type { ChatDto, TaskDto } from "../../router.ts";
 import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import type { SendSettings } from "../lib/chat-transport.ts";
+import { type ColumnOrigin, originColorOf } from "../lib/column-origin.ts";
 import { MAIN_COLUMN, useColumns } from "../lib/columns.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
@@ -407,8 +408,11 @@ export const ChatWorkspace = ({
       }
     });
   /** 分岐した会話を、from のカラム（メインなら MAIN_COLUMN）のすぐ右に開く。 */
-  const openBranch = (request: BranchRequest, from: string) =>
-    open([`chat:${request.id}`], { kind: "branch", request }, from);
+  const openBranch = (
+    request: BranchRequest,
+    from: string,
+    origin?: ColumnOrigin | null,
+  ) => open([`chat:${request.id}`], { kind: "branch", request }, from, origin);
   const closeColumn = (key: string) => {
     const column = columns.find((item) => item.key === key);
     close(key);
@@ -561,6 +565,26 @@ export const ChatWorkspace = ({
     setWikiRevision((revision) => revision + 1);
   };
 
+  /**
+   * メインから引用して開いたサイドチャットの、紫の破線の起点（#267）。メインのチャットが、
+   * 破線をカラムと同じ色で強調する（選択範囲から開いて質問を送った後も、その破線を強調する）。
+   */
+  const sideQuoteOrigins = columns.flatMap((column, position) => {
+    if (column.kind !== "branch" || column.parent !== MAIN_COLUMN) return [];
+    const { origin } = column;
+    if (origin?.kind === "sideQuote") {
+      return [{ chatId: origin.chatId, color: originColorOf(position) }];
+    }
+    if (origin?.kind === "range" && column.request.draft !== undefined) {
+      return [
+        {
+          chatId: sideChats[column.key] ?? column.request.id,
+          color: originColorOf(position),
+        },
+      ];
+    }
+    return [];
+  });
   const detailsKey = columns.find((column) => column.kind === "details")?.key;
   const liveChat =
     props.branches?.find((branch) => branch.id === props.chat.id) ?? props.chat;
@@ -707,9 +731,10 @@ export const ChatWorkspace = ({
                   MAIN_COLUMN,
                 )
               }
-              onOpenSideBranch={(id) =>
-                openBranch({ kind: "branch", id }, MAIN_COLUMN)
+              onOpenSideBranch={(id, origin) =>
+                openBranch({ kind: "branch", id }, MAIN_COLUMN, origin)
               }
+              sideQuoteOrigins={sideQuoteOrigins}
               onOpenWikiPane={(taskId, pageId) =>
                 openWikiPane(taskId, pageId, MAIN_COLUMN)
               }
@@ -718,7 +743,7 @@ export const ChatWorkspace = ({
               onToggleDetails={() =>
                 detailsKey === undefined
                   ? // たどる対象ではないので、今の経路の右端に足す（#254）
-                    open(["details"], { kind: "details" }, "end")
+                    open(["details"], { kind: "details" }, "end", null)
                   : closeColumn(detailsKey)
               }
               quoteFocus={quoteFocus}
@@ -734,6 +759,7 @@ export const ChatWorkspace = ({
           key: column.key,
           node: renderColumn(column),
           position: position < 0 ? undefined : position,
+          origin: column.origin,
           paths:
             siblings.length > 1
               ? {

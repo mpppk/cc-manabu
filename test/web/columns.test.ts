@@ -112,3 +112,52 @@ describe("findColumn（#248）", () => {
     expect(findColumn(columns, ["chat:main"], ["chat:main"])).toBe(MAIN_COLUMN);
   });
 });
+
+describe("カラムの起点（#267）", () => {
+  const origin = (chatId: string) => ({ kind: "sideQuote" as const, chatId });
+  const openWith = (
+    tree: ColumnTree<Value>,
+    key: string,
+    from: string,
+    identities: string[],
+    chatId: string,
+  ) =>
+    openColumn(tree, {
+      key,
+      identities,
+      value: { label: key },
+      from,
+      origin: origin(chatId),
+    });
+
+  test("開いたカラムに起点を残し、すでに開いているカラムを選び直すと起点を移す", () => {
+    const first = openWith(emptyTree(), "A", MAIN_COLUMN, ["page:p"], "1");
+    expect(pathOf(first.tree)[0]?.origin).toEqual(origin("1"));
+    const again = openWith(first.tree, "X", MAIN_COLUMN, ["page:p"], "2");
+    expect(again).toMatchObject({ kind: "existing", key: "A" });
+    expect(pathOf(again.tree)[0]?.origin).toEqual(origin("2"));
+    expect(again.tree.nodes).toHaveLength(1);
+  });
+
+  test("起点を渡さなければ、選び直しても起点はそのまま", () => {
+    const first = openWith(emptyTree(), "A", MAIN_COLUMN, ["page:p"], "1");
+    const again = open(first.tree, "X", MAIN_COLUMN, {
+      identities: ["page:p"],
+    });
+    expect(again.tree).toBe(first.tree);
+  });
+
+  test("メインに出ているものを選んでも、カラムの起点は変えない", () => {
+    const first = openWith(emptyTree(), "A", MAIN_COLUMN, ["page:p"], "1");
+    const result = openColumn(first.tree, {
+      key: "X",
+      identities: ["chat:m"],
+      value: { label: "X" },
+      from: "A",
+      mainIdentities: ["chat:m"],
+      origin: origin("2"),
+    });
+    expect(result).toMatchObject({ kind: "existing", key: MAIN_COLUMN });
+    expect(result.tree).toBe(first.tree);
+  });
+});

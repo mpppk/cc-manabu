@@ -128,6 +128,7 @@ export const WikiTerm = ({
     // biome-ignore lint/a11y/noStaticElementInteractions: 中のボタンと説明をまとめてホバー・フォーカスの範囲にするための入れ物
     <span
       ref={root}
+      data-origin-anchor
       className="relative inline"
       onMouseEnter={showOnHover}
       onMouseLeave={hideOnLeave}

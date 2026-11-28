@@ -684,6 +684,7 @@ export const WikiView = ({
           return {
             key: column.key,
             position: position < 0 ? undefined : position,
+            origin: column.origin,
             paths:
               siblings.length > 1
                 ? {
