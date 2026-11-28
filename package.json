@@ -1,6 +1,6 @@
 {
   "name": "monet",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "description": "Local chat app that talks to Claude through your Claude Code login",
   "license": "MIT",
   "type": "module",
