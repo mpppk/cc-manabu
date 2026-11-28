@@ -11,10 +11,15 @@ import {
   defaultRemarkPlugins,
   Streamdown,
 } from "streamdown";
+import {
+  type CitationSource,
+  citationNumberFromHref,
+} from "../../chat/citations.ts";
 import { pageIdFromHref } from "../../wiki/citations.ts";
 import type { TermMatch } from "../../wiki/term-matcher.ts";
 import { rehypeCosenseLinks } from "../lib/rehype-cosense-links.ts";
 import { isPendingTermId, rehypeWikiTerms } from "../lib/rehype-wiki-terms.ts";
+import { CitationBadge } from "./citation-badge.tsx";
 import { WikiTerm } from "./wiki-term.tsx";
 
 const plugins = { code, math, mermaid, cjk };
@@ -79,25 +84,31 @@ export const Markdown = ({
   cosenseLinks = false,
   wikiLinks,
   termMatcher,
+  citations,
 }: {
   text: string;
   streaming?: boolean;
   cosenseLinks?: boolean;
   wikiLinks?: WikiLinks;
   termMatcher?: (text: string) => TermMatch[];
+  /** 本文の出典（`#cite-<n>` のリンクをバッジにする。#258）。 */
+  citations?: readonly CitationSource[] | undefined;
 }) => {
   // 上書きするコンポーネントの型が描画のたびに変わると、中の状態（用語の説明の開閉など）が消える。
   // 型は「使うかどうか」だけで決め、wikiLinks の中身は ref から読む
   const linksRef = useRef(wikiLinks);
   linksRef.current = wikiLinks;
+  const citationsRef = useRef(citations);
+  citationsRef.current = citations;
   const hasLinks = wikiLinks !== undefined;
   const hasTerms = termMatcher !== undefined;
+  const hasCitations = citations !== undefined && citations.length > 0;
   const components = useMemo<Components | undefined>(() => {
-    if (!hasLinks && !hasTerms && !cosenseLinks) {
+    if (!hasLinks && !hasTerms && !cosenseLinks && !hasCitations) {
       return undefined;
     }
     return {
-      ...(hasLinks || cosenseLinks
+      ...(hasLinks || cosenseLinks || hasCitations
         ? {
             a: (
               props: ComponentProps<"a"> & { "data-cosense-link"?: boolean },
@@ -126,6 +137,20 @@ export const Markdown = ({
               ) {
                 return `[${props.children}`;
               }
+              const n = citationNumberFromHref(props.href);
+              const source =
+                n === undefined
+                  ? undefined
+                  : citationsRef.current?.find((item) => item.n === n);
+              if (source !== undefined) {
+                return (
+                  <CitationBadge
+                    source={source}
+                    wikiHref={linksRef.current?.href}
+                    onOpenWiki={(pageId) => linksRef.current?.onOpen(pageId)}
+                  />
+                );
+              }
               const pageId = pageIdFromHref(props.href);
               const links = linksRef.current;
               if (pageId === undefined || links === undefined) {
@@ -149,7 +174,7 @@ export const Markdown = ({
         : {}),
       ...(hasTerms ? { span: TermSpan } : {}),
     };
-  }, [cosenseLinks, hasLinks, hasTerms]);
+  }, [cosenseLinks, hasLinks, hasTerms, hasCitations]);
   const rehypePlugins = useMemo(
     () =>
       termMatcher === undefined && !cosenseLinks

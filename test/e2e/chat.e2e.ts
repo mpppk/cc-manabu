@@ -762,7 +762,9 @@ test("Wiki ページを作り、タスクのスレッドの回答から参照・
   await send(page, "関係タプルって何？");
   await idle(page);
   const link = page.getByRole("main").locator("a[data-wiki-page]");
-  await expect(link).toHaveText("関係タプル");
+  // 引用は番号付きの出典のバッジにする（#258）
+  await expect(link).toHaveText("1");
+  await expect(link).toHaveAccessibleName("出典 1: Wiki「関係タプル」");
   await expect(page.getByText("偽のページ")).toBeVisible();
   await expect(page.locator('a[data-wiki-page="fake"]')).toHaveCount(0);
   await expect(
@@ -783,9 +785,9 @@ test("Wiki ページを作り、タスクのスレッドの回答から参照・
   await newChat(page);
   await send(page, "relation tuple の例は？");
   await idle(page);
-  await expect(page.getByRole("main").locator("a[data-wiki-page]")).toHaveText(
-    "関係タプル",
-  );
+  await expect(
+    page.getByRole("main").locator("a[data-wiki-page]"),
+  ).toHaveAccessibleName("出典 1: Wiki「関係タプル」");
 
   // 未所属のスレッドからは参照しない
   await newUnassignedChat(page);
@@ -4098,17 +4100,23 @@ test("Wiki の個別ページで質問し、リロードやページ削除のあ
     page.getByText("管理者に確認する。", { exact: true }),
   ).toBeVisible();
   await send("要約して");
-  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveAccessibleName(
+    `出典 1: Wiki「${title}」`,
+  );
   await expect(page).toHaveURL(url);
   await close.click();
   await expect(ask).toBeFocused();
 
   await page.reload();
   await ask.click();
-  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveAccessibleName(
+    `出典 1: Wiki「${title}」`,
+  );
   await send("具体的には？");
   await expect(side.getByText("具体的には？", { exact: true })).toBeVisible();
-  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(title);
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveAccessibleName(
+    `出典 1: Wiki「${title}」`,
+  );
   await expect(side.getByRole("button", { name: "回答を開く" })).toBeVisible();
 
   await page.getByRole("button", { name: "ノートを削除" }).click();
@@ -4185,8 +4193,8 @@ test("Wiki ページの本文の選択範囲から、ページを作ったり引
   // 回答のあとに同じ文言の段落（ノートの Q&A など）も出ることがあるので、最初の 1 つで確かめる
   await expect(side.getByText("なぜ？", { exact: true }).first()).toBeVisible();
   await expect(side.locator("blockquote")).toHaveText("二重に課金しない");
-  await expect(side.locator("a[data-wiki-page]:visible")).toHaveText(
-    "決済 API",
+  await expect(side.locator("a[data-wiki-page]:visible")).toHaveAccessibleName(
+    "出典 1: Wiki「決済 API」",
   );
 
   // 開いたまま別の部分を選ぶと、次の質問に添える引用になり、外すこともできる
@@ -5059,6 +5067,75 @@ test("入力欄のプレースホルダーは狭い画面のメイン・サイ�
   await sideInput.press("Shift+Enter");
   await sideInput.pressSequentially("2 行目");
   await expect(sideInput).toHaveValue("1 行目\n2 行目");
+});
+
+test("回答の本文に Web 検索・Slack・Cosense の出典バッジを付け、再読み込み・分岐のあとも同じ記述に付く（#258）", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  await newChat(page);
+  await send(page, "出典を付けて答えて");
+  await idle(page);
+  const answer = main.locator("[data-assistant-message]").last();
+  const badges = answer.locator("[data-citation]");
+
+  const expectBadges = async () => {
+    // 同じ箇所の複数の出典と、同じ出典の再引用（同じ番号）
+    await expect(badges).toHaveText(["1", "2", "3", "1"]);
+    await expect(badges.nth(0)).toHaveAccessibleName(
+      "出典 1: Web「Welcome to Bun」",
+    );
+    await expect(badges.nth(0)).toHaveAttribute("href", "https://bun.sh/docs");
+    await expect(badges.nth(0)).toHaveAttribute("target", "_blank");
+    await expect(badges.nth(1)).toHaveAccessibleName("出典 2: Slack「dev」");
+    await expect(badges.nth(1)).toHaveAttribute(
+      "href",
+      "https://example.slack.com/archives/C1/p1700000000000100",
+    );
+    await expect(badges.nth(2)).toHaveAccessibleName(
+      "出典 3: Cosense「認可 設計」",
+    );
+    // バッジは根拠を付けた文・項目の末尾に付く
+    await expect(
+      answer
+        .locator("p", { hasText: "ランタイムです" })
+        .locator("[data-citation]"),
+    ).toHaveText(["1"]);
+    await expect(
+      answer
+        .locator("li", { hasText: "金曜にデプロイ" })
+        .locator("[data-citation]"),
+    ).toHaveText(["2", "3"]);
+    // 検索結果に無い URL は、バッジにせず通常のリンクのまま
+    await expect(
+      answer
+        .locator("li", { hasText: "検索結果に無い" })
+        .locator("[data-citation]"),
+    ).toHaveCount(0);
+    await expect(
+      answer.locator("li", { hasText: "検索結果に無い" }),
+    ).toContainText("出典");
+  };
+  await expectBadges();
+
+  // ホバーで種類・タイトル・抜粋を出す
+  await badges.nth(1).hover();
+  const card = page.getByRole("tooltip");
+  await expect(card).toContainText("Slack");
+  await expect(card).toContainText("金曜にデプロイします");
+
+  // 再読み込みしても、同じ記述に同じ番号のバッジが付く
+  await page.reload();
+  await expectBadges();
+
+  // 分岐した会話でも、引き継いだ回答の出典はそのまま
+  await main.getByRole("button", { name: "ここから分岐" }).last().click();
+  await send(page, "続けて");
+  await idle(page);
+  await expect(
+    main.locator("[data-assistant-message]").first().locator("[data-citation]"),
+  ).toHaveText(["1", "2", "3", "1"]);
 });
 
 test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロードしても保たれる", async ({

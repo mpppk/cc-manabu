@@ -18,6 +18,7 @@
 - 中断するとエラーにならずに止まる
 - タスクのスレッド（Wiki ページの会話とふつうのスレッド）で、Claude が in-process の MCP サーバ（`wiki`）のツールを使い、承認のうえでページを編集・作成する（読むツールは承認なし）
 - 回答のあとに入力を開けたまま `getContextUsage({ detail: "summary" })` でコンテキストの使用量を取り、取り終えたら終わる（#245）。回答の最後の uuid がセッションの記録（`getSessionMessages`）に見つかる（#244）
+- Web 検索の結果を根拠にした文の末尾に `[出典](URL)` が付き、その URL が検索結果にあるので出典になる（#258、docs/spikes/citations.md）
 
 Agent SDK や Claude Code を更新したときに実行する。
 

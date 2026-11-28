@@ -32,9 +32,11 @@ import {
   WikiPageUnavailableError,
   wikiPageContext,
 } from "../wiki/context.ts";
+import { citationsOfMessage } from "./answer-citations.ts";
 import type { AnswerFinished } from "./answer-summary.ts";
 import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
+import { type AnswerCitations, CITATION_INSTRUCTIONS } from "./citations.ts";
 import { toContextUsage } from "./context-usage.ts";
 import { toUserErrorMessage } from "./error-messages.ts";
 import { type QuoteData, quotesOf, quoteText } from "./quote.ts";
@@ -97,6 +99,8 @@ export type ChatMessageMetadata = {
   };
   /** 回答の要約（閉じた回答に出す）。回答のあとに作るので、後から付く。 */
   summary?: string;
+  /** 本文の印に番号を付けた出典（#258）。回答を保存するときに付ける。 */
+  citations?: AnswerCitations;
 };
 
 export type ChatDataParts = {
@@ -204,6 +208,8 @@ export const createChatService = (deps: {
       mcpServers?: Record<string, McpServerConfig>;
       /** 回答のあとに取れたコンテキストの使用量（#245）。 */
       onContextUsage?: (usage: SDKControlGetContextUsageResponse) => void;
+      /** システムプロンプトに足す指示（出典の付け方。#258）。 */
+      appendSystemPrompt?: string;
     },
   ) => LanguageModelV4;
   /**
@@ -366,6 +372,8 @@ export const createChatService = (deps: {
             model: deps.languageModel(params.model, {
               canUseTool,
               ...(mcpServers === undefined ? {} : { mcpServers }),
+              // 根拠にした資料を、本文の該当箇所に出典として付けてもらう（#258）
+              appendSystemPrompt: CITATION_INSTRUCTIONS,
               // 最後に取れた使用量を会話ごとに残し、開き直しても見られるようにする（#245）
               onContextUsage: (usage) => {
                 chats.setContextUsage(
@@ -458,9 +466,12 @@ export const createChatService = (deps: {
           } catch {
             // 履歴の記録は回答に影響させない
           }
+          // 本文の印に結び付いた出典を、回答と一緒に残す（再読み込み・分岐しても同じ記述に付く。#258）
+          const citations = citationsOfMessage(responseMessage, params.taskId);
           const metadata = {
             ...responseMessage.metadata,
             ...(isAborted ? { aborted: true } : {}),
+            ...(citations.sources.length > 0 ? { citations } : {}),
           };
           if (responseMessage.parts.length > 0) {
             chats.saveMessage(params.chatId, {
