@@ -442,7 +442,15 @@ const userMessage = z.object({
           text?: unknown;
           sourceMessageId?: unknown;
           sourcePage?: { id?: unknown; title?: unknown };
+          range?: { start?: unknown; end?: unknown };
         };
+        // 回答の中の位置（#239）は任意。あれば 0 以上の整数で start < end
+        const validRange =
+          data?.range === undefined ||
+          (Number.isInteger(data.range?.start) &&
+            Number.isInteger(data.range?.end) &&
+            (data.range.start as number) >= 0 &&
+            (data.range.start as number) < (data.range.end as number));
         // 回答からの引用は sourceMessageId、Wiki ページからの引用は sourcePage を持つ
         const hasSource =
           typeof data?.sourceMessageId === "string" ||
@@ -453,7 +461,8 @@ const userMessage = z.object({
           typeof data?.text !== "string" ||
           data.text.trim() === "" ||
           data.text.length > 20_000 ||
-          !hasSource
+          !hasSource ||
+          !validRange
         ) {
           ctx.addIssue({
             code: "custom",

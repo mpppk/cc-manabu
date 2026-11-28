@@ -1,6 +1,12 @@
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
 import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import {
+  type AnswerQuote,
+  isWikiPageQuote,
+  type QuoteRange,
+  quotesOf,
+} from "../chat/quote.ts";
 import type { Db } from "./index.ts";
 import {
   type ChatRow,
@@ -25,6 +31,16 @@ export class WikiChatTaskError extends ErrorFactory({
   name: "WikiChatTaskError",
   message: "Wiki ページの会話は別のタスクに移動できません。",
 }) {}
+
+/** 会話の中の分岐点（#235）と、そこから回答を引用して分岐した会話の引用（#239）。 */
+export type ForkPoint = {
+  /** 分岐点の回答（この会話のメッセージ）の id。 */
+  messageId: string;
+  /** この回答から分岐した会話（作った順）。 */
+  chatIds: string[];
+  /** そのうち、回答の一部を引用して質問した会話と、その引用。 */
+  quotes: { chatId: string; text: string; range?: QuoteRange }[];
+};
 
 const run = <T>(fn: () => T): Result.Result<T, DatabaseError> =>
   Result.try({ try: fn, catch: (cause) => new DatabaseError({ cause }) });
@@ -458,10 +474,7 @@ export const createChatRepository = (db: Db) => {
      */
     listForkPoints: (
       chatId: string,
-    ): Result.Result<
-      { messageId: string; chatIds: string[] }[],
-      ChatNotFoundError | DatabaseError
-    > =>
+    ): Result.Result<ForkPoint[], ChatNotFoundError | DatabaseError> =>
       Result.pipe(
         run(() => db.select().from(chats).where(eq(chats.id, chatId)).get()),
         Result.andThen((row) => requireChat(row, chatId)),
@@ -490,7 +503,7 @@ export const createChatRepository = (db: Db) => {
             ) {
               ancestors.add(parentId);
             }
-            const points = new Map<string, string[]>();
+            const points = new Map<string, Omit<ForkPoint, "messageId">>();
             for (const other of others) {
               if (
                 other.parentId === null ||
@@ -519,11 +532,39 @@ export const createChatRepository = (db: Db) => {
                   message.createdAt.getTime() === fork.createdAt.getTime(),
               );
               if (match === undefined) continue;
-              points.set(match.id, [...(points.get(match.id) ?? []), other.id]);
+              const point = points.get(match.id) ?? { chatIds: [], quotes: [] };
+              point.chatIds.push(other.id);
+              // 回答の一部を引用して分岐した会話なら、その引用（#239）。
+              // 分岐した会話の最初の質問に付いている
+              const question = db
+                .select({ parts: messages.parts })
+                .from(messages)
+                .where(
+                  and(
+                    eq(messages.chatId, other.id),
+                    eq(messages.seq, other.inheritedCount),
+                  ),
+                )
+                .get();
+              const quote = quotesOf(
+                (question?.parts ?? []) as { type: string; data?: unknown }[],
+              ).find(
+                (q): q is AnswerQuote =>
+                  !isWikiPageQuote(q) &&
+                  q.sourceMessageId === other.forkMessageId,
+              );
+              if (quote !== undefined) {
+                point.quotes.push({
+                  chatId: other.id,
+                  text: quote.text,
+                  ...(quote.range === undefined ? {} : { range: quote.range }),
+                });
+              }
+              points.set(match.id, point);
             }
-            return [...points].map(([messageId, chatIds]) => ({
+            return [...points].map(([messageId, point]) => ({
               messageId,
-              chatIds,
+              ...point,
             }));
           }),
         ),
