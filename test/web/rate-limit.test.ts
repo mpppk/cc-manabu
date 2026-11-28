@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { RateLimitSnapshot } from "../../src/chat/rate-limit.ts";
 import {
+  describeFiveHourRateLimit,
   describeRateLimit,
-  describeWeeklyRateLimit,
 } from "../../src/web/lib/rate-limit.ts";
 
 const HOUR = 60 * 60 * 1000;
@@ -77,24 +77,16 @@ describe("describeRateLimit（#116）", () => {
   });
 });
 
-describe("describeWeeklyRateLimit（#170）", () => {
-  test("5 時間枠のほうが使っていても、週間の枠を出す", () => {
-    const view = describeWeeklyRateLimit(snapshot(), now);
-    expect(view.label).toBe("7 日間枠 40%・11/27 12:00 にリセット");
-    expect(view.short).toBe("週 40%・11/27 12:00 リセット");
-    expect(view.tone).toBe("normal");
-    expect(view.details[0]).toBe("5 時間枠: 62%（14:00 にリセット）");
-  });
-
-  test("5 時間枠が上限に近ければ添えて注意を促す", () => {
-    const view = describeWeeklyRateLimit(
+describe("describeFiveHourRateLimit（#278）", () => {
+  test("週間の枠もあれば、5 時間枠の利用率とリセット時刻（HH:mm）を出す", () => {
+    const view = describeFiveHourRateLimit(
       snapshot({
         windows: [
           {
             type: "five_hour",
-            utilization: 0.92,
-            resetsAt: now + 2 * HOUR,
-            status: "allowed_warning",
+            utilization: 0.57,
+            resetsAt: new Date(2026, 10, 24, 17, 0).getTime(),
+            status: "allowed",
           },
           {
             type: "seven_day",
@@ -106,27 +98,118 @@ describe("describeWeeklyRateLimit（#170）", () => {
       }),
       now,
     );
-    expect(view.label).toBe(
-      "7 日間枠 40%・11/27 12:00 にリセット（5 時間枠 92%）",
-    );
-    expect(view.tone).toBe("warning");
+    expect(view.short).toBe("57% 17:00");
+    expect(view.label).toBe("5 時間枠 57%・17:00 にリセット");
+    expect(view.tone).toBe("normal");
+    // 詳細には週間の枠も含む
+    expect(view.details).toContain("7 日間枠: 40%（11/27 12:00 にリセット）");
   });
 
-  test("上限に達していれば、上限の表示を引き継ぐ", () => {
-    const view = describeWeeklyRateLimit(
+  test("時は 2 桁にそろえる", () => {
+    const view = describeFiveHourRateLimit(
+      snapshot({
+        windows: [
+          {
+            type: "five_hour",
+            utilization: 0.05,
+            resetsAt: new Date(2026, 10, 24, 15, 5).getTime(),
+            status: "allowed",
+          },
+        ],
+      }),
+      new Date(2026, 10, 24, 11, 0).getTime(),
+    );
+    expect(view.short).toBe("5% 15:05");
+    expect(
+      describeFiveHourRateLimit(
+        snapshot({
+          windows: [
+            {
+              type: "five_hour",
+              utilization: 0.1,
+              resetsAt: new Date(2026, 10, 25, 9, 30).getTime(),
+              status: "allowed",
+            },
+          ],
+        }),
+        now,
+      ).short,
+    ).toBe("10% 09:30");
+  });
+
+  test("5 時間枠の値や時刻が取れていなければ「—」にする", () => {
+    const missing = describeFiveHourRateLimit(
+      snapshot({
+        windows: [
+          {
+            type: "seven_day",
+            utilization: 0.4,
+            resetsAt: now + 72 * HOUR,
+            status: "allowed",
+          },
+        ],
+      }),
+      now,
+    );
+    expect(missing.short).toBe("— —");
+    expect(missing.label).toBe("5 時間枠 利用率不明・リセット時刻不明");
+    const noReset = describeFiveHourRateLimit(
+      snapshot({
+        windows: [
+          {
+            type: "five_hour",
+            utilization: 0.3,
+            resetsAt: null,
+            status: "allowed",
+          },
+        ],
+      }),
+      now,
+    );
+    expect(noReset.short).toBe("30% —");
+    // リセット時刻を過ぎた値は古いので出さない
+    const expired = describeFiveHourRateLimit(
+      snapshot({
+        windows: [
+          {
+            type: "five_hour",
+            utilization: 0.9,
+            resetsAt: now - HOUR,
+            status: "allowed",
+          },
+        ],
+      }),
+      now,
+    );
+    expect(expired.short).toBe("— —");
+  });
+
+  test("どれかの枠が上限に近ければ注意し、上限に達していれば赤にする", () => {
+    const warning = describeFiveHourRateLimit(
+      snapshot({
+        windows: [
+          {
+            type: "five_hour",
+            utilization: 0.3,
+            resetsAt: now + 2 * HOUR,
+            status: "allowed",
+          },
+          {
+            type: "seven_day",
+            utilization: 0.9,
+            resetsAt: now + 72 * HOUR,
+            status: "allowed_warning",
+          },
+        ],
+      }),
+      now,
+    );
+    expect(warning.tone).toBe("warning");
+    const rejected = describeFiveHourRateLimit(
       snapshot({ status: "rejected", resetsAt: now + HOUR }),
       now,
     );
-    expect(view.tone).toBe("danger");
-    expect(view.label).toBe("利用上限（13:00 にリセット）");
-  });
-
-  test("週間の枠が無ければ、いちばん使っている枠を出す", () => {
-    const only = snapshot();
-    const view = describeWeeklyRateLimit(
-      { ...only, windows: only.windows.slice(0, 1) },
-      now,
-    );
-    expect(view.label).toBe("5 時間枠 62%・14:00 にリセット");
+    expect(rejected.tone).toBe("danger");
+    expect(rejected.short).toBe("62% 14:00");
   });
 });

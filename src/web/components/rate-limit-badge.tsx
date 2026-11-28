@@ -2,7 +2,7 @@ import { Gauge } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { RateLimitSnapshot } from "../../chat/rate-limit.ts";
 import type { ApiClient } from "../lib/orpc.ts";
-import { describeWeeklyRateLimit } from "../lib/rate-limit.ts";
+import { describeFiveHourRateLimit } from "../lib/rate-limit.ts";
 import { cn } from "../lib/utils.ts";
 
 /** 取り直す間隔。利用枠は回答のたびにサーバへ届く。 */
@@ -10,7 +10,7 @@ const POLL_MS = 15_000;
 
 /**
  * サブスクリプションの利用枠とリセット時刻（#116）。メインの入力欄の下に出し、
- * 週間（7 日間）の枠を優先して出す（#170）。押すと、ほかの枠（5 時間枠など）を含む詳細を開く。
+ * 5 時間枠の利用率とリセット時刻を「57% 17:00」の 1 行で出す（#278）。押すと、週間の枠などを含む詳細を開く。
  * まだ観測していなければ何も出さない。
  */
 export const RateLimitBadge = ({
@@ -70,7 +70,7 @@ export const RateLimitBadge = ({
   }, [open]);
 
   if (snapshot === null) return null;
-  const view = describeWeeklyRateLimit(snapshot, now);
+  const view = describeFiveHourRateLimit(snapshot, now);
   return (
     <span ref={root} className="relative flex min-w-0">
       <button
@@ -90,10 +90,7 @@ export const RateLimitBadge = ({
         onClick={() => setOpen(!open)}
       >
         <Gauge className="size-3.5 shrink-0" aria-hidden />
-        <span className="hidden truncate 2xl:inline">{view.label}</span>
-        {view.short !== "" && (
-          <span className="truncate 2xl:hidden">{view.short}</span>
-        )}
+        <span className="whitespace-nowrap tabular-nums">{view.short}</span>
       </button>
       {open && (
         <span
