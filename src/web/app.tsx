@@ -632,6 +632,11 @@ export const App = ({ api }: { api: ApiClient }) => {
           onRenameTask={renameTask}
           onDeleteTask={deleteTask}
           onArchiveTask={(id) => setTaskArchived(id, true)}
+          onArchiveThread={async (id, archived) => {
+            await api.chats.setArchived({ id, archived });
+            await refreshChats();
+          }}
+          unreadChatIds={unreadChatIds}
           onSetTask={setTask}
           onSetAutoTerms={setAutoTerms}
           onOpenTaskList={() => navigate(TASK_LIST_PATH)}

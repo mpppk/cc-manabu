@@ -146,6 +146,7 @@ export type ChatDto = Pick<
   | "inheritedCount"
   | "branchTitle"
   | "lastSelectedAt"
+  | "archivedAt"
   | "taskId"
   | "wikiPageId"
   | "title"
@@ -173,6 +174,7 @@ const toChatDto = (row: ChatRow): ChatDto => ({
   inheritedCount: row.inheritedCount,
   branchTitle: row.branchTitle,
   lastSelectedAt: row.lastSelectedAt,
+  archivedAt: row.archivedAt,
   taskId: row.taskId,
   wikiPageId: row.wikiPageId,
   title: row.title,
@@ -1324,6 +1326,26 @@ export const router = {
       .handler(async ({ context, input }) =>
         unwrapForOrpc(context.sessionSync.check(input.id), ERROR_CODES),
       ),
+    /**
+     * 会話のスレッドをアーカイブする・復元する（#256）。元の会話と分岐を含むスレッド単位で変える。
+     * 所属・履歴・分岐はそのまま。
+     */
+    setArchived: base
+      .input(z.object({ id: z.string().min(1), archived: z.boolean() }))
+      .handler(async ({ context, input }) => {
+        const { chat } = await unwrapForOrpc(
+          context.chats.getChat(input.id),
+          ERROR_CODES,
+        );
+        await unwrapForOrpc(
+          context.chats.setGroupArchived(
+            chat.groupId === "" ? chat.id : chat.groupId,
+            input.archived,
+          ),
+          ERROR_CODES,
+        );
+        return { id: input.id };
+      }),
     /**
      * 会話の最後に取れたコンテキストの使用量（#245）。まだ取れていなければ null。
      * 読むだけで、Claude の生成は始めない。

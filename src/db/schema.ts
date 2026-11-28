@@ -176,6 +176,11 @@ export const chats = sqliteTable(
     /** 最後にこの会話を開いた日時（スレッドを開き直したときに表示する会話）。 */
     lastSelectedAt: integer("last_selected_at", { mode: "timestamp_ms" }),
     /**
+     * スレッドをアーカイブした日時（#256）。スレッド（groupId が同じ会話）の全会話に同じ値を持つ。
+     * アーカイブしていなければ null。
+     */
+    archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+    /**
      * 最後に取れたコンテキストの使用量（#245）。回答のあとに Agent SDK の getContextUsage で取る。
      * まだ取れていなければ null。
      */

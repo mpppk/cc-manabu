@@ -465,3 +465,44 @@ describe("選択範囲を引用して質問（#91）", () => {
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
+
+describe("スレッドのアーカイブ（#256）", () => {
+  test("分岐を含むスレッド単位でアーカイブ・復元し、所属・履歴・分岐は変えない", async () => {
+    const { client } = setup();
+    const task = await client.tasks.create({ name: "整理" });
+    const root = await twoTurns(client, task.id);
+    const branchId = await branchFrom(client, root.id, 1, "分岐");
+    const other = await client.chats.create({});
+    const archivedOf = async () =>
+      Object.fromEntries(
+        (await client.chats.list()).map((chat) => [
+          chat.id,
+          chat.archivedAt !== null,
+        ]),
+      );
+
+    // 分岐した会話からアーカイブしても、スレッド全体が対象
+    await client.chats.setArchived({ id: branchId, archived: true });
+    expect(await archivedOf()).toEqual({
+      [root.id]: true,
+      [branchId]: true,
+      [other.id]: false,
+    });
+    // アーカイブしたスレッドで分岐しても、そろえる
+    const later = await branchFrom(client, root.id, 3, "あとから");
+    expect((await archivedOf())[later]).toBe(true);
+
+    await client.chats.setArchived({ id: root.id, archived: false });
+    expect(Object.values(await archivedOf()).every((a) => !a)).toBe(true);
+    const { chat } = await client.chats.get({ id: branchId });
+    expect(chat).toMatchObject({ taskId: task.id, groupId: root.id });
+    expect(await textsOf(client, root.id)).toHaveLength(4);
+  });
+
+  test("存在しない会話は NOT_FOUND", async () => {
+    const { client } = setup();
+    expect(
+      client.chats.setArchived({ id: "missing", archived: true }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});

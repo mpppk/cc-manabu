@@ -230,6 +230,8 @@ export const createChatRepository = (db: Db) => {
               forkSessionId: input.forkSessionId,
               forkFromUuid: input.forkFromUuid,
               taskId: input.parent.taskId,
+              // アーカイブしたスレッドで分岐しても、スレッドの状態をそろえる（#256）
+              archivedAt: input.parent.archivedAt,
               wikiPageId: input.parent.wikiPageId,
               title: input.parent.title,
               cwd: input.parent.cwd,
@@ -309,6 +311,21 @@ export const createChatRepository = (db: Db) => {
       run(() => {
         db.update(chats)
           .set({ taskId })
+          .where(eq(chats.groupId, groupId))
+          .run();
+      }),
+
+    /**
+     * スレッドをアーカイブする・復元する（#256）。スレッドのすべての会話に同じ日時を付け外しする。
+     * 所属・履歴・分岐は変えない。一覧の並び（更新日時）も変えない。
+     */
+    setGroupArchived: (
+      groupId: string,
+      archived: boolean,
+    ): Result.Result<void, DatabaseError> =>
+      run(() => {
+        db.update(chats)
+          .set({ archivedAt: archived ? new Date() : null })
           .where(eq(chats.groupId, groupId))
           .run();
       }),
