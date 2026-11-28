@@ -138,7 +138,8 @@ const BranchPopover = ({
   };
 
   return (
-    <div ref={root} className="relative min-w-0">
+    // 一覧から会話をサイドで開いたら、このポップアップ（の開くボタン）を起点として強調する（#267）
+    <div ref={root} data-origin-anchor className="relative min-w-0">
       {renderTrigger({
         ref: trigger,
         open,

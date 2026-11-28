@@ -5367,3 +5367,120 @@ test("macOS では Ctrl+B を入力欄に渡し、⌘B でサイドバーを開�
   await box.press("Meta+B");
   await expect(sidebar).toBeHidden();
 });
+
+test("開いているカラムの起点を、元のカラムの中でカラムと同じ番号で強調する（#267）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "起点の強調");
+  for (const [title, body] of [
+    ["関係タプル", "主体と 認可モデル をつなぐ。"],
+    ["認可モデル", "権限を決める仕組み。"],
+  ] as const) {
+    await openWiki(page, "起点の強調");
+    await page.getByRole("button", { name: "新しいノート" }).click();
+    await page.getByRole("textbox", { name: "ノートのタイトル" }).fill(title);
+    await page.getByRole("textbox", { name: "本文（Markdown）" }).fill(body);
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(page.getByRole("heading", { name: title })).toBeVisible();
+  }
+  await openTask(page, "起点の強調");
+  await newChat(page);
+  await send(page, "関係タプル の話と、もう一度 関係タプル の話");
+  await idle(page);
+
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const answer = main.locator("[data-assistant-message]").last();
+  const tuples = answer.locator("[data-origin-anchor]", {
+    has: page.locator("button[data-wiki-term]", { hasText: "関係タプル" }),
+  });
+  const pane = page.getByRole("complementary", { name: "ノート" });
+  const origins = page.locator("[data-column-origin]");
+  await expect(tuples).toHaveCount(2);
+
+  // 2 つ目の用語から開くと、押した方だけを強調し、カラムにも同じ番号を付ける
+  await tuples.nth(1).locator("button[data-wiki-term]").click();
+  await expect(pane.getByRole("heading", { name: "関係タプル" })).toBeVisible();
+  await expect(origins).toHaveCount(1);
+  await expect(tuples.nth(1)).toHaveAttribute("data-column-origin", "1");
+  await expect(tuples.nth(0)).not.toHaveAttribute("data-column-origin");
+  await expect(page.locator("[data-column-origin-badge]")).toHaveText([
+    "起点の番号 1",
+  ]);
+
+  // 別の箇所から同じノートを開くと、そのカラムに移り、今押した箇所に印を移す
+  await tuples.nth(0).locator("button[data-wiki-term]").click();
+  await expect(pane).toHaveCount(1);
+  await expect(tuples.nth(0)).toHaveAttribute("data-column-origin", "1");
+  await expect(tuples.nth(1)).not.toHaveAttribute("data-column-origin");
+
+  // ノートの中の用語から開くと、そのノートの中の起点に 2 番目の印を付ける
+  const paneTerm = pane.locator("[data-origin-anchor]", {
+    has: page.locator("button[data-wiki-term]", { hasText: "認可モデル" }),
+  });
+  await paneTerm.locator("button[data-wiki-term]").click();
+  await expect(pane).toHaveCount(2);
+  await expect(paneTerm).toHaveAttribute("data-column-origin", "2");
+  await expect(tuples.nth(0)).toHaveAttribute("data-column-origin", "1");
+  await expect(page.locator("[data-column-origin-badge]")).toHaveText([
+    "起点の番号 1",
+    "起点の番号 2",
+  ]);
+  // 色もカラムごとに分ける
+  const colorOf = (locator: Locator) =>
+    locator.getAttribute("data-column-origin-color");
+  expect(await colorOf(paneTerm)).not.toBe(await colorOf(tuples.nth(0)));
+
+  // カラムを閉じると、その起点の強調を外す
+  await pane.last().getByRole("button", { name: "ノートを閉じる" }).click();
+  await expect(paneTerm).not.toHaveAttribute("data-column-origin");
+  await expect(tuples.nth(0)).toHaveAttribute("data-column-origin", "1");
+  await pane.getByRole("button", { name: "ノートを閉じる" }).click();
+  await expect(origins).toHaveCount(0);
+  await expect(page.locator("[data-column-origin-badge]")).toHaveCount(0);
+
+  // 紫の破線からサイドチャットを開くと、その破線をカラムと同じ色で強調する
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  await selectAnswerText(answer, "もう一度");
+  await askSelectionIn(page);
+  const sideInput = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  await sideInput.fill("どういうこと？");
+  await sideInput.press("Enter");
+  await expect(side.getByText(/^了解: 以下は/)).toBeVisible();
+  await expect
+    .poll(() => highlightTexts(page, "monet-side-quote"))
+    .toEqual(["もう一度"]);
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await expect
+    .poll(() => highlightTexts(page, "monet-origin-quote-1"))
+    .toEqual([]);
+  const point = await page.evaluate(() => {
+    const range = [
+      ...(CSS.highlights.get("monet-side-quote") ?? []),
+    ][0] as Range;
+    range.startContainer.parentElement?.scrollIntoView({ block: "center" });
+    const rect = range.getClientRects()[0];
+    if (rect === undefined) throw new Error("no rect");
+    return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+  });
+  await page.mouse.click(point.x, point.y);
+  await expect(side).toBeVisible();
+  await expect
+    .poll(() => highlightTexts(page, "monet-origin-quote-1"))
+    .toEqual(["もう一度"]);
+  // ノートも開くと、それぞれの起点を別の番号・色で示す
+  await tuples.nth(1).locator("button[data-wiki-term]").click();
+  await expect(pane).toHaveCount(1);
+  await expect(side).toHaveCount(0);
+  await page.locator("[data-path-switcher]").getByRole("button").click();
+  await page
+    .getByRole("menuitem", { name: /サイドチャット|についての質問|会話/ })
+    .click();
+  await expect(side).toBeVisible();
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+  await expect
+    .poll(() => highlightTexts(page, "monet-origin-quote-1"))
+    .toEqual([]);
+});

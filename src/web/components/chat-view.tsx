@@ -45,6 +45,11 @@ import { isPageTerm, normalizeTerm } from "../../wiki/terms.ts";
 import { branchPointsOf, snippetOf } from "../lib/branch-points.ts";
 import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import { OrpcChatTransport, type SendSettings } from "../lib/chat-transport.ts";
+import {
+  type ColumnOrigin,
+  ORIGIN_COLORS,
+  quoteHighlightName,
+} from "../lib/column-origin.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
@@ -767,8 +772,13 @@ export type ChatViewProps = {
   branches?: ChatDto[];
   /** 会話を開く（分岐して作った会話を開くのにも使う）。 */
   onSelectBranch?: (chatId: string) => void;
-  /** メインで開いている会話を保ったまま、同じスレッドの別の会話をサイドで開く。 */
-  onOpenSideBranch?: (chatId: string) => void;
+  /**
+   * メインで開いている会話を保ったまま、同じスレッドの別の会話をサイドで開く。
+   * origin は開いた起点（#267。省くと今の操作から決め、null なら付けない）。
+   */
+  onOpenSideBranch?: (chatId: string, origin?: ColumnOrigin | null) => void;
+  /** 開いているサイドチャットの、紫の破線の起点とその色（#267）。破線をカラムと同じ色で強調する。 */
+  sideQuoteOrigins?: readonly { chatId: string; color: number }[] | undefined;
   initialMessages: ChatUIMessage[];
   /** 選べるモデル（system.status から）。 */
   models: ModelInfo[];
@@ -882,6 +892,7 @@ export const ChatView = ({
   branches = [],
   onSelectBranch,
   onOpenSideBranch,
+  sideQuoteOrigins,
   focusMessage,
   onWikiPageCreated,
   side = false,
@@ -1355,7 +1366,8 @@ export const ChatView = ({
       // メインの会話と現在地（HEAD）はそのまま。回答はサイドチャットに出す
       quoteSent();
       onActivity?.();
-      onOpenSideBranch(branchId);
+      // 起点は HEAD の回答で、押したボタンではないので強調しない
+      onOpenSideBranch(branchId, null);
       return true;
     } catch (failure) {
       setBranchError(
@@ -1723,9 +1735,20 @@ export const ChatView = ({
       point.quotes.map((quote) => ({ messageId: point.messageId, ...quote })),
     ),
   );
+  // 開いているサイドチャットの起点の破線は、カラムと同じ色で強調する（#267）
+  const originKey = JSON.stringify(sideQuoteOrigins ?? []);
   useEffect(() => {
     const container = transcript.current;
     if (side || container === null || !("highlights" in CSS)) return;
+    const origins = JSON.parse(originKey) as {
+      chatId: string;
+      color: number;
+    }[];
+    const clearOrigins = () => {
+      for (let color = 1; color <= ORIGIN_COLORS; color++) {
+        CSS.highlights.delete(quoteHighlightName(color));
+      }
+    };
     const quotes = JSON.parse(quoteKey) as {
       messageId: string;
       chatId: string;
@@ -1754,6 +1777,18 @@ export const ChatView = ({
           new Highlight(...sideQuotes.current.map(({ range }) => range)),
         );
       }
+      clearOrigins();
+      for (const { chatId, color } of origins) {
+        const ranges = sideQuotes.current
+          .filter((quote) => quote.chatId === chatId)
+          .map(({ range }) => range);
+        if (ranges.length > 0) {
+          CSS.highlights.set(
+            quoteHighlightName(color),
+            new Highlight(...ranges),
+          );
+        }
+      }
     };
     update();
     if (quotes.length === 0) return;
@@ -1771,9 +1806,10 @@ export const ChatView = ({
       cancelAnimationFrame(frame);
       sideQuotes.current = [];
       CSS.highlights.delete(SIDE_QUOTE_HIGHLIGHT);
+      clearOrigins();
       setHoveredSideQuote(undefined);
     };
-  }, [side, quoteKey]);
+  }, [side, quoteKey, originKey]);
   /** 画面上の位置にある、サイドで質問した箇所。 */
   const sideQuoteAt = (x: number, y: number) => {
     if (sideQuotes.current.length === 0) return undefined;
@@ -1952,7 +1988,10 @@ export const ChatView = ({
             const quote = sideQuoteAt(event.clientX, event.clientY);
             if (quote !== undefined) {
               setHoveredSideQuote(undefined);
-              onOpenSideBranch?.(quote.chatId);
+              onOpenSideBranch?.(quote.chatId, {
+                kind: "sideQuote",
+                chatId: quote.chatId,
+              });
             }
           }}
         >

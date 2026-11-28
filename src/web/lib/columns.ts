@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ColumnOrigin,
+  captureOrigin,
+  trackPointer,
+} from "./column-origin.ts";
 
 /**
  * メインの右に並べるカラム（#248）。identities のどれかが同じなら、同じものを開いているとみなす。
@@ -25,6 +30,8 @@ export type ColumnNode<T> = Column<T> & {
   parent: string;
   /** 最後に表示した順（大きいほど新しい）。隠した経路を捨てる順に使う。 */
   shownAt: number;
+  /** 開いた起点（元のカラムの中で強調する。#267）。分からなければ undefined。 */
+  origin?: ColumnOrigin | undefined;
 };
 
 export type ColumnTree<T> = {
@@ -147,6 +154,7 @@ export type OpenResult<T> =
  * from のカラムから開く（#254）。from のすぐ右に開き、それより右にあった経路は別の経路として隠す。
  * from が "end" なら、表示している経路の右端に足す（たどる対象ではないもの。セッション詳細など）。
  * 表示している経路（メインを含む）にすでにあれば、開かずにそのカラムを返す。
+ * そのときは起点を今の起点に移す（最後に選んだ箇所を強調する。#267）。
  */
 export const openColumn = <T>(
   tree: ColumnTree<T>,
@@ -157,11 +165,26 @@ export const openColumn = <T>(
     from: string | "end";
     mainIdentities?: readonly string[];
     max?: number;
+    origin?: ColumnOrigin | undefined;
   },
 ): OpenResult<T> => {
   const path = pathOf(tree);
   const existing = findColumn(path, input.identities, input.mainIdentities);
-  if (existing !== undefined) return { kind: "existing", key: existing, tree };
+  if (existing !== undefined) {
+    if (existing === MAIN_COLUMN || input.origin === undefined) {
+      return { kind: "existing", key: existing, tree };
+    }
+    return {
+      kind: "existing",
+      key: existing,
+      tree: {
+        ...tree,
+        nodes: tree.nodes.map((node) =>
+          node.key === existing ? { ...node, origin: input.origin } : node,
+        ),
+      },
+    };
+  }
   const parent =
     input.from === "end"
       ? (path.at(-1)?.key ?? MAIN_COLUMN)
@@ -175,6 +198,7 @@ export const openColumn = <T>(
     identities: input.identities,
     parent,
     shownAt: tree.clock,
+    origin: input.origin,
   } as ColumnNode<T>;
   const opened = stamp({
     ...tree,
@@ -252,17 +276,26 @@ export const useColumns = <T>(mainIdentities: readonly string[] = []) => {
     return () => clearTimeout(timer);
   }, [highlight]);
 
+  useEffect(trackPointer, []);
+
   /**
    * from のカラムから開く（"end" なら経路の右端に足す）。開いたカラム（すでにあればそのカラム）のキーを返す。
+   * origin は開いた起点（#267）。省くと、今の選択範囲・フォーカス・押した要素から決める。null なら付けない。
    */
   const open = useCallback(
-    (identities: readonly string[], value: T, from: string | "end"): string => {
+    (
+      identities: readonly string[],
+      value: T,
+      from: string | "end",
+      origin?: ColumnOrigin | null,
+    ): string => {
       const result = openColumn(current.current, {
         key: crypto.randomUUID(),
         identities,
         value,
         from,
         mainIdentities: mainRef.current,
+        origin: origin === null ? undefined : (origin ?? captureOrigin()),
       });
       update(result.tree);
       show(result.key, result.kind === "existing");

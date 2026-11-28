@@ -191,3 +191,128 @@
 ::highlight(monet-quote-focus) {
   background-color: var(--quote-focus);
 }
+
+/*
+ * 開いているカラムの起点（#267）。元のカラムの中で、カラムを開いた用語・ボタン・引用範囲を
+ * カラムと同じ番号・色で強調する（番号・色は column-origin.ts と合わせる）。
+ */
+:root {
+  --column-origin-1: oklch(0.769 0.188 70.08); /* amber-500 */
+  --column-origin-2: oklch(0.696 0.17 162.48); /* emerald-500 */
+  --column-origin-3: oklch(0.685 0.169 237.323); /* sky-500 */
+  --column-origin-4: oklch(0.645 0.246 16.439); /* rose-500 */
+  --column-origin-5: oklch(0.667 0.295 322.15); /* fuchsia-500 */
+  --column-origin-6: oklch(0.648 0.2 131.684); /* lime-600 */
+}
+
+.dark {
+  --column-origin-1: oklch(0.828 0.189 84.429);
+  --column-origin-2: oklch(0.765 0.177 163.223);
+  --column-origin-3: oklch(0.746 0.16 232.661);
+  --column-origin-4: oklch(0.712 0.194 13.428);
+  --column-origin-5: oklch(0.74 0.238 322.16);
+  --column-origin-6: oklch(0.768 0.233 130.85);
+}
+
+[data-column-origin-color="1"],
+[data-column-origin-bar="1"] {
+  --origin-color: var(--column-origin-1);
+}
+[data-column-origin-color="2"],
+[data-column-origin-bar="2"] {
+  --origin-color: var(--column-origin-2);
+}
+[data-column-origin-color="3"],
+[data-column-origin-bar="3"] {
+  --origin-color: var(--column-origin-3);
+}
+[data-column-origin-color="4"],
+[data-column-origin-bar="4"] {
+  --origin-color: var(--column-origin-4);
+}
+[data-column-origin-color="5"],
+[data-column-origin-bar="5"] {
+  --origin-color: var(--column-origin-5);
+}
+[data-column-origin-color="6"],
+[data-column-origin-bar="6"] {
+  --origin-color: var(--column-origin-6);
+}
+
+[data-column-origin-bar],
+[data-column-origin-badge] {
+  background-color: var(--origin-color);
+}
+
+[data-column-origin] {
+  border-radius: 0.25rem;
+  background-color: color-mix(in oklab, var(--origin-color) 20%, transparent);
+  box-shadow: 0 0 0 2px var(--origin-color);
+}
+
+[data-column-origin]::after {
+  content: attr(data-column-origin);
+  display: inline-block;
+  min-width: 0.875rem;
+  margin-left: 0.125rem;
+  padding: 0 0.125rem;
+  border-radius: 9999px;
+  background-color: var(--origin-color);
+  color: white;
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 0.875rem;
+  text-align: center;
+  text-decoration: none;
+  vertical-align: super;
+  font-variant-numeric: tabular-nums;
+}
+
+::highlight(monet-origin-range-1),
+::highlight(monet-origin-quote-1) {
+  background-color: color-mix(
+    in oklab,
+    var(--column-origin-1) 30%,
+    transparent
+  );
+}
+::highlight(monet-origin-range-2),
+::highlight(monet-origin-quote-2) {
+  background-color: color-mix(
+    in oklab,
+    var(--column-origin-2) 30%,
+    transparent
+  );
+}
+::highlight(monet-origin-range-3),
+::highlight(monet-origin-quote-3) {
+  background-color: color-mix(
+    in oklab,
+    var(--column-origin-3) 30%,
+    transparent
+  );
+}
+::highlight(monet-origin-range-4),
+::highlight(monet-origin-quote-4) {
+  background-color: color-mix(
+    in oklab,
+    var(--column-origin-4) 30%,
+    transparent
+  );
+}
+::highlight(monet-origin-range-5),
+::highlight(monet-origin-quote-5) {
+  background-color: color-mix(
+    in oklab,
+    var(--column-origin-5) 30%,
+    transparent
+  );
+}
+::highlight(monet-origin-range-6),
+::highlight(monet-origin-quote-6) {
+  background-color: color-mix(
+    in oklab,
+    var(--column-origin-6) 30%,
+    transparent
+  );
+}

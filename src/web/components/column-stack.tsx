@@ -4,10 +4,16 @@ import {
   Fragment,
   type ReactNode,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import {
+  type ColumnOrigin,
+  originColorOf,
+  paintOrigins,
+} from "../lib/column-origin.ts";
 import { MAIN_COLUMN } from "../lib/columns.ts";
 import {
   MIN_SIDE_PANEL_WIDTH,
@@ -93,6 +99,29 @@ const PathSwitcher = ({
   );
 };
 
+/**
+ * カラムの番号と色（#267）。元のカラムの中の起点にも同じ番号と色を付けるので、
+ * 複数のカラムを開いていても、どの起点がどのカラムかを見分けられる。
+ */
+const OriginMarker = ({ position }: { position: number }) => (
+  <>
+    <span
+      aria-hidden
+      data-column-origin-bar={originColorOf(position)}
+      className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5"
+    />
+    <span
+      data-column-origin-badge={position + 1}
+      data-column-origin-color={originColorOf(position)}
+      title={`このカラムを開いた箇所には、元のカラムで「${position + 1}」の印が付いています`}
+      className="pointer-events-auto absolute top-1 left-0.5 z-10 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 font-medium text-[9px] text-white tabular-nums leading-none"
+    >
+      <span className="sr-only">起点の番号 </span>
+      {position + 1}
+    </span>
+  </>
+);
+
 /** 見出しを一時的に強調する（すでに開いているカラムを開き直したとき）。 */
 const HIGHLIGHT_CLASS =
   "data-[highlighted]:[&>*>header]:bg-amber-500/20 data-[highlighted]:ring-2 data-[highlighted]:ring-amber-400 data-[highlighted]:ring-inset";
@@ -129,6 +158,8 @@ export const ColumnStack = ({
     node: ReactNode;
     position: number | undefined;
     paths?: ColumnPaths | undefined;
+    /** 開いた起点（#267）。表示している間、元のカラムの中で強調し、カラムにも同じ番号と色を付ける。 */
+    origin?: ColumnOrigin | undefined;
   }[];
   /** スクロールして見せるカラム。 */
   reveal: { key: string; nonce: number } | undefined;
@@ -194,6 +225,23 @@ export const ColumnStack = ({
     viewing.current = nearest;
   };
   useReserveMainWidth(open ? reserveMainWidth : 0);
+
+  // 表示しているカラムの起点を、元のカラムの中で強調する（#267）。描画のたびに付け直す
+  useLayoutEffect(() =>
+    paintOrigins(
+      columns.flatMap((column) =>
+        column.position === undefined || column.origin === undefined
+          ? []
+          : [
+              {
+                origin: column.origin,
+                number: column.position + 1,
+                color: originColorOf(column.position),
+              },
+            ],
+      ),
+    ),
+  );
 
   // 開いた・選び直したカラムまでスクロールする
   useEffect(() => {
@@ -273,13 +321,16 @@ export const ColumnStack = ({
               className={cn(
                 "flex min-h-0 min-w-0 shrink-0 flex-col bg-background max-lg:w-full lg:w-(--side-column-width)",
                 shown
-                  ? "max-lg:snap-start"
+                  ? "relative max-lg:snap-start"
                   : // 別の経路: 場所を取らずに見えなくする（描画は残し、スクロール位置を保つ）
                     "pointer-events-none invisible absolute inset-y-0 left-0",
                 HIGHLIGHT_CLASS,
               )}
               style={shown ? { order: order + 2 } : undefined}
             >
+              {shown && column.origin !== undefined && (
+                <OriginMarker position={column.position ?? 0} />
+              )}
               {shown && column.paths !== undefined && (
                 <PathSwitcher paths={column.paths} current={column.key} />
               )}
