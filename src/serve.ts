@@ -37,12 +37,17 @@ import { createSearchRepository } from "./db/search-repository.ts";
 import { createTaskRepository } from "./db/task-repository.ts";
 import { createWikiHistoryRepository } from "./db/wiki-history-repository.ts";
 import { createWikiRepository } from "./db/wiki-repository.ts";
+import { readEnv } from "./env.ts";
 import { createDirectoryPicker } from "./environment/directory-picker.ts";
 import { CliExit } from "./errors/index.ts";
 import { createClaudeCode } from "./provider/index.ts";
 import { router } from "./router.ts";
 import type { RuntimeConfig } from "./runtime-config.ts";
 import { generateToken } from "./server/access-control.ts";
+import {
+  createAnswerNotifier,
+  notifyWithOsascript,
+} from "./server/answer-notification.ts";
 import {
   findInstalledPwa,
   type InstalledPwa,
@@ -221,6 +226,19 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
             })
           ).text,
       });
+      // 回答が完了したら Mac に通知する（#264）。MONET_NO_NOTIFY=1 で止められる
+      const notifyAnswer =
+        process.platform === "darwin" &&
+        readEnv(process.env, "NO_NOTIFY") !== "1"
+          ? createAnswerNotifier({
+              chats,
+              notify: notifyWithOsascript,
+              onError: (error) =>
+                console.warn(
+                  `回答の完了を通知できませんでした: ${error.message}`,
+                ),
+            })
+          : undefined;
       const registry = new RunnerRegistry();
       let queueDispatcher: QueueDispatcher | undefined;
       const chatService = createChatService({
@@ -250,6 +268,7 @@ export const serve = async (config: RuntimeConfig): Promise<void> => {
           void wikiThreadTitler.onAnswerFinish(event);
           void writePageQa(event);
         },
+        onAnswerSaved: (event) => void notifyAnswer?.(event),
         onWikiChatCreated: (chat) => wikiThreadTitler.track(chat),
         onRunnerStart: (chatId) => goalRuns?.onRunnerStart(chatId),
         onRunnerFinish: (chatId, outcome) => {

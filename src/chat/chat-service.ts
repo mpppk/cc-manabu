@@ -261,6 +261,11 @@ export const createChatService = (deps: {
    * 最初の回答のあとにタイトルを付ける（#161）のに使う。
    */
   onWikiChatCreated?: (chat: ChatRow) => void;
+  /**
+   * 回答が正常に終わって保存されたとき（中断・エラーを除く。本文の無い回答も含む）に、回答ごとに 1 回呼ぶ。
+   * 回答の完了の通知に使う（#264）。
+   */
+  onAnswerSaved?: (event: { chatId: string; messageId: string }) => void;
   /** 会話の生成が始まったとき（ゴールの実行の進捗の更新に使う。#198）。 */
   onRunnerStart?: (chatId: string) => void;
   /** 会話の生成が終わったとき（予約したメッセージの送信に使う。#102）。 */
@@ -481,6 +486,20 @@ export const createChatService = (deps: {
               metadata,
               sdkUuid: metadata.claudeCode?.lastAssistantUuid ?? null,
             });
+          }
+          if (
+            !isAborted &&
+            !failed &&
+            responseMessage.parts.length > 0
+          ) {
+            try {
+              deps.onAnswerSaved?.({
+                chatId: params.chatId,
+                messageId: responseMessage.id,
+              });
+            } catch {
+              // 通知は回答に影響させない
+            }
           }
           const answer = responseMessage.parts
             .flatMap((part) => (part.type === "text" ? [part.text] : []))

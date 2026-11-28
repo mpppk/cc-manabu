@@ -65,6 +65,8 @@ export const createTestContext = (
     readVerdict?: GoalVerdictReader;
     /** 回答のあとにコンテキストの使用量を取る（#245）。既定では取らない。 */
     contextUsage?: boolean;
+    /** 回答が正常に終わって保存されたとき（#264）。 */
+    onAnswerSaved?: (event: { chatId: string; messageId: string }) => void;
   } = {},
 ) => {
   const opened = openDatabase(":memory:");
@@ -153,6 +155,9 @@ export const createTestContext = (
       queueDispatcher?.onRunnerFinish(chatId, outcome);
       void goalRuns?.onRunnerFinish(chatId, outcome);
     },
+    ...(options.onAnswerSaved === undefined
+      ? {}
+      : { onAnswerSaved: options.onAnswerSaved }),
     ...(writeTermPages === undefined
       ? {}
       : {

@@ -26,6 +26,7 @@ Bun 製の単一バイナリとして動き、起動するとローカルに Web
 - Markdown、コード、数式（KaTeX）、Mermaid を表示できます
 - モデルと effort を切り替えられ、コストと所要時間を表示します
 - ブラウザを閉じても生成は続き、開き直すと途中から表示されます。承認待ちはタブのタイトルと通知で知らせます
+- macOS では、回答が完了するとスレッド名を添えて通知センターに知らせます（ブラウザを閉じていても、サーバーが動いていれば届きます）
 - `~/.claude` とプロジェクトの設定（CLAUDE.md、settings.json、MCP、skills）をそのまま使います
 
 ## 前提条件
@@ -87,6 +88,7 @@ monet --help
 | `MONET_CHROME_APP_ID` | PWA に使う Chrome のアプリ ID（省略時は起動 URL から算出） |
 | `MONET_CLAUDE_PATH` | 使う `claude` のパス（既定: PATH から探す） |
 | `MONET_NO_AUTH=1` | API にアクセストークンを要求しない（デバッグ用。`--pwa` では常にトークンを要求） |
+| `MONET_NO_NOTIFY=1` | 回答が完了したときの macOS の通知を出さない |
 | `MONET_DB` | 会話を保存する SQLite のパス（既定: `$XDG_DATA_HOME/monet/db.sqlite`、未設定なら `~/.local/share/monet/db.sqlite`） |
 
 改名前の `CC_MANABU_*`（例: `CC_MANABU_PORT`）もそのまま読みます。両方を指定した場合は `MONET_*` を優先します。
