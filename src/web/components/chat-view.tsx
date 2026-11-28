@@ -23,8 +23,10 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { citationsOfMessage } from "../../chat/answer-citations.ts";
 import { resolveChatDefaults } from "../../chat/chat-defaults.ts";
 import type { ChatUIMessage, Effort } from "../../chat/chat-service.ts";
+import { linkCitations } from "../../chat/citations.ts";
 import {
   type AnswerQuote,
   isWikiPageQuote,
@@ -33,7 +35,7 @@ import {
   quotesOf,
 } from "../../chat/quote.ts";
 import type { ChatDto, EnvironmentDto } from "../../router.ts";
-import { citedPageIds, linkWikiCitations } from "../../wiki/citations.ts";
+import { citedPageIds } from "../../wiki/citations.ts";
 import {
   createTermMatcher,
   type TermEntry,
@@ -273,6 +275,8 @@ const MessageView = ({
   // このターンで参照資料として渡した Wiki ページ。引用されたものだけをリンクにする
   const wiki = message.metadata?.wiki;
   const wikiIds = new Set(wiki?.pages.map((page) => page.id) ?? []);
+  // 本文の出典（#258）。保存した回答はそのまま、生成中は今ある本文とツールの結果から求める
+  const citations = message.metadata?.citations ?? citationsOfMessage(message);
   // 改名前（プロジェクト）に保存した回答は projectId に入っている
   const wikiTaskId = wiki?.taskId ?? wiki?.projectId;
   const wikiLinks: WikiLinks | undefined =
@@ -295,7 +299,10 @@ const MessageView = ({
         return (
           <div key={i} data-answer-text>
             <Markdown
-              text={linkWikiCitations(part.text, wikiIds)}
+              text={linkCitations(part.text, citations)}
+              {...(citations.sources.length === 0
+                ? {}
+                : { citations: citations.sources })}
               streaming={streaming}
               cosenseLinks
               {...(wikiLinks === undefined ? {} : { wikiLinks })}

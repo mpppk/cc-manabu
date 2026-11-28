@@ -11,6 +11,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { generateText, readUIMessageStream, streamText } from "ai";
+import {
+  type CitableMessage,
+  citationsOfMessage,
+} from "../../src/chat/answer-citations.ts";
+import { CITATION_INSTRUCTIONS } from "../../src/chat/citations.ts";
 import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
 import { isPrompt, sdkSessionReader } from "../../src/claude/sessions.ts";
 import {
@@ -83,6 +88,46 @@ describe.skipIf(!LIVE)("live: Claude Code provider", () => {
         metadata?.lastAssistantUuid ?? "",
       );
       expect(transcript.filter(isPrompt)).toHaveLength(1);
+    },
+    TIMEOUT,
+  );
+
+  test(
+    "Web 検索の結果を根拠にした文に、検索結果にある URL の出典を付ける（#258）",
+    async () => {
+      const result = await generateText({
+        model: createClaudeCode({
+          cwd,
+          pathToClaudeCodeExecutable: claudePath,
+          settingSources: [],
+          appendSystemPrompt: CITATION_INSTRUCTIONS,
+          canUseTool: async (_name, input) => ({
+            behavior: "allow",
+            updatedInput: input,
+          }),
+        })("haiku"),
+        prompt:
+          "Web で検索して、Bun の公式ドキュメントの URL と Bun が何かを 2 文で教えて。",
+      });
+      const parts: CitableMessage["parts"] = result.steps
+        .flatMap((step) => step.content)
+        .flatMap((content): CitableMessage["parts"][number][] =>
+          content.type === "text"
+            ? [{ type: "text", text: content.text }]
+            : content.type === "tool-result"
+              ? [
+                  {
+                    type: "dynamic-tool",
+                    toolName: content.toolName,
+                    input: content.input,
+                    output: content.output,
+                    state: "output-available",
+                  },
+                ]
+              : [],
+        );
+      expect(result.text).toContain("[出典](");
+      expect(citationsOfMessage({ parts }).sources.length).toBeGreaterThan(0);
     },
     TIMEOUT,
   );

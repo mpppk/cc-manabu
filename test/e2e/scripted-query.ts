@@ -189,6 +189,33 @@ export const createScriptedQuery = (): QueryFunction => {
     const wikiToolCall = (name: string, args: Record<string, unknown>) =>
       toolCall("wiki", name, args);
 
+    /** 実行せずに、決まった結果を返すツールの呼び出し（Web 検索や Slack など。#258）。 */
+    async function* fakeToolCall(
+      name: string,
+      args: Record<string, unknown>,
+      result: string,
+    ): AsyncGenerator<SDKMessage> {
+      const id = `toolu_${crypto.randomUUID()}`;
+      yield {
+        ...base,
+        type: "assistant",
+        uuid: crypto.randomUUID(),
+        message: {
+          role: "assistant",
+          content: [{ type: "tool_use", id, name, input: args }],
+        },
+      } as unknown as SDKMessage;
+      yield {
+        ...base,
+        type: "user",
+        uuid: crypto.randomUUID(),
+        message: {
+          role: "user",
+          content: [{ type: "tool_result", tool_use_id: id, content: result }],
+        },
+      } as unknown as SDKMessage;
+    }
+
     const turn = (turnsBySession.get(sessionId) ?? 0) + 1;
     turnsBySession.set(sessionId, turn);
     const generator = (async function* (): AsyncGenerator<SDKMessage> {
@@ -244,6 +271,41 @@ export const createScriptedQuery = (): QueryFunction => {
           ? wikiToolCall("create_page", { title, body })
           : wikiToolCall("update_page", { id: existing, body });
         yield* textMessage([`Wiki の「${title}」に書きました。`], 0);
+      } else if (text.includes("出典を付けて")) {
+        // 実機の WebSearch・Slack・Cosense の結果の形（docs/spikes/citations.md）
+        yield* fakeToolCall(
+          "WebSearch",
+          { query: "bun" },
+          'Web search results for query: "bun"\n\nLinks: [{"title":"Welcome to Bun","url":"https://bun.sh/docs"},{"title":"Bun (software)","url":"https://en.wikipedia.org/wiki/Bun_(software)"}]\n\nBun is a JavaScript runtime.',
+        );
+        yield* fakeToolCall(
+          "mcp__slack__search_messages",
+          { query: "デプロイ" },
+          JSON.stringify({
+            messages: [
+              {
+                channel_name: "dev",
+                text: "金曜にデプロイします",
+                permalink:
+                  "https://example.slack.com/archives/C1/p1700000000000100",
+              },
+            ],
+          }),
+        );
+        yield* fakeToolCall(
+          "mcp__cosense__get_page",
+          { projectName: "team", pageTitle: "認可 設計" },
+          "認可の設計メモ。",
+        );
+        yield* textMessage(
+          [
+            "Bun は JavaScript のランタイムです。[出典](https://bun.sh/docs)\n\n",
+            "- 金曜にデプロイします。[出典](https://example.slack.com/archives/C1/p1700000000000100)[出典](https://scrapbox.io/team/認可_設計)\n",
+            "- 公式のドキュメントにもあります。[出典](https://bun.sh/docs/)\n",
+            "- 検索結果に無い URL です。[出典](https://bun.sh/made-up)\n",
+          ],
+          0,
+        );
       } else if (/^タスクを更新: /.test(text)) {
         // 「タスクを更新: 状態|ゴール」。#187
         const [status = "", nextAction = ""] = text
