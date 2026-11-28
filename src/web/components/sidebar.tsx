@@ -392,8 +392,11 @@ const TreeRow = ({
 );
 
 /** コマンドパレット（#243）からサイドバーに頼む操作。 */
-export type SidebarRequest = {
-  kind: "search" | "createTask";
+export type SidebarRequest = (
+  | { kind: "search" | "createTask" }
+  /** 環境の設定を開く（入力欄の左下の環境名から。#271）。 */
+  | { kind: "editEnvironment"; environmentId: string }
+) & {
   /** 同じ操作を続けて頼んだときも反応するよう、頼むたびに変える。 */
   nonce: number;
 };
@@ -540,9 +543,22 @@ export const Sidebar = ({
   // コマンドパレットからの操作（#243）。開いた検索欄は自分でフォーカスする
   const requestNonce = request?.nonce;
   const requestKind = request?.kind;
+  const requestEnvironment =
+    request?.kind === "editEnvironment" ? request.environmentId : undefined;
   useEffect(() => {
     if (requestNonce === undefined) return;
-    if (requestKind === "search") {
+    if (requestEnvironment !== undefined) {
+      // 閉じたら、頼んだ元（入力欄の左下の環境名）にフォーカスを戻す
+      const active = document.activeElement;
+      environmentReturnFocus.current =
+        active instanceof HTMLElement && active !== document.body
+          ? active
+          : null;
+      setEnvironmentDialog({
+        kind: "settings",
+        environmentId: requestEnvironment,
+      });
+    } else if (requestKind === "search") {
       setSearchOpen(true);
       document
         .getElementById(searchId)
@@ -551,12 +567,24 @@ export const Sidebar = ({
     } else if (requestKind === "createTask") {
       setTaskDialog({ kind: "create" });
     }
-  }, [requestNonce, requestKind, searchId]);
+  }, [requestNonce, requestKind, requestEnvironment, searchId]);
   /** 既存のスレッドを追加する先のタスク。 */
   const [addingTo, setAddingTo] = useState<TaskDto>();
   const [taskDialog, setTaskDialog] = useState<TaskDialog>();
   const [environmentDialog, setEnvironmentDialog] =
     useState<EnvironmentDialog>();
+  /** 環境のダイアログを閉じたときにフォーカスを戻す要素（サイドバーの外から開いたとき）。 */
+  const environmentReturnFocus = useRef<HTMLElement | null>(null);
+  const closeEnvironmentDialog = () => {
+    setEnvironmentDialog(undefined);
+    const target = environmentReturnFocus.current;
+    environmentReturnFocus.current = null;
+    if (target !== null) {
+      requestAnimationFrame(() => {
+        if (target.isConnected) target.focus();
+      });
+    }
+  };
   // 会話はスレッドごとに 1 行にまとめる（#76）
   const groups = groupChats(chats);
   const task = tasks.find((p) => p.id === taskId);
@@ -787,7 +815,10 @@ export const Sidebar = ({
             size="icon"
             aria-label="新しい環境"
             title="新しい環境"
-            onClick={() => setEnvironmentDialog({ kind: "create" })}
+            onClick={() => {
+              environmentReturnFocus.current = null;
+              setEnvironmentDialog({ kind: "create" });
+            }}
           >
             <PackagePlus />
           </Button>
@@ -1010,7 +1041,7 @@ export const Sidebar = ({
       />
       <EnvironmentDialogs
         dialog={environmentDialog}
-        onClose={() => setEnvironmentDialog(undefined)}
+        onClose={closeEnvironmentDialog}
         environments={environments}
         wikis={wikis}
         defaultDirectory={defaultDirectory}

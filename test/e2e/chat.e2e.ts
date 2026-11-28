@@ -1502,6 +1502,72 @@ test("入力欄の下に所属環境の名前を出し、押すと詳細を開�
   await expect(main.getByRole("button", { name: /^環境: / })).toHaveCount(0);
 });
 
+test("入力欄の左下の環境名から、左ペインを閉じていても環境を編集できる（#271）", async ({
+  page,
+}) => {
+  await open(page);
+  await createTask(page, "編集前の環境");
+  await newChat(page);
+  await send(page, "環境を編集する前の質問");
+  await idle(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const box = main.getByRole("textbox", { name: "メッセージ", exact: true });
+  await box.fill("入力途中のメッセージ");
+  await page.getByRole("button", { name: "サイドバーを閉じる" }).click();
+
+  const button = main.getByRole("button", {
+    name: "環境: 編集前の環境（詳細を開く）",
+  });
+  await button.click();
+  await main
+    .getByRole("dialog", { name: "環境「編集前の環境」の詳細" })
+    .getByRole("button", { name: "環境を編集" })
+    .click();
+  const settings = page.getByRole("dialog", { name: "環境の設定" });
+  await expect(settings).toBeVisible();
+  await expect(
+    settings.getByRole("textbox", { name: "環境の名前" }),
+  ).toHaveValue("編集前の環境");
+
+  // 閉じても、表示中の会話と入力途中のメッセージはそのまま
+  await settings.getByRole("button", { name: "キャンセル" }).click();
+  await expect(settings).toHaveCount(0);
+  await expect(button).toBeFocused();
+  await expect(box).toHaveValue("入力途中のメッセージ");
+
+  // 保存すると、チャットの環境表示と左ペインに反映される
+  await button.click();
+  await main.getByRole("button", { name: "環境を編集" }).click();
+  await settings
+    .getByRole("textbox", { name: "環境の名前" })
+    .fill("編集後の環境");
+  await settings
+    .getByRole("textbox", { name: "環境の説明" })
+    .fill("編集した説明");
+  // （e2e の既定のディレクトリは実在しないので、選び直す）
+  await settings.getByRole("button", { name: "/e2e を外す" }).click();
+  await settings.getByRole("button", { name: "選ぶ" }).click();
+  await settings.getByRole("button", { name: "保存", exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  const renamed = main.getByRole("button", {
+    name: "環境: 編集後の環境（詳細を開く）",
+  });
+  await expect(renamed).toBeVisible();
+  await expect(box).toHaveValue("入力途中のメッセージ");
+  await expect(main.getByText("了解: 環境を編集する前の質問")).toBeVisible();
+  await renamed.click();
+  await expect(
+    main.getByRole("dialog", { name: "環境「編集後の環境」の詳細" }),
+  ).toContainText("説明編集した説明");
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "サイドバーを開く" }).click();
+  await expect(
+    page
+      .getByRole("navigation", { name: "スレッド一覧" })
+      .getByText("編集後の環境", { exact: true }),
+  ).toBeVisible();
+});
+
 test("タスクの進捗を記録し、一覧で状態ごとに確認できる", async ({ page }) => {
   await open(page);
   const status = page.getByRole("combobox", { name: "状態" });

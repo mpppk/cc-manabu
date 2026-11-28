@@ -1,14 +1,16 @@
-import { Boxes, Folder } from "lucide-react";
+import { Boxes, Folder, Settings } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { EnvironmentDto } from "../../router.ts";
 
 /**
  * 入力欄の下に出す、スレッドが属するタスクの環境名（#192）。
  * 押すと環境の名前・説明・参照する Wiki・ディレクトリをポップオーバーで出す。会話はそのまま続けられる。
+ * 「環境を編集」から、その環境の設定ダイアログを開ける（#271）。
  */
 export const EnvironmentPopover = ({
   environment,
   cwd,
+  onEdit,
 }: {
   environment: Pick<
     EnvironmentDto,
@@ -16,6 +18,8 @@ export const EnvironmentPopover = ({
   >;
   /** このスレッドの作業ディレクトリ。 */
   cwd: string;
+  /** 環境の設定を開く。無ければ「環境を編集」を出さない。 */
+  onEdit?: (() => void) | undefined;
 }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -146,13 +150,29 @@ export const EnvironmentPopover = ({
               </div>
             )}
           </dl>
-          <button
-            type="button"
-            className="self-end rounded-sm px-2 py-1 text-muted-foreground text-xs hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={close}
-          >
-            閉じる
-          </button>
+          <div className="flex items-center justify-end gap-1">
+            {onEdit !== undefined && (
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-sm px-2 py-1 text-xs hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => {
+                  // 先に環境名のボタンへフォーカスを戻し、設定を閉じたらそこに戻るようにする
+                  close();
+                  onEdit();
+                }}
+              >
+                <Settings aria-hidden className="size-3.5" />
+                環境を編集
+              </button>
+            )}
+            <button
+              type="button"
+              className="rounded-sm px-2 py-1 text-muted-foreground text-xs hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={close}
+            >
+              閉じる
+            </button>
+          </div>
         </div>
       )}
     </div>

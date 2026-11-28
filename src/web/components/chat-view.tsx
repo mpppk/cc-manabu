@@ -803,6 +803,8 @@ export type ChatViewProps = {
   cwd?: string;
   /** スレッドが属するタスクの環境（入力欄の下に名前を出し、押すと詳細を開く。#192）。 */
   environment?: EnvironmentDto | undefined;
+  /** 環境の設定を開く（入力欄の左下の環境名から。#271）。 */
+  onEditEnvironment?: ((environmentId: string) => void) | undefined;
   /** 入力欄の下にサブスクリプションの利用枠を出す（メインのチャットだけ。#170）。 */
   showRateLimit?: boolean;
   /** 会話の切り替えを出す、画面上部のヘッダーの領域（メインのチャットだけ。#234）。 */
@@ -901,6 +903,7 @@ export const ChatView = ({
   onClearQuote,
   cwd,
   environment,
+  onEditEnvironment,
   showRateLimit = false,
   headerSlot,
   detailsOpen = false,
@@ -2245,7 +2248,15 @@ export const ChatView = ({
           />
           <div className="mx-auto mt-1.5 flex max-w-3xl items-center justify-between gap-3 px-2">
             {environment !== undefined ? (
-              <EnvironmentPopover environment={environment} cwd={cwd ?? ""} />
+              <EnvironmentPopover
+                environment={environment}
+                cwd={cwd ?? ""}
+                onEdit={
+                  onEditEnvironment === undefined
+                    ? undefined
+                    : () => onEditEnvironment(environment.id)
+                }
+              />
             ) : cwd === undefined || cwd === "" ? (
               <span />
             ) : (
