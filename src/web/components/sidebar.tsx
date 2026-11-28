@@ -506,6 +506,13 @@ const StatusFilter = ({
   );
 };
 
+/** コマンドパレット（#243）からサイドバーに頼む操作。 */
+export type SidebarRequest = {
+  kind: "search" | "createTask";
+  /** 同じ操作を続けて頼んだときも反応するよう、頼むたびに変える。 */
+  nonce: number;
+};
+
 export const Sidebar = ({
   id,
   hidden = false,
@@ -541,6 +548,7 @@ export const Sidebar = ({
   onOpenGeneralSettings,
   onSearch,
   onOpenSearchHit,
+  request,
 }: {
   id?: string;
   /** 畳んでいるか（⌘B）。畳んでも状態（検索・開閉）は保つ。 */
@@ -602,6 +610,10 @@ export const Sidebar = ({
   onSearch: (q: string) => Promise<SearchResult>;
   /** 検索結果を開く。messageId があればその発言へ移動する。 */
   onOpenSearchHit: (chatId: string, messageId?: string) => void;
+  /**
+   * コマンドパレット（#243）からの操作。nonce が変わるたびに、検索欄を開く・タスクの作成を始める。
+   */
+  request?: SidebarRequest | undefined;
 }) => {
   const [deleting, setDeleting] = useState<ChatDto>();
   const [query, setQuery] = useState("");
@@ -631,6 +643,21 @@ export const Sidebar = ({
     setSearchOpen(false);
     if (restoreFocus) searchButton.current?.focus();
   };
+  // コマンドパレットからの操作（#243）。開いた検索欄は自分でフォーカスする
+  const requestNonce = request?.nonce;
+  const requestKind = request?.kind;
+  useEffect(() => {
+    if (requestNonce === undefined) return;
+    if (requestKind === "search") {
+      setSearchOpen(true);
+      document
+        .getElementById(searchId)
+        ?.querySelector<HTMLInputElement>("input")
+        ?.focus();
+    } else if (requestKind === "createTask") {
+      setTaskDialog({ kind: "create" });
+    }
+  }, [requestNonce, requestKind, searchId]);
   /** 既存のスレッドを追加する先のタスク。 */
   const [addingTo, setAddingTo] = useState<TaskDto>();
   const [taskDialog, setTaskDialog] = useState<TaskDialog>();

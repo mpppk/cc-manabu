@@ -4273,6 +4273,85 @@ test("環境のタスクは Wiki を共有し、サイドバーで環境ごと�
   await expect(environmentRow(page, "共通環境")).toHaveCount(0);
 });
 
+test("⌘K（Ctrl+K）でコマンドパレットを開き、絞り込んだ操作をキーボードとクリックで実行できる（#243）", async ({
+  page,
+}) => {
+  await open(page);
+  const palette = page.getByRole("dialog", { name: "コマンドパレット" });
+  const search = palette.getByRole("combobox", { name: "コマンドを検索" });
+  const options = palette.getByRole("option");
+  const mainInput = page
+    .getByRole("region", { name: "メインのチャット" })
+    .getByRole("textbox", { name: "メッセージ", exact: true });
+  const sidebar = page.getByRole("complementary", { name: "サイドバー" });
+
+  // 入力途中のメッセージがあっても開け、Esc で閉じると入力欄に戻って内容が残る
+  await newChat(page);
+  await mainInput.fill("入力途中のメッセージ");
+  await mainInput.press("ControlOrMeta+K");
+  await expect(palette).toBeVisible();
+  await expect(search).toBeFocused();
+  await expect(options).toHaveText([
+    "新しいスレッド",
+    "スレッドを検索",
+    "タスク一覧",
+    "新しいタスク",
+  ]);
+  await search.press("Escape");
+  await expect(palette).toHaveCount(0);
+  await expect(mainInput).toBeFocused();
+  await expect(mainInput).toHaveValue("入力途中のメッセージ");
+
+  // 左ペインを閉じていても開ける。語句で絞り込み、上下キーと Enter だけで実行する
+  await page.getByRole("button", { name: "サイドバーを閉じる" }).click();
+  await expect(sidebar).toBeHidden();
+  await page.keyboard.press("ControlOrMeta+K");
+  await search.fill("タスク");
+  await expect(options).toHaveText(["タスク一覧", "新しいタスク"]);
+  await expect(options.first()).toHaveAttribute("aria-selected", "true");
+  await search.press("ArrowDown");
+  await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
+  await search.press("ArrowUp");
+  await search.press("Enter");
+  await expect(palette).toHaveCount(0);
+  await expect(page).toHaveURL(/\/tasks$/);
+
+  // タスク一覧から「新しいタスク」を実行すると、タスクの作成を始める
+  await page.keyboard.press("ControlOrMeta+K");
+  await search.fill("新しいタスク");
+  await search.press("Enter");
+  const taskName = page.getByRole("textbox", { name: "タスクの名前" });
+  await expect(taskName).toBeVisible();
+  await taskName.press("Escape");
+  await expect(taskName).toHaveCount(0);
+
+  // 「スレッドを検索」は左ペインを開いて検索欄に移る
+  await page.keyboard.press("ControlOrMeta+K");
+  await search.fill("けんさく");
+  await expect(palette.getByRole("status")).toContainText(
+    "一致する操作はありません",
+  );
+  await search.fill("検索");
+  await search.press("Enter");
+  await expect(sidebar).toBeVisible();
+  await expect(
+    sidebar.getByRole("searchbox", { name: "スレッドを検索" }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+
+  // Wiki からも開け、候補のクリックでも実行できる。「新しいスレッド」は入力欄に移る
+  await createTask(page, "パレット");
+  await openWiki(page, "パレット");
+  await page.keyboard.press("ControlOrMeta+K");
+  await expect(palette).toBeVisible();
+  await search.fill("スレッド");
+  await palette.getByRole("option", { name: "新しいスレッド" }).click();
+  await expect(palette).toHaveCount(0);
+  await expect(page).toHaveURL(/\/c\/.+/);
+  await expect(mainInput).toBeFocused();
+  await expect(taskItem(page, "パレット")).toContainText("新しいスレッド");
+});
+
 test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロードしても保たれる", async ({
   page,
 }) => {
