@@ -13,6 +13,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type ReactNode,
+  useId,
   useRef,
   useState,
 } from "react";
@@ -82,6 +83,7 @@ export const Composer = ({
   const [branchNotice, setBranchNotice] = useState<string>();
   const fileInput = useRef<HTMLInputElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const hintId = useId();
 
   const addFiles = async (files: File[]) => {
     if (files.length === 0) return;
@@ -235,17 +237,22 @@ export const Composer = ({
           現在地を維持して送信できません: {branchNotice}
         </p>
       )}
+      {/* キー操作の説明。プレースホルダーは狭い画面でも 1 行に収まるよう短くし、説明はここに置く（#260） */}
+      <span id={hintId} className="sr-only">
+        {queue
+          ? "Enter で予約、Shift+Enter で改行。今の回答が終わったあとに順に送ります。"
+          : "Enter で送信、Shift+Enter で改行。"}
+        {branchSend === undefined
+          ? ""
+          : `${BRANCH_SEND_SHORTCUT} で現在地を維持して送信。`}
+        画像は貼り付け・ドロップ・添付ボタンで追加できます。
+      </span>
       <textarea
         ref={textarea}
         className="max-h-48 min-h-10 w-full resize-none bg-transparent px-2 py-1.5 outline-none"
-        placeholder={
-          queue
-            ? "メッセージを予約（今の回答が終わったあとに順に送ります）"
-            : branchSend !== undefined
-              ? `メッセージを入力（Enter で送信、Shift+Enter で改行、${BRANCH_SEND_SHORTCUT} で現在地を維持して送信。画像は貼り付けできます）`
-              : "メッセージを入力（Enter で送信、Shift+Enter で改行。画像は貼り付けできます）"
-        }
+        placeholder={queue ? "メッセージを予約" : "メッセージを入力"}
         aria-label={messageLabel}
+        aria-describedby={hintId}
         rows={1}
         value={input}
         onChange={(event) => {
@@ -286,7 +293,7 @@ export const Composer = ({
             variant={busy ? "outline" : "default"}
             className="size-8 rounded-full"
             aria-label="送信を予約"
-            title="送信を予約（今の回答が終わったあとに順に送ります）"
+            title="送信を予約（Enter。Shift+Enter で改行）。今の回答が終わったあとに順に送ります"
             onClick={submit}
             disabled={!canSend}
           >
@@ -307,6 +314,7 @@ export const Composer = ({
             size="icon"
             className="size-8 rounded-full"
             aria-label="送信"
+            title="送信（Enter。Shift+Enter で改行）"
             onClick={submit}
             disabled={!canSend}
           >
