@@ -21,7 +21,7 @@ import { createPortal } from "react-dom";
 import type { WikiPageQuote } from "../../chat/quote.ts";
 import type { WikiPageDto, WikiVersionDto } from "../../router.ts";
 import { searchPages } from "../../wiki/match.ts";
-import { useColumns } from "../lib/columns.ts";
+import { MAIN_COLUMN, useColumns } from "../lib/columns.ts";
 import type { ApiClient } from "../lib/orpc.ts";
 import { MIN_SIDE_PANEL_WIDTH } from "../lib/side-panel-width.ts";
 import { cn } from "../lib/utils.ts";
@@ -274,23 +274,29 @@ export const WikiView = ({
   const askButton = useRef<HTMLButtonElement>(null);
   /**
    * ノートの右に開くカラム（#248）。このノートについてのサイドチャットと、用語から開いたノート。
-   * どこから開いても右端に足し、すでに開いているノート（ノート ID）ならそのカラムに移る。
+   * 開いた元のカラムのすぐ右に開き、それより右は別の経路として隠す（#254）。
+   * 今の経路で開いているノート（ノート ID）なら、そのカラムに移る。
    */
   const stack = useColumns<WikiColumn>(
     pageId === undefined ? [] : [`page:${pageId}`],
   );
   const { open: openColumn, close: closeColumn } = stack;
+  /** 用語のノートを、from のカラム（メインなら MAIN_COLUMN）のすぐ右に開く。 */
   const openTermPane = useCallback(
-    (termPageId: string) => {
+    (termPageId: string, from: string) => {
       const active = document.activeElement;
-      openColumn([`page:${termPageId}`], {
-        kind: "page",
-        pageId: termPageId,
-        returnFocus:
-          active instanceof HTMLElement && active !== document.body
-            ? active
-            : null,
-      });
+      openColumn(
+        [`page:${termPageId}`],
+        {
+          kind: "page",
+          pageId: termPageId,
+          returnFocus:
+            active instanceof HTMLElement && active !== document.body
+              ? active
+              : null,
+        },
+        from,
+      );
     },
     [openColumn],
   );
@@ -328,7 +334,7 @@ export const WikiView = ({
   };
   /** このノートについてのサイドチャットを開く（開いていればそのカラムに移る）。 */
   const ask = (id: string) =>
-    openColumn([`wikichat:${id}`], { kind: "chat", pageId: id });
+    openColumn([`wikichat:${id}`], { kind: "chat", pageId: id }, MAIN_COLUMN);
 
   // ページを移ったら閲覧に戻す（開いたときは下書きの作成画面のまま）
   const openedPageId = useRef(pageId);
@@ -354,7 +360,11 @@ export const WikiView = ({
   );
   // Q&A の用語は、右側のペインで開く（#205）
   const qaTerms = useMemo<WikiNoteTerms>(
-    () => ({ ...noteTerms, open: openTermPane, openLabel: undefined }),
+    () => ({
+      ...noteTerms,
+      open: (id: string) => openTermPane(id, MAIN_COLUMN),
+      openLabel: undefined,
+    }),
     [noteTerms, openTermPane],
   );
   /** 本文・Q&A の選択範囲から、質問・ノートの作成をするための設定。 */
@@ -664,43 +674,65 @@ export const WikiView = ({
             {header}
           </div>
         }
-        columns={stack.columns.map((column) => ({
-          key: column.key,
-          node:
-            column.kind === "chat" ? (
-              <SideChat
-                request={{
-                  kind: "wiki",
-                  taskId,
-                  pageId: column.pageId,
-                  title: pages?.find((p) => p.id === column.pageId)?.title,
-                  quote: column.pageId === pageId ? quote : undefined,
-                }}
-                api={api}
-                models={models}
-                onActivity={() => {
-                  onChatActivity();
-                  setQaRevision((revision) => revision + 1);
-                  // Claude が Wiki のページを編集・作成していれば反映する
-                  void refresh();
-                }}
-                onClose={() => closeChat(column.key)}
-                onOpenWikiPage={(_, id) => onNavigate(id)}
-                onOpenWikiPane={(_, id) => openTermPane(id)}
-                onWikiPageCreated={() => void refresh()}
-              />
-            ) : (
-              <WikiPane
-                api={api}
-                taskId={taskId}
-                pageId={column.pageId}
-                onClose={() => closeTermPane(column.key, column.returnFocus)}
-                onOpenFull={() => onNavigate(column.pageId)}
-                onOpenPage={openTermPane}
-                onWikiPageCreated={() => void refresh()}
-              />
-            ),
-        }))}
+        columns={stack.all.map((column) => {
+          const position = stack.columns.findIndex(
+            (item) => item.key === column.key,
+          );
+          const siblings = stack.siblingsOf(column.key);
+          const titleOf = (id: string) =>
+            pages?.find((p) => p.id === id)?.title ?? "…";
+          return {
+            key: column.key,
+            position: position < 0 ? undefined : position,
+            paths:
+              siblings.length > 1
+                ? {
+                    options: siblings.map((sibling) => ({
+                      key: sibling.key,
+                      label:
+                        sibling.kind === "chat"
+                          ? `ノート「${titleOf(sibling.pageId)}」についての質問`
+                          : `ノート「${titleOf(sibling.pageId)}」`,
+                    })),
+                    onSwitch: stack.switchTo,
+                  }
+                : undefined,
+            node:
+              column.kind === "chat" ? (
+                <SideChat
+                  request={{
+                    kind: "wiki",
+                    taskId,
+                    pageId: column.pageId,
+                    title: pages?.find((p) => p.id === column.pageId)?.title,
+                    quote: column.pageId === pageId ? quote : undefined,
+                  }}
+                  api={api}
+                  models={models}
+                  onActivity={() => {
+                    onChatActivity();
+                    setQaRevision((revision) => revision + 1);
+                    // Claude が Wiki のページを編集・作成していれば反映する
+                    void refresh();
+                  }}
+                  onClose={() => closeChat(column.key)}
+                  onOpenWikiPage={(_, id) => onNavigate(id)}
+                  onOpenWikiPane={(_, id) => openTermPane(id, column.key)}
+                  onWikiPageCreated={() => void refresh()}
+                />
+              ) : (
+                <WikiPane
+                  api={api}
+                  taskId={taskId}
+                  pageId={column.pageId}
+                  onClose={() => closeTermPane(column.key, column.returnFocus)}
+                  onOpenFull={() => onNavigate(column.pageId)}
+                  onOpenPage={(id) => openTermPane(id, column.key)}
+                  onWikiPageCreated={() => void refresh()}
+                />
+              ),
+          };
+        })}
       />
     </div>
   );

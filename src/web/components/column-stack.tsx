@@ -1,4 +1,4 @@
-import { ArrowLeftToLine } from "lucide-react";
+import { ArrowLeftToLine, Check, ChevronDown, GitBranch } from "lucide-react";
 import {
   type CSSProperties,
   Fragment,
@@ -18,6 +18,7 @@ import {
 import { cn } from "../lib/utils.ts";
 import { PaneResizer } from "./pane-resizer.tsx";
 import { Button } from "./ui/button.tsx";
+import { DropdownMenu } from "./ui/dropdown-menu.tsx";
 
 /** 狭い画面（メインとカラムを 1 列ずつ表示する、Tailwind の lg 未満）か。 */
 const NARROW_QUERY = "(max-width: 1023.98px)";
@@ -51,6 +52,47 @@ export const SidePanelResizer = (props: {
   />
 );
 
+/** 同じカラムから開いた別の経路（#254）。 */
+export type ColumnPaths = {
+  /** 同じカラムから開いたカラム（開いた順）。 */
+  options: readonly { key: string; label: string }[];
+  onSwitch: (key: string) => void;
+};
+
+/** カラムの上に出す、経路の切り替え（#254）。同じカラムから別のものを開いていると出る。 */
+const PathSwitcher = ({
+  paths,
+  current,
+}: {
+  paths: ColumnPaths;
+  current: string;
+}) => {
+  const index = paths.options.findIndex((option) => option.key === current);
+  return (
+    <div
+      data-path-switcher
+      className="flex shrink-0 items-center gap-1 border-b bg-muted/40 px-3 py-0.5 text-muted-foreground text-xs lg:border-l"
+    >
+      <GitBranch aria-hidden className="size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">
+        経路 {index + 1} / {paths.options.length}
+        （同じところから開いた別の経路があります）
+      </span>
+      <DropdownMenu
+        label="別の経路に切り替える"
+        icon={<ChevronDown className="size-3.5" />}
+        triggerClassName="size-6"
+        items={paths.options.map((option, i) => ({
+          label: `${i + 1}. ${option.label}`,
+          icon: option.key === current ? <Check /> : <span />,
+          disabled: option.key === current,
+          onSelect: () => paths.onSwitch(option.key),
+        }))}
+      />
+    </div>
+  );
+};
+
 /** 見出しを一時的に強調する（すでに開いているカラムを開き直したとき）。 */
 const HIGHLIGHT_CLASS =
   "data-[highlighted]:[&>*>header]:bg-amber-500/20 data-[highlighted]:ring-2 data-[highlighted]:ring-amber-400 data-[highlighted]:ring-inset";
@@ -63,6 +105,8 @@ const HIGHLIGHT_CLASS =
  * - 狭い画面: 1 列ずつ画面の幅で並べ、横スワイプで移る（スクロールスナップ）
  *
  * カラムは消さずに並べるので、スクロールしても読んでいた位置・下書き・回答の生成はそのまま。
+ * 別の経路（#254）のカラムも、見えないようにして描画したまま残すので、切り替えるとそのまま戻る。
+ * DOM の並びは開いた順のままにし（入れ替えるとスクロール位置が失われるため）、表示の順は CSS の order で決める。
  */
 export const ColumnStack = ({
   main,
@@ -76,7 +120,16 @@ export const ColumnStack = ({
 }: {
   /** 1 列目（メインのチャット・Wiki のノート）。 */
   main: ReactNode;
-  columns: readonly { key: string; node: ReactNode }[];
+  /**
+   * カラム（開いた順）。position は表示している経路での位置（0 がメインのすぐ右）で、
+   * undefined なら別の経路として隠す。paths があれば、カラムの上に経路の切り替えを出す。
+   */
+  columns: readonly {
+    key: string;
+    node: ReactNode;
+    position: number | undefined;
+    paths?: ColumnPaths | undefined;
+  }[];
   /** スクロールして見せるカラム。 */
   reveal: { key: string; nonce: number } | undefined;
   /** 見出しを強調しているカラム。 */
@@ -96,7 +149,14 @@ export const ColumnStack = ({
   const containerWidth = useElementWidth(container);
   const sidePanel = useSidePanelWidth(containerWidth);
   const refs = useRef(new Map<string, HTMLElement>());
-  const open = columns.length > 0;
+  const visible = new Set(
+    columns
+      .filter((column) => column.position !== undefined)
+      .map((column) => column.key),
+  );
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const open = visible.size > 0;
   /**
    * 見ているカラム（最後に開いた・選び直したカラムか、狭い画面でスワイプして移ったカラム）。
    * 狭い画面（1 列ずつの表示）で幅が変わったら、このカラムに合わせ直す。
@@ -122,6 +182,7 @@ export const ColumnStack = ({
     let nearest = MAIN_COLUMN;
     let distance = Number.POSITIVE_INFINITY;
     for (const [key, element] of refs.current) {
+      if (key !== MAIN_COLUMN && !visibleRef.current.has(key)) continue;
       const gap = Math.abs(
         element.getBoundingClientRect().left - box.getBoundingClientRect().left,
       );
@@ -186,28 +247,47 @@ export const ColumnStack = ({
       >
         {main}
       </div>
-      {columns.map((column) => (
-        <Fragment key={column.key}>
-          <SidePanelResizer
-            width={sidePanel.width}
-            min={sidePanel.min}
-            max={sidePanel.max}
-            onResize={sidePanel.resize}
-            onCommit={sidePanel.commit}
-          />
-          <div
-            ref={register(column.key)}
-            data-column={column.key}
-            data-highlighted={highlight === column.key ? "" : undefined}
-            className={cn(
-              "flex min-h-0 min-w-0 shrink-0 flex-col bg-background max-lg:w-full max-lg:snap-start lg:w-(--side-column-width)",
-              HIGHLIGHT_CLASS,
+      {columns.map((column) => {
+        const shown = column.position !== undefined;
+        const order = (column.position ?? 0) * 2;
+        return (
+          <Fragment key={column.key}>
+            {shown && (
+              <div className="flex w-0 shrink-0" style={{ order: order + 1 }}>
+                <SidePanelResizer
+                  width={sidePanel.width}
+                  min={sidePanel.min}
+                  max={sidePanel.max}
+                  onResize={sidePanel.resize}
+                  onCommit={sidePanel.commit}
+                />
+              </div>
             )}
-          >
-            {column.node}
-          </div>
-        </Fragment>
-      ))}
+            <div
+              ref={register(column.key)}
+              data-column={shown ? column.key : undefined}
+              data-hidden-column={shown ? undefined : column.key}
+              data-highlighted={highlight === column.key ? "" : undefined}
+              aria-hidden={shown ? undefined : true}
+              inert={!shown}
+              className={cn(
+                "flex min-h-0 min-w-0 shrink-0 flex-col bg-background max-lg:w-full lg:w-(--side-column-width)",
+                shown
+                  ? "max-lg:snap-start"
+                  : // 別の経路: 場所を取らずに見えなくする（描画は残し、スクロール位置を保つ）
+                    "pointer-events-none invisible absolute inset-y-0 left-0",
+                HIGHLIGHT_CLASS,
+              )}
+              style={shown ? { order: order + 2 } : undefined}
+            >
+              {shown && column.paths !== undefined && (
+                <PathSwitcher paths={column.paths} current={column.key} />
+              )}
+              {column.node}
+            </div>
+          </Fragment>
+        );
+      })}
       {open &&
         backToMain?.target != null &&
         createPortal(

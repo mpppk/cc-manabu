@@ -9,7 +9,7 @@ import type { AnswerQuote, WikiPageQuote } from "../../chat/quote.ts";
 import type { ChatDto, TaskDto } from "../../router.ts";
 import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import type { SendSettings } from "../lib/chat-transport.ts";
-import { useColumns } from "../lib/columns.ts";
+import { MAIN_COLUMN, useColumns } from "../lib/columns.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
@@ -406,8 +406,9 @@ export const ChatWorkspace = ({
         focusComposer();
       }
     });
-  const openBranch = (request: BranchRequest) =>
-    open([`chat:${request.id}`], { kind: "branch", request });
+  /** 分岐した会話を、from のカラム（メインなら MAIN_COLUMN）のすぐ右に開く。 */
+  const openBranch = (request: BranchRequest, from: string) =>
+    open([`chat:${request.id}`], { kind: "branch", request }, from);
   const closeColumn = (key: string) => {
     const column = columns.find((item) => item.key === key);
     close(key);
@@ -510,22 +511,48 @@ export const ChatWorkspace = ({
     }
     setQuoteFocus({ ...current, missed: true });
   };
-  /** 用語・引用の Wiki ノートを、右端のカラムで開く（開いていればそのカラムに移る）。 */
+  /**
+   * 用語・引用の Wiki ノートを、from のカラムのすぐ右に開く（今の経路で開いていればそのカラムに移る）。
+   */
   const openWikiPane = useCallback(
-    (taskId: string, pageId: string) => {
+    (taskId: string, pageId: string, from: string) => {
       const active = document.activeElement;
-      open([`page:${pageId}`], {
-        kind: "page",
-        taskId,
-        pageId,
-        returnFocus:
-          active instanceof HTMLElement && active !== document.body
-            ? active
-            : null,
-      });
+      open(
+        [`page:${pageId}`],
+        {
+          kind: "page",
+          taskId,
+          pageId,
+          returnFocus:
+            active instanceof HTMLElement && active !== document.body
+              ? active
+              : null,
+        },
+        from,
+      );
     },
     [open],
   );
+  /** 経路の切り替えに出す、カラムの名前（#254）。 */
+  const [pageTitles, setPageTitles] = useState<Record<string, string>>({});
+  const labelOf = (column: (typeof stack.all)[number]): string => {
+    switch (column.kind) {
+      case "details":
+        return "セッション詳細";
+      case "page":
+        return `ノート「${pageTitles[column.pageId] ?? "…"}」`;
+      case "wiki":
+        return `ノート「${column.request.title ?? "…"}」についての質問`;
+      case "branch": {
+        const chatId = sideChats[column.key] ?? column.request.id;
+        const chat = props.branches?.find((branch) => branch.id === chatId);
+        if (chat !== undefined) return `会話「${branchLabel(chat)}」`;
+        return column.request.draft === undefined
+          ? "サイドチャット"
+          : `「${column.request.draft.quote.text.slice(0, 20)}」についての質問`;
+      }
+    }
+  };
   const onOpenWikiPage = props.onOpenWikiPage;
   // 会話で Claude が Wiki を編集したかもしれないので、送信・完了のたびに開いているノートを読み直す
   const [wikiRevision, setWikiRevision] = useState(0);
@@ -549,7 +576,9 @@ export const ChatWorkspace = ({
             environment={props.environment}
             onClose={() => closeColumn(column.key)}
             onOpenTask={onOpenTask}
-            onOpenWikiPage={openWikiPane}
+            onOpenWikiPage={(taskId, pageId) =>
+              openWikiPane(taskId, pageId, column.key)
+            }
           />
         );
       case "page":
@@ -560,18 +589,31 @@ export const ChatWorkspace = ({
             pageId={column.pageId}
             revision={wikiRevision}
             onClose={() => closeColumn(column.key)}
-            onOpenPage={(pageId) => openWikiPane(column.taskId, pageId)}
+            onTitle={(title) =>
+              setPageTitles((current) =>
+                current[column.pageId] === title
+                  ? current
+                  : { ...current, [column.pageId]: title },
+              )
+            }
+            onOpenPage={(pageId) =>
+              openWikiPane(column.taskId, pageId, column.key)
+            }
             onAskSelection={(quote) =>
-              open([`wikichat:${column.pageId}`], {
-                kind: "wiki",
-                request: {
+              open(
+                [`wikichat:${column.pageId}`],
+                {
                   kind: "wiki",
-                  taskId: column.taskId,
-                  pageId: column.pageId,
-                  title: quote.sourcePage.title,
-                  quote,
+                  request: {
+                    kind: "wiki",
+                    taskId: column.taskId,
+                    pageId: column.pageId,
+                    title: quote.sourcePage.title,
+                    quote,
+                  },
                 },
-              })
+                column.key,
+              )
             }
             {...(props.onWikiPageCreated === undefined
               ? {}
@@ -615,7 +657,9 @@ export const ChatWorkspace = ({
             }
             onClose={() => closeColumn(column.key)}
             onActivity={onActivity}
-            onOpenWikiPane={openWikiPane}
+            onOpenWikiPane={(taskId, pageId) =>
+              openWikiPane(taskId, pageId, column.key)
+            }
             {...(props.onOpenWikiPage === undefined
               ? {}
               : { onOpenWikiPage: props.onOpenWikiPage })}
@@ -654,19 +698,27 @@ export const ChatWorkspace = ({
               {...props}
               onActivity={onActivity}
               onAskSelection={(quote, settings) =>
-                openBranch({
-                  kind: "branch",
-                  id: crypto.randomUUID(),
-                  draft: { parentId: props.chat.id, quote, settings },
-                })
+                openBranch(
+                  {
+                    kind: "branch",
+                    id: crypto.randomUUID(),
+                    draft: { parentId: props.chat.id, quote, settings },
+                  },
+                  MAIN_COLUMN,
+                )
               }
-              onOpenSideBranch={(id) => openBranch({ kind: "branch", id })}
-              onOpenWikiPane={openWikiPane}
+              onOpenSideBranch={(id) =>
+                openBranch({ kind: "branch", id }, MAIN_COLUMN)
+              }
+              onOpenWikiPane={(taskId, pageId) =>
+                openWikiPane(taskId, pageId, MAIN_COLUMN)
+              }
               showRateLimit
               detailsOpen={detailsKey !== undefined}
               onToggleDetails={() =>
                 detailsKey === undefined
-                  ? open(["details"], { kind: "details" })
+                  ? // たどる対象ではないので、今の経路の右端に足す（#254）
+                    open(["details"], { kind: "details" }, "end")
                   : closeColumn(detailsKey)
               }
               quoteFocus={quoteFocus}
@@ -675,10 +727,25 @@ export const ChatWorkspace = ({
           )}
         </section>
       }
-      columns={columns.map((column) => ({
-        key: column.key,
-        node: renderColumn(column),
-      }))}
+      columns={stack.all.map((column) => {
+        const position = columns.findIndex((item) => item.key === column.key);
+        const siblings = stack.siblingsOf(column.key);
+        return {
+          key: column.key,
+          node: renderColumn(column),
+          position: position < 0 ? undefined : position,
+          paths:
+            siblings.length > 1
+              ? {
+                  options: siblings.map((sibling) => ({
+                    key: sibling.key,
+                    label: labelOf(sibling),
+                  })),
+                  onSwitch: stack.switchTo,
+                }
+              : undefined,
+        };
+      })}
     />
   );
 };
