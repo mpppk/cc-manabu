@@ -9,6 +9,7 @@ import {
 } from "../chat/quote.ts";
 import type { Db } from "./index.ts";
 import {
+  type AgentId,
   type ChatRow,
   type ChatStatus,
   type ContextUsage,
@@ -108,6 +109,7 @@ export const createChatRepository = (db: Db) => {
     effort?: string | null;
     title?: string;
     id?: string;
+    agent?: AgentId;
   }) => {
     const now = new Date();
     const id = input.id ?? crypto.randomUUID();
@@ -120,6 +122,7 @@ export const createChatRepository = (db: Db) => {
       model: input.model ?? "default",
       effort: input.effort ?? null,
       title: input.title ?? "",
+      agent: input.agent ?? "claude-code",
       createdAt: now,
       updatedAt: now,
     };
@@ -257,6 +260,8 @@ export const createChatRepository = (db: Db) => {
               wikiPageId: input.parent.wikiPageId,
               title: input.parent.title,
               cwd: input.parent.cwd,
+              // 分岐した会話も、分岐元と同じ AI で続ける（#265）
+              agent: input.parent.agent,
               model: input.model,
               effort: input.effort,
               lastSelectedAt: input.selectBranch ? now : null,

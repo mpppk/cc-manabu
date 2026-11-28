@@ -1,0 +1,1 @@
+ALTER TABLE `chats` ADD `agent` text DEFAULT 'claude-code' NOT NULL;

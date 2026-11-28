@@ -17,6 +17,7 @@ const chat = (overrides: Partial<ChatDto> & { id: string }): ChatDto => ({
   taskId: null,
   wikiPageId: null,
   title: "t",
+  agent: "claude-code",
   model: "default",
   effort: null,
   cwd: "/w",

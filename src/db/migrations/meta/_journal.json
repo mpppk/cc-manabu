@@ -148,6 +148,13 @@
       "when": 1795867236266,
       "tag": "0020_chat_archive",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1795878214519,
+      "tag": "0021_chat_agent",
+      "breakpoints": true
     }
   ]
 }

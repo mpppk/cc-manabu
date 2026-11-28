@@ -137,6 +137,10 @@ export const tasks = sqliteTable(
   (table) => [index("tasks_environment_id_idx").on(table.environmentId)],
 );
 
+/** 会話に使える AI（#265）。 */
+export const AGENT_IDS = ["claude-code", "codex", "copilot"] as const;
+export type AgentId = (typeof AGENT_IDS)[number];
+
 export const chats = sqliteTable(
   "chats",
   {
@@ -148,7 +152,12 @@ export const chats = sqliteTable(
     /** ページを削除した後も履歴を開けるよう、外部キーにはしない。 */
     wikiPageId: text("wiki_page_id"),
     title: text("title").notNull().default(""),
-    /** resume する Claude Code のセッション ID。最初の送信まではない。 */
+    /**
+     * 会話に使う AI（#265）。最初の送信の前に選び、以降は変えない。
+     * 以前からの会話は Claude Code の会話として扱う。
+     */
+    agent: text("agent", { enum: AGENT_IDS }).notNull().default("claude-code"),
+    /** resume するセッション ID（Codex ではスレッド ID）。最初の送信まではない。 */
     sessionId: text("session_id"),
     model: text("model").notNull().default("default"),
     effort: text("effort"),
