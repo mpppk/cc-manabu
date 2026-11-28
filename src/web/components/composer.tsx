@@ -1,6 +1,7 @@
 import { Result } from "@praha/byethrow";
 import {
   ArrowUp,
+  ChevronDown,
   ChevronUp,
   GitBranch,
   ImagePlus,
@@ -58,6 +59,8 @@ export const Composer = ({
   onQueue,
   onStop,
   branchSend,
+  onCollapse,
+  hidden = false,
 }: {
   busy: boolean;
   pending?: boolean;
@@ -73,6 +76,10 @@ export const Composer = ({
   onQueue?: (text: string, images: ImageAttachment[]) => void;
   onStop?: () => void;
   branchSend?: BranchSend | undefined;
+  /** 入力欄を閉じる（#272）。あれば「入力欄を閉じる」を出す。 */
+  onCollapse?: (() => void) | undefined;
+  /** 閉じている間は隠す（下書き・添付は残す。#272）。 */
+  hidden?: boolean;
 }) => {
   const [input, setInput] = useState("");
   const [images, setImages] = useState<ImageAttachment[]>([]);
@@ -182,6 +189,7 @@ export const Composer = ({
   return (
     <section
       aria-label="入力欄"
+      hidden={hidden}
       className={cn(
         "mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background p-2 shadow-sm transition-colors focus-within:border-ring/60",
         dragging && "outline-2 outline-ring outline-dashed outline-offset-4",
@@ -287,6 +295,18 @@ export const Composer = ({
           <ImagePlus />
         </Button>
         <div className="flex min-w-0 flex-1 items-center gap-1">{toolbar}</div>
+        {onCollapse !== undefined && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-8 text-muted-foreground"
+            aria-label="入力欄を閉じる"
+            title="入力欄を閉じる（下書きは残ります）"
+            onClick={onCollapse}
+          >
+            <ChevronDown />
+          </Button>
+        )}
         {queue && (
           <Button
             size="icon"

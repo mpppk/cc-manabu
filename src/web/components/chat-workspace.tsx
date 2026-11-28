@@ -11,6 +11,7 @@ import { ChatDefaultsContext } from "../lib/chat-defaults.ts";
 import type { SendSettings } from "../lib/chat-transport.ts";
 import { type ColumnOrigin, originColorOf } from "../lib/column-origin.ts";
 import { MAIN_COLUMN, useColumns } from "../lib/columns.ts";
+import { markComposing } from "../lib/composer-open.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { type ImageAttachment, imageFileParts } from "../lib/image.ts";
 import { requestNotificationPermission } from "../lib/notify.ts";
@@ -179,6 +180,8 @@ export const SideChat = ({
               })
             : undefined;
       if (result === undefined) return false;
+      // 質問した先の会話でも、続けて書けるよう入力欄を開いておく（#272）
+      markComposing(result.chatId);
       setWikiQuote(undefined);
       setConversation(undefined);
       setSubmittedId(result.chatId);
