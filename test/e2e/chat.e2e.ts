@@ -5001,6 +5001,66 @@ test("左ペインを環境・スレッドの状態・アーカイブで AND／O
   );
 });
 
+test("入力欄のプレースホルダーは狭い画面のメイン・サイドチャットでも 1 行に収まり、キー操作は説明と送信ボタンから分かる（#260）", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  /** プレースホルダーが入力欄の幅に 1 行で収まるか。 */
+  const fitsOneLine = (input: Locator) =>
+    input.evaluate((element) => {
+      const textarea = element as HTMLTextAreaElement;
+      const style = getComputedStyle(textarea);
+      const context = document.createElement("canvas").getContext("2d");
+      if (context === null) return false;
+      context.font = `${style.fontSize} ${style.fontFamily}`;
+      const width =
+        textarea.clientWidth -
+        Number.parseFloat(style.paddingLeft) -
+        Number.parseFloat(style.paddingRight);
+      return context.measureText(textarea.placeholder).width <= width;
+    });
+
+  await newChat(page);
+  await expect(mainInput).toHaveAttribute("placeholder", "メッセージを入力");
+  await expect(mainInput).toHaveAccessibleDescription(
+    /Enter で送信、Shift\+Enter で改行。(⌘|Ctrl\+)Enter で現在地を維持して送信。画像は貼り付け・ドロップ・添付ボタンで追加できます。/,
+  );
+  await expect(
+    main.getByRole("button", { name: "送信", exact: true }),
+  ).toHaveAttribute("title", /Enter.*Shift\+Enter で改行/);
+  await send(page, "ゆっくり数えて");
+  await expect(mainInput).toHaveAttribute("placeholder", "メッセージを予約");
+  await main.getByRole("button", { name: "停止" }).click();
+  await idle(page);
+  await send(page, "引用する回答");
+  await idle(page);
+
+  // 狭い画面（左ペインを閉じたスマートフォンの幅）でも、メインとサイドチャットのプレースホルダーが 1 行に収まる
+  await page.getByRole("button", { name: "サイドバーを閉じる" }).click();
+  await page.setViewportSize({ width: 360, height: 740 });
+  expect(await fitsOneLine(mainInput)).toBe(true);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await selectLastAnswerParagraph(page);
+  await askSelectionIn(main);
+  const sideInput = page
+    .getByRole("complementary", { name: "サイドチャット" })
+    .getByRole("textbox", { name: "サイドチャットのメッセージ" });
+  await expect(sideInput).toHaveAttribute("placeholder", "メッセージを入力");
+  expect(await fitsOneLine(sideInput)).toBe(true);
+  await page.setViewportSize({ width: 360, height: 740 });
+  expect(await fitsOneLine(sideInput)).toBe(true);
+  // 複数行で編集できる
+  await sideInput.fill("1 行目");
+  await sideInput.press("Shift+Enter");
+  await sideInput.pressSequentially("2 行目");
+  await expect(sideInput).toHaveValue("1 行目\n2 行目");
+});
+
 test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロードしても保たれる", async ({
   page,
 }) => {
