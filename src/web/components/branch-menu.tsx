@@ -1,4 +1,10 @@
-import { ChevronDown, GitBranch, Loader2, PanelRight } from "lucide-react";
+import {
+  ChevronDown,
+  GitBranch,
+  Loader2,
+  PanelRight,
+  Plus,
+} from "lucide-react";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -9,16 +15,28 @@ import {
   useState,
 } from "react";
 import type { ChatDto } from "../../router.ts";
+import type { BranchPoint } from "../lib/branch-points.ts";
 import { branchLabel } from "../lib/groups.ts";
 import { cn } from "../lib/utils.ts";
 import { ChatStatusBadge } from "./chat-status-badge.tsx";
 import { Button } from "./ui/button.tsx";
 
-/** 一覧の各行の、会話を開くボタン。 */
-const rowButtons = (list: HTMLUListElement | null): HTMLButtonElement[] => [
-  ...(list?.querySelectorAll<HTMLButtonElement>("button[data-branch-row]") ??
-    []),
+/** 一覧の各行の、会話を開くボタンと「新しい分岐を作成」（上下キーで移る）。 */
+const rowButtons = (list: HTMLDivElement | null): HTMLButtonElement[] => [
+  ...(list?.querySelectorAll<HTMLButtonElement>(
+    "button[data-branch-row], button[data-branch-action]",
+  ) ?? []),
 ];
+
+/** ポップアップの一覧のまとまり。複数の回答をまとめるときは回答ごとに分ける（#242）。 */
+type PopoverSection = {
+  key: string;
+  /** まとまりの見出し（1 つだけのときは無し）。 */
+  heading?: string;
+  chats: readonly ChatDto[];
+  /** 一覧の後ろに出す操作（「新しい分岐を作成」など）。close でポップアップを閉じる。 */
+  action?: (close: () => void) => ReactNode;
+};
 
 /** 会話の名前。分岐した会話には分岐元を添える（読み上げと、一覧の行の名前に使う）。 */
 const fullLabelOf = (chat: ChatDto, branches: readonly ChatDto[]): string => {
@@ -39,7 +57,7 @@ const BranchPopover = ({
   trigger: renderTrigger,
   label,
   listLabel,
-  chats,
+  sections,
   branches,
   current,
   unread,
@@ -61,7 +79,7 @@ const BranchPopover = ({
   label: string;
   listLabel: string;
   /** 一覧に出す会話。 */
-  chats: readonly ChatDto[];
+  sections: readonly PopoverSection[];
   /** 同じスレッドの会話（分岐元の名前を引く）。 */
   branches: readonly ChatDto[];
   /** 開いている会話（一覧にあれば印を付け、開くとその行に移る）。 */
@@ -79,7 +97,7 @@ const BranchPopover = ({
   const popupId = useId();
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const list = useRef<HTMLUListElement>(null);
+  const list = useRef<HTMLDivElement>(null);
 
   const close = (restoreFocus: boolean) => {
     setOpen(false);
@@ -145,72 +163,101 @@ const BranchPopover = ({
               を前の回答に移している間は、会話を切り替えられません（サイドでは開けます）。
             </p>
           )}
-          <ul
+          <div
             ref={list}
-            aria-label={listLabel}
-            className="flex max-h-[60vh] flex-col gap-0.5 overflow-y-auto"
+            className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto"
           >
-            {[...chats].sort(byCreatedAt).map((chat) => {
-              const parent = branches.find((b) => b.id === chat.parentId);
-              const selected = chat.id === current.id;
-              return (
-                <li
-                  key={chat.id}
-                  className={cn(
-                    "flex items-center gap-1 rounded-md pr-1",
-                    selected && "bg-muted",
-                  )}
-                >
-                  <button
-                    type="button"
-                    data-branch-row
-                    aria-label={fullLabelOf(chat, branches)}
-                    className="flex min-w-0 flex-1 flex-col items-start rounded-md px-2 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                    aria-current={selected ? "true" : undefined}
-                    disabled={disabled && !selected}
-                    onClick={() => {
-                      close(true);
-                      if (!selected) onSelect(chat.id);
-                    }}
+            {sections.map((section) => (
+              <div
+                key={section.key}
+                className={cn(
+                  "flex flex-col gap-0.5",
+                  section.heading !== undefined &&
+                    "border-t pt-1 first:border-t-0 first:pt-0",
+                )}
+              >
+                {section.heading !== undefined && (
+                  <p className="truncate px-2 pt-1 font-medium text-muted-foreground text-xs">
+                    {section.heading}
+                  </p>
+                )}
+                {section.chats.length > 0 && (
+                  <ul
+                    aria-label={
+                      section.heading === undefined
+                        ? listLabel
+                        : `${section.heading}から分岐した会話`
+                    }
+                    className="flex flex-col gap-0.5"
                   >
-                    <span
-                      className={cn(
-                        "w-full truncate",
-                        selected && "font-medium",
-                      )}
-                    >
-                      {branchLabel(chat)}
-                    </span>
-                    {parent !== undefined && (
-                      <span className="w-full truncate text-muted-foreground text-xs">
-                        {branchLabel(parent)} から分岐
-                      </span>
-                    )}
-                  </button>
-                  <ChatStatusBadge
-                    status={chat.status}
-                    unread={unread.has(chat.id)}
-                  />
-                  {onOpenSide !== undefined && !selected && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 shrink-0 text-muted-foreground"
-                      aria-label={`「${branchLabel(chat)}」をサイドで開く`}
-                      title="メインはそのままで、サイドで開く"
-                      onClick={() => {
-                        close(false);
-                        onOpenSide(chat.id);
-                      }}
-                    >
-                      <PanelRight className="size-3.5" />
-                    </Button>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+                    {[...section.chats].sort(byCreatedAt).map((chat) => {
+                      const parent = branches.find(
+                        (b) => b.id === chat.parentId,
+                      );
+                      const selected = chat.id === current.id;
+                      return (
+                        <li
+                          key={chat.id}
+                          className={cn(
+                            "flex items-center gap-1 rounded-md pr-1",
+                            selected && "bg-muted",
+                          )}
+                        >
+                          <button
+                            type="button"
+                            data-branch-row
+                            aria-label={fullLabelOf(chat, branches)}
+                            className="flex min-w-0 flex-1 flex-col items-start rounded-md px-2 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-current={selected ? "true" : undefined}
+                            disabled={disabled && !selected}
+                            onClick={() => {
+                              close(true);
+                              if (!selected) onSelect(chat.id);
+                            }}
+                          >
+                            <span
+                              className={cn(
+                                "w-full truncate",
+                                selected && "font-medium",
+                              )}
+                            >
+                              {branchLabel(chat)}
+                            </span>
+                            {parent !== undefined && (
+                              <span className="w-full truncate text-muted-foreground text-xs">
+                                {branchLabel(parent)} から分岐
+                              </span>
+                            )}
+                          </button>
+                          <ChatStatusBadge
+                            status={chat.status}
+                            unread={unread.has(chat.id)}
+                          />
+                          {onOpenSide !== undefined && !selected && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-7 shrink-0 text-muted-foreground"
+                              aria-label={`「${branchLabel(chat)}」をサイドで開く`}
+                              title="メインはそのままで、サイドで開く"
+                              onClick={() => {
+                                close(false);
+                                onOpenSide(chat.id);
+                              }}
+                            >
+                              <PanelRight className="size-3.5" />
+                            </Button>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                {section.action?.(() => close(false))}
+              </div>
+            ))}
+          </div>
           {footer}
         </div>
       )}
@@ -257,7 +304,7 @@ export const BranchMenu = (props: MenuProps) => {
   return (
     <BranchPopover
       {...props}
-      chats={branches}
+      sections={[{ key: "all", chats: branches }]}
       label="会話"
       listLabel="スレッドの会話"
       align="right"
@@ -314,29 +361,81 @@ export const BranchMenu = (props: MenuProps) => {
 };
 
 /**
- * 分岐点の回答の下に出す、その回答から分岐した会話（#235）。
- * どこで分かれたかを見ながら、その会話を開くか、サイドで開ける。
+ * 回答の「ここから分岐」（#242）。新しい分岐を作る操作と、その回答から分岐した会話（#235）をまとめる。
+ * 分岐が無ければ押すとすぐに新しい分岐を作り始め、あればメニューから既存の分岐を開くか、新しく作るかを選ぶ。
+ * 閉じたターンの見出しのように複数の回答をまとめて出すときは、メニューを回答ごとに分ける。
  */
-export const ForkPointBranches = ({
-  forks,
-  quoted = false,
+export const BranchFromHere = ({
+  points,
+  createBlocker,
   ...props
 }: MenuProps & {
-  /** この回答から分岐した会話。 */
-  forks: readonly ChatDto[];
-  /** 回答の一部を引用して質問した会話があるか（本文に下線を引く。#239）。 */
-  quoted?: boolean;
+  points: readonly BranchPoint[];
+  /** 新しい分岐を作れない理由（生成中など）。 */
+  createBlocker?: string | undefined;
 }) => {
+  const forks = points.flatMap((point) => point.forks);
+  const creatable = points.filter((point) => point.onCreate !== undefined);
+  const [only] = points;
+  if (forks.length === 0 && creatable.length === 0) return null;
+  const buttonClass = "h-7 gap-1 px-2 text-muted-foreground text-xs";
+  // 分岐がまだ無い回答 1 つだけなら、メニューを挟まずに新しい分岐を作り始める
+  if (forks.length === 0 && points.length === 1 && only?.onCreate) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className={buttonClass}
+        title="この回答の続きとして、新しい会話を作る"
+        onClick={only.onCreate}
+      >
+        <GitBranch className="size-3.5" />
+        ここから分岐
+      </Button>
+    );
+  }
   const active = forks.some(
     (chat) => chat.status === "running" || chat.status === "awaiting_approval",
   );
   const unread = forks.some(
     (chat) => chat.status === "idle" && props.unread.has(chat.id),
   );
+  const quoted = points.some((point) => point.quoted && point.forks.length > 0);
+  const several = points.length > 1;
   return (
     <BranchPopover
       {...props}
-      chats={forks}
+      sections={points.map((point) => ({
+        key: point.messageId,
+        ...(several ? { heading: point.label } : {}),
+        chats: point.forks,
+        action: (close: () => void) => (
+          <button
+            type="button"
+            data-branch-action
+            className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={point.onCreate === undefined}
+            title={
+              point.onCreate === undefined
+                ? (createBlocker ?? "この回答からは分岐できません。")
+                : "この回答の続きとして、新しい会話を作る"
+            }
+            aria-label={
+              several
+                ? `${point.label}から新しい分岐を作成`
+                : "新しい分岐を作成"
+            }
+            onClick={() => {
+              close();
+              point.onCreate?.();
+            }}
+          >
+            <Plus aria-hidden className="size-3.5 text-muted-foreground" />
+            新しい分岐を作成
+          </button>
+        ),
+      }))}
       label="この回答から分岐した会話"
       listLabel="この回答から分岐した会話"
       align="left"
@@ -359,15 +458,25 @@ export const ForkPointBranches = ({
           type="button"
           variant="ghost"
           size="sm"
-          className="h-7 gap-1 px-2 text-muted-foreground text-xs"
-          title="この回答から分岐した会話を開く"
+          className={buttonClass}
+          title={
+            forks.length === 0
+              ? "分岐を作る回答を選ぶ"
+              : `この回答から分岐した会話（${forks.length} 件）を開くか、新しい分岐を作る`
+          }
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? popupId : undefined}
+          data-fork-count={forks.length}
           onClick={toggle}
         >
           <GitBranch className="size-3.5" />
-          この回答から分岐 {forks.length}
+          ここから分岐
+          {forks.length > 0 && (
+            <span className="rounded-full bg-muted px-1.5 text-[10px] tabular-nums">
+              {forks.length}
+            </span>
+          )}
           {active && (
             <Loader2
               className="size-3 animate-spin"
@@ -381,6 +490,7 @@ export const ForkPointBranches = ({
               aria-label="新しい回答があります"
             />
           )}
+          <ChevronDown aria-hidden className="size-3" />
         </Button>
       )}
     />
