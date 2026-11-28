@@ -403,10 +403,10 @@ export const App = ({ api }: { api: ApiClient }) => {
   };
   const models = status?.claude.state === "ready" ? status.claude.models : [];
   // 右側のペインで開いている会話。メインの会話とともに、新しい回答の印を外す（#234）
-  const [sideChatId, setSideChatId] = useState<string>();
+  const [sideChatIds, setSideChatIds] = useState<string[]>([]);
   const unreadChatIds = useUnreadChats(chats, [
     showWiki ? undefined : chatViewId,
-    sideChatId,
+    ...sideChatIds,
   ]);
   const workspace = chatViewId === undefined ? undefined : current;
   /** 会話が属するタスクの環境（未所属なら undefined）。 */
@@ -715,7 +715,7 @@ export const App = ({ api }: { api: ApiClient }) => {
                 task={tasks?.find((item) => item.id === workspace.chat.taskId)}
                 onOpenTask={(id) => navigate(pathForTask(id))}
                 unreadChatIds={unreadChatIds}
-                onSideChatChange={setSideChatId}
+                onSideChatsChange={setSideChatIds}
               />
             </div>
           )}

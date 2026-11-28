@@ -10,7 +10,6 @@ import type {
 } from "../../router.ts";
 import { branchLabel } from "../lib/groups.ts";
 import type { ApiClient } from "../lib/orpc.ts";
-import { sidePanelWidthProps } from "../lib/side-panel-width.ts";
 import {
   formatDateTime,
   TASK_STATUS_CLASSES,
@@ -132,8 +131,6 @@ export const SessionDetails = ({
   chat,
   task,
   environment,
-  width,
-  hidden = false,
   onClose,
   onOpenTask,
   onOpenWikiPage,
@@ -143,13 +140,10 @@ export const SessionDetails = ({
   chat: ChatDto;
   task: TaskDto | undefined;
   environment: EnvironmentDto | undefined;
-  width?: number | undefined;
-  hidden?: boolean;
   onClose: () => void;
   onOpenTask?: ((taskId: string) => void) | undefined;
   onOpenWikiPage?: ((taskId: string, pageId: string) => void) | undefined;
 }) => {
-  const widthProps = sidePanelWidthProps(width);
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     panel.current?.focus();
@@ -215,13 +209,8 @@ export const SessionDetails = ({
     <aside
       ref={panel}
       tabIndex={-1}
-      hidden={hidden}
       aria-label="セッション詳細"
-      className={cn(
-        "flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none max-lg:fixed max-lg:inset-x-0 max-lg:top-0 max-lg:z-30 max-lg:h-dvh lg:flex-none lg:border-l [&[hidden]]:hidden",
-        widthProps.className,
-      )}
-      style={widthProps.style}
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-background outline-none lg:border-l"
       onKeyDown={(event) => {
         if (event.key === "Escape" && !event.defaultPrevented) {
           event.preventDefault();
