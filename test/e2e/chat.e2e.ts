@@ -4429,6 +4429,134 @@ test("会話を Claude Desktop で開き、Desktop で足した発言がある�
   await expect(unimported).toBeVisible();
 });
 
+test("セッション詳細で、会話のコンテキスト使用量・環境・タスク・参照した Wiki を確かめられる（#245）", async ({
+  page,
+}) => {
+  await open(page);
+  const main = page.getByRole("region", { name: "メインのチャット" });
+  const mainInput = main.getByRole("textbox", {
+    name: "メッセージ",
+    exact: true,
+  });
+  const toggle = page.getByRole("button", {
+    name: "セッション詳細",
+    exact: true,
+  });
+  const details = page.getByRole("complementary", { name: "セッション詳細" });
+  const usage = details.getByTestId("context-usage");
+  const side = page.getByRole("complementary", { name: "サイドチャット" });
+  const sideInput = side.getByRole("textbox", {
+    name: "サイドチャットのメッセージ",
+  });
+  const branches = branchMenu(page);
+
+  // タスク・ゴール・関連リンク・Wiki ノートを用意する
+  await createTask(page, "詳細の検証");
+  await page.getByRole("textbox", { name: "ゴール" }).fill("詳細を確かめる");
+  await page.getByRole("button", { name: "進捗を保存" }).click();
+  await expect(page.getByRole("status")).toHaveText("保存しました");
+  await page
+    .getByRole("textbox", { name: "URL" })
+    .last()
+    .fill("https://example.com/spec");
+  await page
+    .getByRole("textbox", { name: "表示名（任意）" })
+    .last()
+    .fill("仕様");
+  await page.getByRole("button", { name: "追加", exact: true }).click();
+  await openWiki(page, "詳細の検証");
+  await page.getByRole("button", { name: "新しいノート" }).click();
+  await page.getByRole("textbox", { name: "ノートのタイトル" }).fill("方式B");
+  await page
+    .getByRole("textbox", { name: "本文（Markdown）" })
+    .fill("非同期で処理する方式。");
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await openTask(page, "詳細の検証");
+  await newChat(page);
+
+  // 新しい会話は未取得。開くだけでは送信しない
+  await mainInput.fill("書きかけの質問");
+  await toggle.click();
+  await expect(details).toBeVisible();
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(usage).toContainText("未取得");
+  await expect(details).toContainText("詳細の検証");
+  await expect(details).toContainText("詳細を確かめる");
+  await expect(details.getByRole("link", { name: "仕様" })).toHaveAttribute(
+    "href",
+    "https://example.com/spec",
+  );
+  await expect(details).toContainText("/e2e");
+  await toggle.click();
+  await expect(details).toHaveCount(0);
+  await expect(mainInput).toHaveValue("書きかけの質問");
+  await expect(main.locator("[data-assistant-message]")).toHaveCount(0);
+
+  // 回答のあとに取得した値を出し、次の回答で更新する
+  await mainInput.fill("方式B とは？");
+  await mainInput.press("Enter");
+  await idle(page);
+  await toggle.click();
+  await expect(usage).toContainText("16,500 / 200,000 トークン");
+  await expect(usage).toContainText("会話履歴");
+  await expect(
+    details.getByRole("list", { name: "参照した Wiki ノート" }),
+  ).toContainText("方式B");
+  await send(page, "続けて");
+  await idle(page);
+  await expect(usage).toContainText("18,000 / 200,000 トークン");
+
+  // 開き直しても、最後に取得した値を確かめられる
+  await page.reload();
+  await toggle.click();
+  await expect(usage).toContainText("18,000 / 200,000 トークン");
+
+  // 分岐を切り替えると、その会話の値に切り替わる
+  await main.getByRole("button", { name: "回答を開く" }).first().click();
+  await main.getByRole("button", { name: "ここから分岐" }).first().click();
+  await send(page, "分岐で質問");
+  await expect(main.getByText("了解: 分岐で質問")).toBeVisible();
+  await idle(page);
+  await expect(usage).toContainText("16,500 / 200,000 トークン");
+  await branches.select("元の会話");
+  await expect(usage).toContainText("18,000 / 200,000 トークン");
+
+  // 参照した Wiki ノートを右側のペインで開ける
+  await details
+    .getByRole("list", { name: "参照した Wiki ノート" })
+    .getByRole("button", { name: "方式B" })
+    .click();
+  await expect(
+    page.getByRole("complementary", { name: "ノート" }),
+  ).toContainText("非同期で処理する方式。");
+  await expect(details).toHaveCount(0);
+
+  // サイドチャットの入力途中の内容は、セッション詳細と切り替えても残る
+  await selectLastAnswerParagraph(page);
+  await askSelectionIn(main);
+  await sideInput.fill("サイドの下書き");
+  await toggle.click();
+  await expect(details).toBeVisible();
+  await expect(side).toBeHidden();
+  await details.getByRole("button", { name: "セッション詳細を閉じる" }).click();
+  await expect(sideInput).toHaveValue("サイドの下書き");
+
+  await side.getByRole("button", { name: "サイドチャットを閉じる" }).click();
+
+  // 狭い画面でも開閉でき（画面を覆い、閉じるとメインに戻る）、タスクの概要を開ける
+  await page.setViewportSize({ width: 800, height: 900 });
+  await mainInput.fill("狭い画面の下書き");
+  await toggle.click();
+  await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "セッション詳細を閉じる" }).click();
+  await expect(details).toHaveCount(0);
+  await expect(mainInput).toHaveValue("狭い画面の下書き");
+  await toggle.click();
+  await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "詳細の検証" }).click();
+  await expect(page).toHaveURL(/\/t\/[^/]+$/);
+});
+
 test("サイドバーをボタンと ⌘B（Ctrl+B）で畳んで開け、リロードしても保たれる", async ({
   page,
 }) => {

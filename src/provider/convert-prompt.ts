@@ -147,6 +147,29 @@ export const toQueryPrompt = (
   };
 };
 
+/**
+ * prompt を、until が終わるまで閉じない入力（streaming input）にする（#245）。
+ * 入力を閉じると Claude Code は回答のあとに終了し、getContextUsage などの制御要求に答えられないので、
+ * 回答（result）を受け取って必要なことを聞き終えるまで開けておく。
+ */
+export const holdOpen = (
+  prompt: string | AsyncIterable<SDKUserMessage>,
+  until: Promise<void>,
+): AsyncIterable<SDKUserMessage> => ({
+  async *[Symbol.asyncIterator]() {
+    if (typeof prompt === "string") {
+      yield {
+        type: "user",
+        parent_tool_use_id: null,
+        message: { role: "user", content: prompt },
+      };
+    } else {
+      yield* prompt;
+    }
+    await until;
+  },
+});
+
 const DEFAULT_SETTING_SOURCES = ["user", "project", "local"] as const;
 
 /** AI SDK の呼び出しと Provider の設定から、Agent SDK の `query()` のオプションを組み立てる。 */

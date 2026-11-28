@@ -5,13 +5,18 @@ import type {
   LanguageModelV4StreamPart,
   LanguageModelV4StreamResult,
 } from "@ai-sdk/provider";
-import { query as sdkQuery } from "@anthropic-ai/claude-agent-sdk";
+import {
+  type Query,
+  type SDKControlGetContextUsageResponse,
+  query as sdkQuery,
+} from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { collectWarnings, readCallOptions } from "./call-options.ts";
 import { collectStream } from "./collect-stream.ts";
 import {
   buildQueryOptions,
   extractLatestUserPrompt,
+  holdOpen,
   toQueryPrompt,
 } from "./convert-prompt.ts";
 import { classifyThrownError } from "./errors.ts";
@@ -22,6 +27,33 @@ import {
   PROVIDER_NAME,
   type QueryFunction,
 } from "./types.ts";
+
+/** コンテキストの使用量の問い合わせを待つ時間。答えが無ければ取らずに進む。 */
+const CONTEXT_USAGE_TIMEOUT_MS = 5000;
+
+/**
+ * 回答のあとのコンテキストの使用量（#245）。query() が getContextUsage を持たない（テストの差し替えなど）・
+ * 失敗した・時間内に答えなかったときは undefined。
+ */
+const readContextUsage = async (
+  messages: Query | AsyncIterable<unknown>,
+): Promise<SDKControlGetContextUsageResponse | undefined> => {
+  if (!("getContextUsage" in messages)) return undefined;
+  if (typeof messages.getContextUsage !== "function") return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      messages.getContextUsage({ detail: "summary" }),
+      new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), CONTEXT_USAGE_TIMEOUT_MS);
+      }),
+    ]);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 /**
  * Claude Agent SDK の `query()` を包む AI SDK の LanguageModel（spec v4）。
@@ -92,16 +124,31 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
     });
     const mapper = new StreamMapper();
     const includeRaw = options.includeRawChunks === true;
+    // コンテキストの使用量を取るなら、回答のあとに聞き終えるまで入力を開けておく（#245）
+    const onContextUsage = prompt.value.text.trimStart().startsWith("/")
+      ? undefined
+      : this.settings.onContextUsage;
+    let releaseInput = () => {};
+    const inputDone = new Promise<void>((resolve) => {
+      releaseInput = resolve;
+    });
+    abortController.signal.addEventListener("abort", () => releaseInput(), {
+      once: true,
+    });
 
     const stream = new ReadableStream<LanguageModelV4StreamPart>({
       start: async (controller) => {
         controller.enqueue({ type: "stream-start", warnings });
         try {
+          const queryPrompt = toQueryPrompt({
+            ...prompt.value,
+            context: readCallOptions(options).context,
+          });
           const messages = this.query({
-            prompt: toQueryPrompt({
-              ...prompt.value,
-              context: readCallOptions(options).context,
-            }),
+            prompt:
+              onContextUsage === undefined
+                ? queryPrompt
+                : holdOpen(queryPrompt, inputDone),
             options: queryOptions,
           });
           for await (const message of messages) {
@@ -118,6 +165,19 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
             for (const part of mapper.map(message)) {
               controller.enqueue(part);
             }
+            if (message.type === "result") {
+              if (onContextUsage !== undefined) {
+                const usage = await readContextUsage(messages);
+                if (usage !== undefined) {
+                  try {
+                    onContextUsage(usage);
+                  } catch {
+                    // 使用量の記録は回答に影響させない
+                  }
+                }
+              }
+              releaseInput();
+            }
           }
         } catch (error) {
           if (!abortController.signal.aborted) {
@@ -130,6 +190,7 @@ export class ClaudeCodeLanguageModel implements LanguageModelV4 {
             });
           }
         } finally {
+          releaseInput();
           options.abortSignal?.removeEventListener("abort", abort);
           if (abortController.signal.aborted) {
             for (const part of mapper.closeOpenBlocks()) {

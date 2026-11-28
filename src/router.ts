@@ -1324,6 +1324,17 @@ export const router = {
       .handler(async ({ context, input }) =>
         unwrapForOrpc(context.sessionSync.check(input.id), ERROR_CODES),
       ),
+    /**
+     * 会話の最後に取れたコンテキストの使用量（#245）。まだ取れていなければ null。
+     * 読むだけで、Claude の生成は始めない。
+     */
+    contextUsage: base.input(chatId).handler(async ({ context, input }) => {
+      const { chat } = await unwrapForOrpc(
+        context.chats.getChat(input.id),
+        ERROR_CODES,
+      );
+      return chat.contextUsage ?? null;
+    }),
     /** 会話のセッションを、作業ディレクトリから Claude Desktop で開く（#244）。 */
     openInDesktop: base.input(chatId).handler(async ({ context, input }) => {
       await unwrapForOrpc(

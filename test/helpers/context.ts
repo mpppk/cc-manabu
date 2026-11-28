@@ -63,6 +63,8 @@ export const createTestContext = (
     taskContext?: boolean;
     /** `/goal` の評価の読み取り（#198）。省略すると判定なし。 */
     readVerdict?: GoalVerdictReader;
+    /** 回答のあとにコンテキストの使用量を取る（#245）。既定では取らない。 */
+    contextUsage?: boolean;
   } = {},
 ) => {
   const opened = openDatabase(":memory:");
@@ -121,13 +123,17 @@ export const createTestContext = (
     chats,
     registry,
     approvals,
-    languageModel: (modelId, { canUseTool, mcpServers }) =>
+    languageModel: (modelId, { canUseTool, mcpServers, onContextUsage }) =>
       createClaudeCode({
         cwd: "/work",
         query,
         canUseTool,
         onRateLimit,
         ...(mcpServers === undefined ? {} : { mcpServers }),
+        // 入力を開けておく形になるので、使うテストだけで有効にする（#245）
+        ...(options.contextUsage === true && onContextUsage !== undefined
+          ? { onContextUsage }
+          : {}),
       })(modelId),
     taskTools: createTaskToolServers({ tasks }),
     wikiTools: createWikiToolServers({ wiki, tasks, history: wikiHistory }),

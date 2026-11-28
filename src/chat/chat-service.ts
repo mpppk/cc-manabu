@@ -2,6 +2,7 @@ import type { LanguageModelV4 } from "@ai-sdk/provider";
 import type {
   CanUseTool,
   McpServerConfig,
+  SDKControlGetContextUsageResponse,
 } from "@anthropic-ai/claude-agent-sdk";
 import { Result } from "@praha/byethrow";
 import { ErrorFactory } from "@praha/error-factory";
@@ -34,6 +35,7 @@ import {
 import type { AnswerFinished } from "./answer-summary.ts";
 import type { ApprovalBroker, ApprovalData } from "./approval-broker.ts";
 import type { ChatRunner } from "./chat-runner.ts";
+import { toContextUsage } from "./context-usage.ts";
 import { toUserErrorMessage } from "./error-messages.ts";
 import { type QuoteData, quotesOf, quoteText } from "./quote.ts";
 import type {
@@ -200,6 +202,8 @@ export const createChatService = (deps: {
     options: {
       canUseTool: CanUseTool;
       mcpServers?: Record<string, McpServerConfig>;
+      /** 回答のあとに取れたコンテキストの使用量（#245）。 */
+      onContextUsage?: (usage: SDKControlGetContextUsageResponse) => void;
     },
   ) => LanguageModelV4;
   /**
@@ -362,6 +366,13 @@ export const createChatService = (deps: {
             model: deps.languageModel(params.model, {
               canUseTool,
               ...(mcpServers === undefined ? {} : { mcpServers }),
+              // 最後に取れた使用量を会話ごとに残し、開き直しても見られるようにする（#245）
+              onContextUsage: (usage) => {
+                chats.setContextUsage(
+                  params.chatId,
+                  toContextUsage(usage, new Date()),
+                );
+              },
             }),
             messages: [{ role: "user", content: params.content }],
             ...(params.effort === null ? {} : { reasoning: params.effort }),

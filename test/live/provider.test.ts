@@ -12,6 +12,7 @@ import path from "node:path";
 import type { CanUseTool } from "@anthropic-ai/claude-agent-sdk";
 import { generateText, readUIMessageStream, streamText } from "ai";
 import { normalizeRateLimit } from "../../src/chat/rate-limit.ts";
+import { isPrompt, sdkSessionReader } from "../../src/claude/sessions.ts";
 import {
   type ClaudeCodeProviderMetadata,
   createClaudeCode,
@@ -51,6 +52,40 @@ describe.skipIf(!LIVE)("live: Claude Code provider", () => {
   afterAll(async () => {
     await rm(cwd, { recursive: true, force: true });
   });
+
+  test(
+    "回答のあとに入力を開けたままコンテキストの使用量を取り、取り終えたら終わる（#245）",
+    async () => {
+      const usages: { totalTokens: number; maxTokens: number }[] = [];
+      const started = Date.now();
+      const result = await generateText({
+        model: createClaudeCode({
+          cwd,
+          pathToClaudeCodeExecutable: claudePath,
+          settingSources: [],
+          onContextUsage: (usage) => usages.push(usage),
+        })("haiku"),
+        prompt: "「OK」とだけ返してください。",
+      });
+      expect(result.text).toContain("OK");
+      expect(usages).toHaveLength(1);
+      expect(usages[0]?.totalTokens).toBeGreaterThan(0);
+      expect(usages[0]?.maxTokens).toBeGreaterThan(usages[0]?.totalTokens ?? 0);
+      // 入力を閉じ忘れて待ち続けていない
+      expect(Date.now() - started).toBeLessThan(TIMEOUT);
+      // 回答の最後の uuid は、セッションの記録の中に見つかる（未取り込みの照合の前提。#244）
+      const metadata = metadataOf(result.providerMetadata);
+      const transcript = await sdkSessionReader.messages(
+        metadata?.sessionId ?? "",
+        cwd,
+      );
+      expect(transcript.map((entry) => entry.uuid)).toContain(
+        metadata?.lastAssistantUuid ?? "",
+      );
+      expect(transcript.filter(isPrompt)).toHaveLength(1);
+    },
+    TIMEOUT,
+  );
 
   test(
     "テキストで応答し、resume で文脈を引き継ぎ、fork で巻き戻せる",

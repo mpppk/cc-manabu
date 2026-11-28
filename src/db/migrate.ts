@@ -39,6 +39,9 @@ import environmentWithoutWiki from "./migrations/0017_environment_without_wiki.s
 import taskArchive from "./migrations/0018_task_archive.sql" with {
   type: "text",
 };
+import chatContextUsage from "./migrations/0019_chat_context_usage.sql" with {
+  type: "text",
+};
 
 /**
  * 適用するマイグレーション。drizzle-kit generate で SQL を作ったら、ここに追記する。
@@ -64,6 +67,7 @@ export const MIGRATIONS: readonly { name: string; sql: string }[] = [
   { name: "0016_goal_runs", sql: goalRuns },
   { name: "0017_environment_without_wiki", sql: environmentWithoutWiki },
   { name: "0018_task_archive", sql: taskArchive },
+  { name: "0019_chat_context_usage", sql: chatContextUsage },
 ];
 
 /**
